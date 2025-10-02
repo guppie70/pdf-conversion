@@ -1,0 +1,33 @@
+# Exclude Claude configuration
+.claude/
+
+# Exclude data directories (input/output files)
+data/
+
+# Exclude markdown files in root directory
+/*.md
+
+# macOS system files
+.DS_Store
+*/.DS_Store
+
+# .NET build artifacts (if service code is added here)
+bin/
+obj/
+*.user
+*.suo
+*.cache
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
