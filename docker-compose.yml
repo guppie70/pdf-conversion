@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  pdfconversion:
+    build:
+      context: ./PdfConversion
+      dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
+        - linux/arm64
+    container_name: tdm-pdfconversion-1
+    ports:
+      - "8085:8085"
+    volumes:
+      - ./data:/app/data
+      - ./xslt:/app/xslt
+      - ./PdfConversion:/src  # For hot reload in development
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - XSLT3_SERVICE_URL=http://xslt3service:4806
+    networks:
+      - blazornetwork
+    depends_on:
+      - xslt3service
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8085/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  xslt3service:
+    image: xslt3service:latest
+    container_name: tdm-xslt3service-1
+    ports:
+      - "4806:4806"
+    networks:
+      - blazornetwork
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4806/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+networks:
+  blazornetwork:
+    driver: bridge
+    name: blazornetwork

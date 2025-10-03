@@ -1,0 +1,64 @@
+# .NET build artifacts
+bin/
+obj/
+out/
+publish/
+
+# Visual Studio / Rider
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Documentation
+*.md
+README*
+
+# Test coverage
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+
+# Node modules (if using npm for frontend)
+node_modules/
+npm-debug.log
+
+# Logs
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.cache
+*.swp
+*~
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Editor backups
+*~
+*.bak
+*.orig
