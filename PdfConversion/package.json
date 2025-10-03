@@ -1,0 +1,22 @@
+{
+  "name": "pdf-conversion",
+  "version": "1.0.0",
+  "description": "PDF to Taxxor TDM XHTML Conversion Tool",
+  "scripts": {
+    "start": "dotnet watch run --verbose --no-hot-reload",
+    "build": "dotnet build",
+    "test": "dotnet test",
+    "clean": "dotnet clean",
+    "restore": "dotnet restore",
+    "publish": "dotnet publish -c Release -o ./publish"
+  },
+  "keywords": [
+    "pdf",
+    "xslt",
+    "blazor",
+    "taxxor"
+  ],
+  "author": "Optiver",
+  "license": "UNLICENSED",
+  "private": true
+}

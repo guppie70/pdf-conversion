@@ -11,12 +11,24 @@ data/
 .DS_Store
 */.DS_Store
 
-# .NET build artifacts (if service code is added here)
+# .NET build artifacts
 bin/
 obj/
 *.user
 *.suo
 *.cache
+*.userosscache
+*.sln.docstates
+
+# .NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+*.nuget.props
+*.nuget.targets
+
+# Visual Studio 2015/2017 cache/options directory
+.vs/
 
 # IDEs
 .vscode/
@@ -27,7 +39,97 @@ obj/
 
 # Logs
 *.log
+logs/
 
 # Temporary files
 *.tmp
 *.temp
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# NuGet Packages
+*.nupkg
+**/packages/*
+!**/packages/build/
+
+# The packages folder can be ignored because of Package Restore
+**/[Pp]ackages/*
+# except build/, which is used as an MSBuild target.
+!**/[Pp]ackages/build/
+
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# MSTest test Results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+# .NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Files built by Visual Studio
+*_i.c
+*_p.c
+*_h.h
+*.ilk
+*.meta
+*.obj
+*.iobj
+*.pch
+*.pdb
+*.ipdb
+*.pgc
+*.pgd
+*.rsp
+*.sbr
+*.tlb
+*.tli
+*.tlh
+*.tmp_proj
+*_wpftmp.csproj
+*.vspscc
+*.vssscc
+.builds
+*.pidb
+*.svclog
+*.scc
+
+# Publish Web Output
+*.[Pp]ublish.xml
+*.azurePubxml
+*.pubxml
+*.publishproj
+
+# Publish Web Output but keep deployment scripts
+PublishProfiles/
+
+# Azure Web App publish settings
+*.azurePubxml
+
+# TODO: Uncomment the next line to ignore your web deploy settings
+# *.pubxml
+
+# Microsoft Azure Build Output
+csx/
+*.build.csdef
+
+# NuGet v3's project.json files produces more ignorable files
+*.nuget.props
+*.nuget.targets

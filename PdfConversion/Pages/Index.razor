@@ -1,0 +1,89 @@
+﻿@page "/"
+
+<PageTitle>PDF to Taxxor TDM Conversion Tool</PageTitle>
+
+<h1>PDF to Taxxor TDM XHTML Conversion Tool</h1>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Welcome to the Conversion Tool</h5>
+                <p class="card-text">
+                    This tool converts Adobe Acrobat-generated XML/HTML from PDF statutory annual reports
+                    into Taxxor TDM-compatible XHTML format.
+                </p>
+                <hr />
+                <h6>Key Features:</h6>
+                <ul>
+                    <li>Automated conversion with XSLT transformations</li>
+                    <li>Live preview and iterative XSLT development</li>
+                    <li>Batch processing for multiple documents</li>
+                    <li>Header normalization and table structure conversion</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">
+                            <span class="oi oi-code" aria-hidden="true"></span> Development Mode
+                        </h5>
+                        <p class="card-text">
+                            Iteratively develop and test XSLT transformations with live preview.
+                        </p>
+                        <a href="development" class="btn btn-primary">Open Development</a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">
+                            <span class="oi oi-play-circle" aria-hidden="true"></span> Production Mode
+                        </h5>
+                        <p class="card-text">
+                            Run batch transformations on multiple projects with error reporting.
+                        </p>
+                        <a href="production" class="btn btn-success">Open Production</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0">Quick Start Guide</h5>
+            </div>
+            <div class="card-body">
+                <ol class="mb-0">
+                    <li>Select a project (start with ar24-3)</li>
+                    <li>Open Development Mode</li>
+                    <li>Edit XSLT transformation</li>
+                    <li>View live preview output</li>
+                    <li>Save successful transformations</li>
+                    <li>Run batch processing in Production Mode</li>
+                </ol>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0">System Status</h5>
+            </div>
+            <div class="card-body">
+                <p class="mb-2"><strong>Environment:</strong> @Environment</p>
+                <p class="mb-2"><strong>XSLT Service:</strong> <span class="badge bg-secondary">Not Connected</span></p>
+                <p class="mb-0"><strong>Projects Available:</strong> <span class="badge bg-secondary">0</span></p>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string Environment => System.Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production";
+}
