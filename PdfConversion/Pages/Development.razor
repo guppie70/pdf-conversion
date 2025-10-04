@@ -11,12 +11,12 @@
 <PageTitle>Development Mode</PageTitle>
 
 <!-- Top Toolbar -->
-<div class="toolbar bg-light border-bottom p-3 mb-0">
-    <div class="row g-3 align-items-center">
-        <div class="col-md-3">
-            <label for="projectSelect" class="form-label mb-1 small fw-bold">Project</label>
+<div class="toolbar bg-light border-bottom mb-0">
+    <div class="row g-2 align-items-end">
+        <div class="col-auto" style="min-width: 200px;">
+            <label for="projectSelect" class="form-label small fw-bold">Project</label>
             <select id="projectSelect" class="form-select form-select-sm" @onchange="OnProjectChanged" disabled="@IsLoading">
-                <option value="">Select a project...</option>
+                <option value="">Select...</option>
                 @if (Projects != null)
                 {
                     @foreach (var project in Projects)
@@ -28,10 +28,10 @@
                 }
             </select>
         </div>
-        <div class="col-md-3">
-            <label for="fileSelect" class="form-label mb-1 small fw-bold">File</label>
+        <div class="col-auto" style="min-width: 250px;">
+            <label for="fileSelect" class="form-label small fw-bold">File</label>
             <select id="fileSelect" class="form-select form-select-sm" @onchange="OnFileChanged" disabled="@(IsLoading || string.IsNullOrEmpty(SelectedProjectId))">
-                <option value="">Select a file...</option>
+                <option value="">Select...</option>
                 @if (ProjectFiles != null)
                 {
                     @foreach (var file in ProjectFiles)
@@ -41,36 +41,34 @@
                 }
             </select>
         </div>
-        <div class="col-md-6 text-end">
+        <div class="col text-end">
             <button class="btn btn-primary btn-sm" @onclick="TransformAsync" disabled="@(!CanTransform || IsTransforming)">
                 @if (IsTransforming)
                 {
-                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
-                    <span>Transforming...</span>
+                    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                 }
                 else
                 {
-                    <i class="bi bi-play-fill me-1"></i>
-                    <span>Transform</span>
+                    <i class="bi bi-play-fill"></i>
                 }
+                <span class="d-none d-lg-inline ms-1">Transform</span>
             </button>
-            <button class="btn btn-success btn-sm ms-2" @onclick="SaveXsltAsync" disabled="@(!CanSave || IsSaving)">
+            <button class="btn btn-success btn-sm ms-1" @onclick="SaveXsltAsync" disabled="@(!CanSave || IsSaving)">
                 @if (IsSaving)
                 {
-                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
-                    <span>Saving...</span>
+                    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                 }
                 else
                 {
-                    <i class="bi bi-save me-1"></i>
-                    <span>Save XSLT</span>
+                    <i class="bi bi-save"></i>
                 }
+                <span class="d-none d-lg-inline ms-1">Save</span>
             </button>
-            <button class="btn btn-secondary btn-sm ms-2" @onclick="ResetAsync" disabled="@IsLoading">
-                <i class="bi bi-arrow-counterclockwise me-1"></i>
-                <span>Reset</span>
+            <button class="btn btn-secondary btn-sm ms-1" @onclick="ResetAsync" disabled="@IsLoading">
+                <i class="bi bi-arrow-counterclockwise"></i>
+                <span class="d-none d-lg-inline ms-1">Reset</span>
             </button>
-            <button class="btn btn-outline-secondary btn-sm ms-2" @onclick="ToggleSettings">
+            <button class="btn btn-outline-secondary btn-sm ms-1" @onclick="ToggleSettings">
                 <i class="bi bi-gear-fill"></i>
             </button>
         </div>

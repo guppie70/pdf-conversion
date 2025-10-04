@@ -3,16 +3,22 @@
 <PageTitle>PdfConversion</PageTitle>
 
 <div class="page">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
+    <header class="top-nav">
+        <div class="nav-brand">
+            <a href="/" class="brand-link">PDF to Taxxor TDM</a>
+        </div>
+        <nav class="nav-links">
+            <a href="/" class="nav-link">Home</a>
+            <a href="/development" class="nav-link">Development</a>
+            <a href="/production" class="nav-link">Production</a>
+        </nav>
+        <div class="nav-actions">
+            <a href="https://docs.microsoft.com/aspnet/" target="_blank" class="about-link">About</a>
+        </div>
+    </header>
 
     <main>
-        <div class="top-row px-4">
-            <a href="https://docs.microsoft.com/aspnet/" target="_blank">About</a>
-        </div>
-
-        <article class="content px-4">
+        <article class="content">
             @Body
         </article>
     </main>
