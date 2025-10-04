@@ -1,19 +1,21 @@
 /* Development Mode - Split-screen Layout */
 
+.toolbar {
+    flex-shrink: 0;
+    z-index: 100;
+    position: sticky;
+    top: 0;
+    background: #f8f9fa;
+}
+
 .development-workspace {
     position: fixed;
-    top: 0;
+    top: 200px; /* Account for navbar + toolbar */
     left: 0;
     right: 0;
     bottom: 0;
     display: flex;
     flex-direction: column;
-    padding-top: 56px; /* Account for navbar */
-}
-
-.toolbar {
-    flex-shrink: 0;
-    z-index: 100;
 }
 
 .panels-container {
