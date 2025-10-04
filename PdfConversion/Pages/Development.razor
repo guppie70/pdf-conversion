@@ -1,32 +1,507 @@
 @page "/development"
+@using PdfConversion.Services
+@using PdfConversion.Models
+@inject IProjectManagementService ProjectService
+@inject IXsltTransformationService XsltService
+@inject ILogger<Development> Logger
 
 <PageTitle>Development Mode</PageTitle>
 
-<h1>Development Mode</h1>
+<!-- Top Toolbar -->
+<div class="toolbar bg-light border-bottom p-3 mb-0">
+    <div class="row g-3 align-items-center">
+        <div class="col-md-3">
+            <label for="projectSelect" class="form-label mb-1 small fw-bold">Project</label>
+            <select id="projectSelect" class="form-select form-select-sm" @onchange="OnProjectChanged" disabled="@IsLoading">
+                <option value="">Select a project...</option>
+                @if (Projects != null)
+                {
+                    @foreach (var project in Projects)
+                    {
+                        <option value="@project.ProjectId" selected="@(SelectedProjectId == project.ProjectId)">
+                            @project.Name (@project.FileCount files)
+                        </option>
+                    }
+                }
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label for="fileSelect" class="form-label mb-1 small fw-bold">File</label>
+            <select id="fileSelect" class="form-select form-select-sm" @onchange="OnFileChanged" disabled="@(IsLoading || string.IsNullOrEmpty(SelectedProjectId))">
+                <option value="">Select a file...</option>
+                @if (ProjectFiles != null)
+                {
+                    @foreach (var file in ProjectFiles)
+                    {
+                        <option value="@file" selected="@(SelectedFileName == file)">@file</option>
+                    }
+                }
+            </select>
+        </div>
+        <div class="col-md-6 text-end">
+            <button class="btn btn-primary btn-sm" @onclick="TransformAsync" disabled="@(!CanTransform || IsTransforming)">
+                @if (IsTransforming)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    <span>Transforming...</span>
+                }
+                else
+                {
+                    <i class="bi bi-play-fill me-1"></i>
+                    <span>Transform</span>
+                }
+            </button>
+            <button class="btn btn-success btn-sm ms-2" @onclick="SaveXsltAsync" disabled="@(!CanSave || IsSaving)">
+                @if (IsSaving)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    <span>Saving...</span>
+                }
+                else
+                {
+                    <i class="bi bi-save me-1"></i>
+                    <span>Save XSLT</span>
+                }
+            </button>
+            <button class="btn btn-secondary btn-sm ms-2" @onclick="ResetAsync" disabled="@IsLoading">
+                <i class="bi bi-arrow-counterclockwise me-1"></i>
+                <span>Reset</span>
+            </button>
+            <button class="btn btn-outline-secondary btn-sm ms-2" @onclick="ToggleSettings">
+                <i class="bi bi-gear-fill"></i>
+            </button>
+        </div>
+    </div>
 
-<div class="alert alert-info" role="alert">
-    <h4 class="alert-heading">XSLT Development Environment</h4>
-    <p>This page will provide the split-screen interface for developing and testing XSLT transformations:</p>
-    <ul>
-        <li>Left Panel: Source XML viewer</li>
-        <li>Center Panel: XSLT editor with syntax highlighting</li>
-        <li>Right Panel: Live XHTML output preview</li>
-    </ul>
+    @if (ShowSettings)
+    {
+        <div class="row mt-3 pt-3 border-top">
+            <div class="col-md-12">
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" id="useXslt3" @bind="UseXslt3Service">
+                    <label class="form-check-label" for="useXslt3">
+                        Use XSLT3 Service (XSLT 2.0/3.0)
+                    </label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" id="normalizeHeaders" @bind="NormalizeHeaders">
+                    <label class="form-check-label" for="normalizeHeaders">
+                        Normalize Headers
+                    </label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" id="autoTransform" @bind="AutoTransform">
+                    <label class="form-check-label" for="autoTransform">
+                        Auto-transform on XSLT change
+                    </label>
+                </div>
+            </div>
+        </div>
+    }
 </div>
 
-<div class="row">
-    <div class="col-md-12">
-        <div class="card">
-            <div class="card-header">
-                <h5>Project Selection</h5>
+<!-- Error Display -->
+@if (!string.IsNullOrEmpty(ErrorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show m-3" role="alert">
+        <strong>Error:</strong> @ErrorMessage
+        <button type="button" class="btn-close" @onclick="() => ErrorMessage = null"></button>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(SuccessMessage))
+{
+    <div class="alert alert-success alert-dismissible fade show m-3" role="alert">
+        <strong>Success:</strong> @SuccessMessage
+        <button type="button" class="btn-close" @onclick="() => SuccessMessage = null"></button>
+    </div>
+}
+
+<!-- Three-Panel Layout -->
+<div class="development-workspace">
+    <div class="panels-container">
+        <!-- Left Panel: Source XML Viewer -->
+        <div class="panel panel-left">
+            <div class="panel-header">
+                <span class="fw-bold">Source XML</span>
+                <span class="text-muted small">@(SelectedFileName ?? "No file selected")</span>
             </div>
-            <div class="card-body">
-                <p class="text-muted">Project selector and file browser will be implemented here.</p>
+            <div class="panel-content">
+                @if (IsLoadingXml)
+                {
+                    <div class="text-center p-5">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading XML...</span>
+                        </div>
+                        <p class="mt-2 text-muted">Loading XML...</p>
+                    </div>
+                }
+                else if (!string.IsNullOrEmpty(XmlContent))
+                {
+                    <textarea class="code-editor" readonly>@XmlContent</textarea>
+                }
+                else
+                {
+                    <div class="text-center p-5 text-muted">
+                        <i class="bi bi-file-earmark-code" style="font-size: 3rem;"></i>
+                        <p class="mt-3">Select a project and file to view the source XML</p>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Center Panel: XSLT Editor -->
+        <div class="panel panel-center">
+            <div class="panel-header">
+                <span class="fw-bold">XSLT Transformation</span>
+                <span class="text-muted small">transformation.xslt</span>
+            </div>
+            <div class="panel-content">
+                @if (IsLoadingXslt)
+                {
+                    <div class="text-center p-5">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading XSLT...</span>
+                        </div>
+                        <p class="mt-2 text-muted">Loading XSLT...</p>
+                    </div>
+                }
+                else
+                {
+                    <textarea class="code-editor" @bind="XsltContent" @bind:event="oninput" @onchange="OnXsltChanged"></textarea>
+                }
+            </div>
+        </div>
+
+        <!-- Right Panel: Preview -->
+        <div class="panel panel-right">
+            <div class="panel-header">
+                <span class="fw-bold">Output Preview</span>
+                <ul class="nav nav-pills nav-sm ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link @(PreviewMode == "rendered" ? "active" : "")" href="#" @onclick="SetRenderedMode" @onclick:preventDefault>
+                            Rendered
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link @(PreviewMode == "source" ? "active" : "")" href="#" @onclick="SetSourceMode" @onclick:preventDefault>
+                            Source
+                        </a>
+                    </li>
+                </ul>
+            </div>
+            <div class="panel-content">
+                @if (IsTransforming)
+                {
+                    <div class="text-center p-5">
+                        <div class="spinner-border text-success" role="status">
+                            <span class="visually-hidden">Transforming...</span>
+                        </div>
+                        <p class="mt-2 text-muted">Transforming XML...</p>
+                    </div>
+                }
+                else if (!string.IsNullOrEmpty(OutputContent))
+                {
+                    @if (PreviewMode == "rendered")
+                    {
+                        <div class="preview-rendered">
+                            @((MarkupString)OutputContent)
+                        </div>
+                    }
+                    else
+                    {
+                        <textarea class="code-editor" readonly>@OutputContent</textarea>
+                    }
+                    @if (TransformationStats != null)
+                    {
+                        <div class="preview-stats">
+                            <small class="text-muted">
+                                Processed in @TransformationStats.ProcessingTimeMs ms
+                                @if (TransformationStats.HeadersNormalized > 0)
+                                {
+                                    <span> | @TransformationStats.HeadersNormalized headers normalized</span>
+                                }
+                                @if (TransformationStats.TablesProcessed > 0)
+                                {
+                                    <span> | @TransformationStats.TablesProcessed tables processed</span>
+                                }
+                            </small>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="text-center p-5 text-muted">
+                        <i class="bi bi-eye" style="font-size: 3rem;"></i>
+                        <p class="mt-3">Click "Transform" to preview the output</p>
+                    </div>
+                }
             </div>
         </div>
     </div>
 </div>
 
 @code {
-    // TODO: Implement development mode functionality
+    // State
+    private List<Project>? Projects;
+    private List<string>? ProjectFiles;
+    private string? SelectedProjectId;
+    private string? SelectedFileName;
+    private string? XmlContent;
+    private string? XsltContent;
+    private string? OutputContent;
+    private TransformationResult? TransformationStats;
+
+    // UI State
+    private bool IsLoading = false;
+    private bool IsLoadingXml = false;
+    private bool IsLoadingXslt = false;
+    private bool IsTransforming = false;
+    private bool IsSaving = false;
+    private string? ErrorMessage;
+    private string? SuccessMessage;
+    private bool ShowSettings = false;
+    private string PreviewMode = "rendered";
+
+    // Settings
+    private bool UseXslt3Service = false;
+    private bool NormalizeHeaders = true;
+    private bool AutoTransform = false;
+
+    // Computed Properties
+    private bool CanTransform => !string.IsNullOrEmpty(SelectedProjectId)
+                                && !string.IsNullOrEmpty(SelectedFileName)
+                                && !string.IsNullOrEmpty(XmlContent)
+                                && !string.IsNullOrEmpty(XsltContent);
+
+    private bool CanSave => !string.IsNullOrEmpty(XsltContent);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProjectsAsync();
+        await LoadXsltAsync();
+    }
+
+    private async Task LoadProjectsAsync()
+    {
+        try
+        {
+            IsLoading = true;
+            ErrorMessage = null;
+            Projects = (await ProjectService.GetProjectsAsync()).ToList();
+            Logger.LogInformation("Loaded {Count} projects", Projects.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading projects");
+            ErrorMessage = $"Failed to load projects: {ex.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private async Task LoadXsltAsync()
+    {
+        try
+        {
+            IsLoadingXslt = true;
+            ErrorMessage = null;
+
+            var xsltPath = "/app/xslt/transformation.xslt";
+            if (File.Exists(xsltPath))
+            {
+                XsltContent = await File.ReadAllTextAsync(xsltPath);
+                Logger.LogInformation("Loaded XSLT template from {Path}", xsltPath);
+            }
+            else
+            {
+                Logger.LogWarning("XSLT template not found at {Path}", xsltPath);
+                ErrorMessage = "XSLT template not found";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading XSLT");
+            ErrorMessage = $"Failed to load XSLT: {ex.Message}";
+        }
+        finally
+        {
+            IsLoadingXslt = false;
+        }
+    }
+
+    private async Task OnProjectChanged(ChangeEventArgs e)
+    {
+        try
+        {
+            SelectedProjectId = e.Value?.ToString();
+            SelectedFileName = null;
+            XmlContent = null;
+            OutputContent = null;
+            ProjectFiles = null;
+            ErrorMessage = null;
+
+            if (!string.IsNullOrEmpty(SelectedProjectId))
+            {
+                IsLoading = true;
+                ProjectFiles = (await ProjectService.GetProjectFilesAsync(SelectedProjectId)).ToList();
+                Logger.LogInformation("Loaded {Count} files for project {ProjectId}", ProjectFiles.Count, SelectedProjectId);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading project files");
+            ErrorMessage = $"Failed to load project files: {ex.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private async Task OnFileChanged(ChangeEventArgs e)
+    {
+        try
+        {
+            SelectedFileName = e.Value?.ToString();
+            XmlContent = null;
+            OutputContent = null;
+            ErrorMessage = null;
+
+            if (!string.IsNullOrEmpty(SelectedProjectId) && !string.IsNullOrEmpty(SelectedFileName))
+            {
+                IsLoadingXml = true;
+                XmlContent = await ProjectService.ReadInputFileAsync(SelectedProjectId, SelectedFileName);
+                Logger.LogInformation("Loaded file {FileName} from project {ProjectId}", SelectedFileName, SelectedProjectId);
+
+                // Auto-transform if enabled
+                if (AutoTransform && CanTransform)
+                {
+                    await TransformAsync();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading XML file");
+            ErrorMessage = $"Failed to load XML file: {ex.Message}";
+        }
+        finally
+        {
+            IsLoadingXml = false;
+        }
+    }
+
+    private async Task OnXsltChanged()
+    {
+        // Auto-transform if enabled
+        if (AutoTransform && CanTransform && !IsTransforming)
+        {
+            await TransformAsync();
+        }
+    }
+
+    private async Task TransformAsync()
+    {
+        if (!CanTransform) return;
+
+        try
+        {
+            IsTransforming = true;
+            ErrorMessage = null;
+            SuccessMessage = null;
+
+            var options = new TransformationOptions
+            {
+                UseXslt3Service = UseXslt3Service,
+                NormalizeHeaders = NormalizeHeaders
+            };
+
+            var result = await XsltService.TransformAsync(XmlContent!, XsltContent!, options);
+
+            if (result.IsSuccess)
+            {
+                OutputContent = result.OutputContent;
+                TransformationStats = result;
+                Logger.LogInformation("Transformation successful in {Time}ms", result.ProcessingTimeMs);
+
+                if (result.WarningMessages.Any())
+                {
+                    SuccessMessage = $"Transformation completed with warnings: {string.Join(", ", result.WarningMessages)}";
+                }
+            }
+            else
+            {
+                ErrorMessage = result.ErrorMessage;
+                Logger.LogError("Transformation failed: {Error}", result.ErrorMessage);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during transformation");
+            ErrorMessage = $"Transformation error: {ex.Message}";
+        }
+        finally
+        {
+            IsTransforming = false;
+        }
+    }
+
+    private async Task SaveXsltAsync()
+    {
+        if (!CanSave) return;
+
+        try
+        {
+            IsSaving = true;
+            ErrorMessage = null;
+            SuccessMessage = null;
+
+            var xsltPath = "/app/xslt/transformation.xslt";
+            await File.WriteAllTextAsync(xsltPath, XsltContent!);
+
+            SuccessMessage = "XSLT template saved successfully";
+            Logger.LogInformation("XSLT template saved to {Path}", xsltPath);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving XSLT");
+            ErrorMessage = $"Failed to save XSLT: {ex.Message}";
+        }
+        finally
+        {
+            IsSaving = false;
+        }
+    }
+
+    private async Task ResetAsync()
+    {
+        SelectedProjectId = null;
+        SelectedFileName = null;
+        ProjectFiles = null;
+        XmlContent = null;
+        OutputContent = null;
+        TransformationStats = null;
+        ErrorMessage = null;
+        SuccessMessage = null;
+
+        await LoadXsltAsync();
+    }
+
+    private void ToggleSettings()
+    {
+        ShowSettings = !ShowSettings;
+    }
+
+    private void SetRenderedMode()
+    {
+        PreviewMode = "rendered";
+    }
+
+    private void SetSourceMode()
+    {
+        PreviewMode = "source";
+    }
 }
