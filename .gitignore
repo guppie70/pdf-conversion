@@ -1,6 +1,9 @@
 # Exclude Claude configuration
 .claude/
 
+# Exclude Playwright MCP screenshots and data
+.playwright-mcp/
+
 # Exclude data directories (input/output files)
 data/
 
