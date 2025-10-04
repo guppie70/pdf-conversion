@@ -1,0 +1,26 @@
+{
+  "name": "pdf-conversion",
+  "version": "1.0.0",
+  "description": "PDF to Taxxor TDM XHTML Conversion Tool",
+  "scripts": {
+    "start": "docker compose up -d pdfconversion xslt3service && docker logs -f taxxor-pdfconversion-1",
+    "stop": "docker compose down",
+    "restart": "docker compose restart pdfconversion",
+    "logs": "docker logs -f taxxor-pdfconversion-1",
+    "build": "cd PdfConversion && dotnet build",
+    "test": "cd PdfConversion && dotnet test",
+    "clean": "cd PdfConversion && dotnet clean",
+    "restore": "cd PdfConversion && dotnet restore",
+    "publish": "cd PdfConversion && dotnet publish -c Release -o ./publish",
+    "dev:local": "cd PdfConversion && dotnet watch run --verbose --no-hot-reload"
+  },
+  "keywords": [
+    "pdf",
+    "xslt",
+    "blazor",
+    "taxxor"
+  ],
+  "author": "Optiver",
+  "license": "UNLICENSED",
+  "private": true
+}

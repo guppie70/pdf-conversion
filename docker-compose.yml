@@ -1,23 +1,24 @@
-version: '3.8'
-
 services:
   pdfconversion:
-    build:
-      context: ./PdfConversion
-      dockerfile: Dockerfile
-      platforms:
-        - linux/amd64
-        - linux/arm64
+    image: 518943790703.dkr.ecr.eu-west-1.amazonaws.com/taxxor/txdotnetdevelop:net09
     container_name: taxxor-pdfconversion-1
+    working_dir: /app
+    entrypoint: []
+    command: ["dotnet", "watch", "run", "--no-hot-reload", "--urls", "http://0.0.0.0:8085"]
     ports:
       - "8085:8085"
     volumes:
       - ./data:/app/data
       - ./xslt:/app/xslt
-      - ./PdfConversion:/src  # For hot reload in development
+      - ./PdfConversion:/app
+      - pdfconversion-obj:/app/obj
+      - pdfconversion-bin:/app/bin
+      - /app/Tests  # Exclude Tests directory from main build
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8085
       - XSLT3_SERVICE_URL=http://xslt3service:4806
+      - DOTNET_USE_POLLING_FILE_WATCHER=true
     networks:
       - blazornetwork
     depends_on:
@@ -33,8 +34,8 @@ services:
   xslt3service:
     image: 518943790703.dkr.ecr.eu-west-1.amazonaws.com/taxxor/xslt3service:production
     container_name: taxxor-xslt3service-1
-    ports:
-      - "4806:4806"
+    # ports:
+    #   - "4806:4806"
     networks:
       - blazornetwork
     restart: unless-stopped
@@ -49,3 +50,7 @@ networks:
   blazornetwork:
     driver: bridge
     name: blazornetwork
+
+volumes:
+  pdfconversion-obj:
+  pdfconversion-bin:
