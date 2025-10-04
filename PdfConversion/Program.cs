@@ -1,11 +1,15 @@
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
+using PdfConversion.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddRazorPages();
 builder.Services.AddServerSideBlazor();
+
+// Add memory cache for service caching
+builder.Services.AddMemoryCache();
 
 // Add logging
 builder.Logging.ClearProviders();
@@ -15,9 +19,9 @@ if (builder.Environment.IsDevelopment())
     builder.Logging.AddDebug();
 }
 
-// TODO: Register custom services here
+// Register custom services
+builder.Services.AddScoped<IProjectManagementService, ProjectManagementService>();
 // builder.Services.AddScoped<IXsltTransformationService, XsltTransformationService>();
-// builder.Services.AddScoped<IProjectManagementService, ProjectManagementService>();
 // builder.Services.AddScoped<IFileSystemService, FileSystemService>();
 // builder.Services.AddHttpClient<IXslt3ServiceClient, Xslt3ServiceClient>();
 // builder.Services.AddSingleton<ITransformationLogService, TransformationLogService>();

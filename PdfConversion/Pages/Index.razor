@@ -1,4 +1,6 @@
 ﻿@page "/"
+@using PdfConversion.Services
+@inject IProjectManagementService ProjectService
 
 <PageTitle>PDF to Taxxor TDM Conversion Tool</PageTitle>
 
@@ -78,7 +80,7 @@
             <div class="card-body">
                 <p class="mb-2"><strong>Environment:</strong> @Environment</p>
                 <p class="mb-2"><strong>XSLT Service:</strong> <span class="badge bg-secondary">Not Connected</span></p>
-                <p class="mb-0"><strong>Projects Available:</strong> <span class="badge bg-secondary">0</span></p>
+                <p class="mb-0"><strong>Projects Available:</strong> <span class="badge bg-@(ProjectCount > 0 ? "success" : "secondary")">@ProjectCount</span></p>
             </div>
         </div>
     </div>
@@ -86,4 +88,19 @@
 
 @code {
     private string Environment => System.Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production";
+    private int ProjectCount { get; set; } = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var projects = await ProjectService.GetProjectsAsync();
+            ProjectCount = projects.Count();
+        }
+        catch (Exception)
+        {
+            // If service fails, ProjectCount remains 0
+            ProjectCount = 0;
+        }
+    }
 }
