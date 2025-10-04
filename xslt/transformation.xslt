@@ -2,7 +2,9 @@
 <xsl:stylesheet version="2.0"
                 xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
                 xmlns:xs="http://www.w3.org/2001/XMLSchema"
-                exclude-result-prefixes="xs">
+                xmlns:x="adobe:ns:meta/"
+                xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+                exclude-result-prefixes="xs x rdf">
 
     <xsl:output method="xml"
                 encoding="UTF-8"
@@ -122,11 +124,26 @@
     </xsl:template>
 
     <!-- Remove unnecessary elements -->
-    <xsl:template match="Artifact | bookmark-tree | x:xmpmeta"/>
+    <xsl:template match="Artifact | bookmark-tree | x:xmpmeta | rdf:RDF"/>
+
+    <!-- Remove span elements from table cells (preserve content) -->
+    <xsl:template match="TD/span | TH/span">
+        <xsl:apply-templates/>
+    </xsl:template>
 
     <!-- Default text node handling -->
     <xsl:template match="text()">
-        <xsl:value-of select="normalize-space(.)"/>
+        <xsl:choose>
+            <xsl:when test="normalize-space(.) = ''"/>
+            <xsl:otherwise>
+                <xsl:value-of select="normalize-space(.)"/>
+            </xsl:otherwise>
+        </xsl:choose>
+    </xsl:template>
+
+    <!-- Pass through elements not matched by other templates -->
+    <xsl:template match="*">
+        <xsl:apply-templates/>
     </xsl:template>
 
 </xsl:stylesheet>
