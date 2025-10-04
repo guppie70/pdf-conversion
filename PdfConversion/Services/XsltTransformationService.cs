@@ -37,13 +37,18 @@ public class XsltTransformationService : IXsltTransformationService
 {
     private readonly ILogger<XsltTransformationService> _logger;
     private readonly IMemoryCache _cache;
+    private readonly IXslt3ServiceClient? _xslt3Client;
     private const string CacheKeyPrefix = "XsltTemplate_";
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(10);
 
-    public XsltTransformationService(ILogger<XsltTransformationService> logger, IMemoryCache cache)
+    public XsltTransformationService(
+        ILogger<XsltTransformationService> logger,
+        IMemoryCache cache,
+        IXslt3ServiceClient? xslt3Client = null)
     {
         _logger = logger;
         _cache = cache;
+        _xslt3Client = xslt3Client;
     }
 
     public async Task<TransformationResult> TransformAsync(string xmlContent, string xsltContent, TransformationOptions? options = null)
@@ -56,7 +61,38 @@ public class XsltTransformationService : IXsltTransformationService
         {
             _logger.LogDebug("Starting XSLT transformation (UseXslt3Service: {UseXslt3Service})", options.UseXslt3Service);
 
-            // Validate XSLT first
+            // Use XSLT3Service if requested and available
+            if (options.UseXslt3Service && _xslt3Client != null)
+            {
+                _logger.LogDebug("Using XSLT3Service for transformation");
+                result = await _xslt3Client.TransformAsync(xmlContent, xsltContent, options.Parameters);
+
+                // If XSLT3Service failed, fall back to local transformation
+                if (!result.IsSuccess && result.WarningMessages.Any(w => w.Contains("fallback")))
+                {
+                    _logger.LogWarning("XSLT3Service failed, falling back to local XSLT 1.0 processor");
+                    // Continue with local transformation below
+                }
+                else
+                {
+                    // XSLT3Service succeeded or failed without fallback option
+                    if (result.IsSuccess && options.NormalizeHeaders)
+                    {
+                        var (normalized, headersNormalized) = await NormalizeHeadersInternalAsync(result.OutputContent);
+                        result.OutputContent = normalized;
+                        result.HeadersNormalized = headersNormalized;
+                    }
+                    result.ProcessingTimeMs = stopwatch.ElapsedMilliseconds;
+                    return result;
+                }
+            }
+            else if (options.UseXslt3Service && _xslt3Client == null)
+            {
+                _logger.LogWarning("XSLT3Service requested but client not available, using local XSLT 1.0");
+                result.WarningMessages.Add("XSLT3Service not available, using XSLT 1.0 fallback");
+            }
+
+            // Validate XSLT first (for local transformation)
             var validation = await ValidateXsltAsync(xsltContent);
             if (!validation.IsValid)
             {

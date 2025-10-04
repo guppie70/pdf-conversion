@@ -22,8 +22,17 @@ if (builder.Environment.IsDevelopment())
 // Register custom services
 builder.Services.AddScoped<IProjectManagementService, ProjectManagementService>();
 builder.Services.AddScoped<IXsltTransformationService, XsltTransformationService>();
+
+// Configure HttpClient for XSLT3Service
+builder.Services.AddHttpClient<IXslt3ServiceClient, Xslt3ServiceClient>(client =>
+{
+    var xslt3ServiceUrl = builder.Configuration.GetValue<string>("XSLT3_SERVICE_URL") ?? "http://xslt3service:4806";
+    client.BaseAddress = new Uri(xslt3ServiceUrl);
+    client.Timeout = TimeSpan.FromSeconds(30);
+    client.DefaultRequestHeaders.Add("User-Agent", "PdfConversion/1.0");
+});
+
 // builder.Services.AddScoped<IFileSystemService, FileSystemService>();
-// builder.Services.AddHttpClient<IXslt3ServiceClient, Xslt3ServiceClient>();
 // builder.Services.AddSingleton<ITransformationLogService, TransformationLogService>();
 
 var app = builder.Build();
