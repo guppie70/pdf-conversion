@@ -120,9 +120,9 @@
 
 <!-- Three-Panel Layout -->
 <div class="development-workspace">
-    <div class="panels-container">
+    <div class="panels-container" id="panels-container">
         <!-- Left Panel: Source XML Viewer -->
-        <div class="panel panel-left">
+        <div class="panel panel-left" id="panel-left">
             <div class="panel-header">
                 <span class="fw-bold">Source XML</span>
                 <span class="text-muted small">@(SelectedFileName ?? "No file selected")</span>
@@ -151,8 +151,11 @@
             </div>
         </div>
 
+        <!-- Resize Handle 1 -->
+        <div class="resize-handle" id="resize-handle-1"></div>
+
         <!-- Center Panel: XSLT Editor -->
-        <div class="panel panel-center">
+        <div class="panel panel-center" id="panel-center">
             <div class="panel-header">
                 <span class="fw-bold">XSLT Transformation</span>
                 <span class="text-muted small">transformation.xslt</span>
@@ -174,8 +177,11 @@
             </div>
         </div>
 
+        <!-- Resize Handle 2 -->
+        <div class="resize-handle" id="resize-handle-2"></div>
+
         <!-- Right Panel: Preview -->
-        <div class="panel panel-right">
+        <div class="panel panel-right" id="panel-right">
             <div class="panel-header">
                 <span class="fw-bold">Output Preview</span>
                 <ul class="nav nav-pills nav-sm ms-auto">
