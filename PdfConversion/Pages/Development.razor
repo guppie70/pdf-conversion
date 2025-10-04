@@ -1,8 +1,11 @@
 @page "/development"
 @using PdfConversion.Services
 @using PdfConversion.Models
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
 @inject IProjectManagementService ProjectService
 @inject IXsltTransformationService XsltService
+@inject IJSRuntime JSRuntime
 @inject ILogger<Development> Logger
 
 <PageTitle>Development Mode</PageTitle>
@@ -168,7 +171,7 @@
                 }
                 else
                 {
-                    <textarea class="code-editor" @bind="XsltContent" @bind:event="oninput" @onchange="OnXsltChanged"></textarea>
+                    <div id="monaco-editor-container" style="width: 100%; height: 100%;"></div>
                 }
             </div>
         </div>
@@ -314,6 +317,12 @@
             {
                 XsltContent = await File.ReadAllTextAsync(xsltPath);
                 Logger.LogInformation("Loaded XSLT template from {Path}", xsltPath);
+
+                // Update Monaco editor content if already initialized
+                if (monacoInitialized)
+                {
+                    await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.setValue", XsltContent);
+                }
             }
             else
             {
@@ -503,5 +512,68 @@
     private void SetSourceMode()
     {
         PreviewMode = "source";
+    }
+
+    // Monaco Editor Integration
+    private DotNetObjectReference<Development>? dotNetRef;
+    private bool monacoInitialized = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !string.IsNullOrEmpty(XsltContent) && !monacoInitialized)
+        {
+            try
+            {
+                dotNetRef = DotNetObjectReference.Create(this);
+                await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.initialize",
+                    "monaco-editor-container",
+                    XsltContent,
+                    dotNetRef,
+                    "vs-light");
+                monacoInitialized = true;
+                Logger.LogInformation("Monaco Editor initialized successfully");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to initialize Monaco Editor");
+                ErrorMessage = "Failed to initialize code editor. Using fallback mode.";
+            }
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnEditorContentChanged(string content)
+    {
+        XsltContent = content;
+        await OnXsltChanged();
+    }
+
+    [JSInvokable]
+    public async Task OnSaveShortcut()
+    {
+        await SaveXsltAsync();
+    }
+
+    [JSInvokable]
+    public async Task OnTransformShortcut()
+    {
+        await TransformAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (monacoInitialized)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.dispose");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error disposing Monaco Editor");
+            }
+        }
+
+        dotNetRef?.Dispose();
     }
 }
