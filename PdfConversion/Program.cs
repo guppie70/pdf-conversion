@@ -21,7 +21,7 @@ if (builder.Environment.IsDevelopment())
 
 // Register custom services
 builder.Services.AddScoped<IProjectManagementService, ProjectManagementService>();
-// builder.Services.AddScoped<IXsltTransformationService, XsltTransformationService>();
+builder.Services.AddScoped<IXsltTransformationService, XsltTransformationService>();
 // builder.Services.AddScoped<IFileSystemService, FileSystemService>();
 // builder.Services.AddHttpClient<IXslt3ServiceClient, Xslt3ServiceClient>();
 // builder.Services.AddSingleton<ITransformationLogService, TransformationLogService>();
