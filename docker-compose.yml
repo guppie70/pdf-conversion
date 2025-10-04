@@ -8,7 +8,7 @@ services:
       platforms:
         - linux/amd64
         - linux/arm64
-    container_name: tdm-pdfconversion-1
+    container_name: taxxor-pdfconversion-1
     ports:
       - "8085:8085"
     volumes:
@@ -31,8 +31,8 @@ services:
       start_period: 10s
 
   xslt3service:
-    image: xslt3service:latest
-    container_name: tdm-xslt3service-1
+    image: 518943790703.dkr.ecr.eu-west-1.amazonaws.com/taxxor/xslt3service:production
+    container_name: taxxor-xslt3service-1
     ports:
       - "4806:4806"
     networks:

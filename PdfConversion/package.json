@@ -12,7 +12,7 @@
     "docker:build": "cd .. && docker-compose build pdfconversion",
     "docker:up": "cd .. && docker-compose up -d pdfconversion xslt3service",
     "docker:down": "cd .. && docker-compose down",
-    "docker:logs": "cd .. && docker logs -f tdm-pdfconversion-1",
+    "docker:logs": "cd .. && docker logs -f taxxor-pdfconversion-1",
     "docker:restart": "cd .. && docker-compose restart pdfconversion",
     "docker:rebuild": "cd .. && docker-compose down && docker-compose build pdfconversion && docker-compose up -d pdfconversion xslt3service",
     "start-docker": "npm run docker:logs"
