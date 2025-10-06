@@ -2,7 +2,6 @@
 @using PdfConversion.Services
 @using PdfConversion.Models
 @using Microsoft.JSInterop
-@using System.Xml.Linq
 @implements IAsyncDisposable
 @inject IProjectManagementService ProjectService
 @inject IXsltTransformationService XsltService
@@ -132,9 +131,19 @@
                     @if (!string.IsNullOrEmpty(OutputContent))
                     {
                         <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="sourceToggle" @bind="ShowSource">
+                            <input class="form-check-input" type="checkbox" id="sourceToggle" @bind-value="ShowSource" @bind-value:after="OnSourceToggled">
                             <label class="form-check-label" for="sourceToggle">Source</label>
                         </div>
+                        @if (ShowSource)
+                        {
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="formatToggle"
+                                       checked="@ShowFormattedXml"
+                                       @bind-value="ShowFormattedXml"
+                                       @bind-value:after="OnFormatChanged">
+                                <label class="form-check-label" for="formatToggle">Format</label>
+                            </div>
+                        }
                     }
                     @if (!string.IsNullOrEmpty(OutputContent))
                     {
@@ -188,7 +197,7 @@
                     }
                     else
                     {
-                        <textarea id="output-source" class="code-editor" readonly>@FormattedOutputContent</textarea>
+                        <pre id="output-source" class="code-viewer">@OutputContent</pre>
                     }
                     @if (TransformationStats != null)
                     {
@@ -263,6 +272,7 @@
     private string? SuccessMessage;
     private bool ShowSettings = false;
     private bool ShowSource = false;
+    private bool ShowFormattedXml = true;
     private bool isRestoringFromStorage = false;
 
     // Settings
@@ -281,24 +291,56 @@
 
     private bool CanSave => !string.IsNullOrEmpty(XsltContent);
 
-    private string FormattedOutputContent
+    private async Task OnSourceToggled()
     {
-        get
+        // ShowSource is already updated by @bind-value
+        Logger.LogInformation("Source toggle changed: ShowSource = {ShowSource}", ShowSource);
+
+        // If Source view is now ON and Format is checked, format the XML
+        if (ShowSource && ShowFormattedXml)
         {
-            if (string.IsNullOrEmpty(OutputContent))
-                return string.Empty;
+            // Give Blazor a moment to render the <pre> element
+            await Task.Delay(50);
 
             try
             {
-                var doc = XDocument.Parse(OutputContent);
-                return doc.ToString();
+                await JSRuntime.InvokeVoidAsync("xmlFormatter.formatElement", "output-source");
             }
-            catch
+            catch (Exception ex)
             {
-                // If XML parsing fails, return original content
-                return OutputContent;
+                Logger.LogError(ex, "Error formatting XML on source toggle");
+                ErrorMessage = "Failed to format XML. Please try again.";
             }
         }
+
+        StateHasChanged();
+    }
+
+    private async Task OnFormatChanged()
+    {
+        // ShowFormattedXml is already updated by @bind-value
+        Logger.LogInformation("Format checkbox changed: ShowFormattedXml = {ShowFormatted}", ShowFormattedXml);
+
+        try
+        {
+            if (ShowFormattedXml)
+            {
+                // Format the XML using JavaScript
+                await JSRuntime.InvokeVoidAsync("xmlFormatter.formatElement", "output-source");
+            }
+            else
+            {
+                // Show raw XML
+                await JSRuntime.InvokeVoidAsync("xmlFormatter.showRawElement", "output-source", OutputContent);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error toggling XML format");
+            ErrorMessage = "Failed to format XML. Please try again.";
+        }
+
+        StateHasChanged();
     }
 
     protected override async Task OnInitializedAsync()
