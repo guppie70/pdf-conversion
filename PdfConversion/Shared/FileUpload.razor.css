@@ -1,0 +1,49 @@
+.file-upload-component {
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.upload-header {
+    background: #f8f9fa;
+    padding: 12px 16px;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.upload-body {
+    padding: 20px;
+}
+
+.drop-zone {
+    border: 2px dashed #dee2e6;
+    border-radius: 8px;
+    padding: 40px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background: #f8f9fa;
+}
+
+.drop-zone:hover {
+    border-color: #0d6efd;
+    background: #e7f3ff;
+}
+
+.drop-zone.dragging {
+    border-color: #0d6efd;
+    background: #cfe2ff;
+    border-style: solid;
+}
+
+.drop-zone-content {
+    pointer-events: none;
+}
+
+.uploaded-files {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.upload-progress {
+    margin-top: 15px;
+}

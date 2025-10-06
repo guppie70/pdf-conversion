@@ -40,6 +40,7 @@ builder.Services.AddMemoryCache();
 // Register custom services
 builder.Services.AddScoped<IProjectManagementService, ProjectManagementService>();
 builder.Services.AddScoped<IXsltTransformationService, XsltTransformationService>();
+builder.Services.AddScoped<IFileService, FileService>();
 builder.Services.AddScoped<DevelopmentToolbarState>();
 builder.Services.AddSingleton<ITransformationLogService, TransformationLogService>();
 

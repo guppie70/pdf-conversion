@@ -1,0 +1,167 @@
+@using Microsoft.AspNetCore.Components.Forms
+@using PdfConversion.Services
+@inject IFileService FileService
+@inject IJSRuntime JSRuntime
+@inject ILogger<FileUpload> Logger
+
+<div class="file-upload-component">
+    <div class="upload-header">
+        <h6 class="mb-0">
+            <i class="bi bi-cloud-upload"></i> Upload Files
+        </h6>
+    </div>
+
+    <div class="upload-body">
+        <InputFile OnChange="HandleFileSelection" multiple accept=".xml,.xsl,.xslt" class="d-none" id="@($"fileInput-{UniqueId}")" />
+
+        <div class="drop-zone @(IsDragging ? "dragging" : "")"
+             @ondrop="HandleDrop"
+             @ondragenter="HandleDragEnter"
+             @ondragleave="HandleDragLeave"
+             @ondragover:preventDefault="true"
+             @onclick="OpenFileDialog">
+            <div class="drop-zone-content">
+                <i class="bi bi-cloud-arrow-up" style="font-size: 3rem; color: #0d6efd;"></i>
+                <p class="mt-3 mb-2"><strong>Drag and drop files here</strong></p>
+                <p class="text-muted small">or click to browse</p>
+                <p class="text-muted small">Supported: XML, XSLT, XSL (max 10MB)</p>
+            </div>
+        </div>
+
+        @if (UploadedFiles.Any())
+        {
+            <div class="uploaded-files mt-3">
+                <h6>Uploaded Files:</h6>
+                <ul class="list-group">
+                    @foreach (var file in UploadedFiles)
+                    {
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <i class="bi @GetFileIcon(file.FileName) me-2"></i>
+                                @file.FileName
+                            </div>
+                            <span class="badge bg-@file.StatusClass">@file.Status</span>
+                        </li>
+                    }
+                </ul>
+            </div>
+        }
+
+        @if (IsUploading)
+        {
+            <div class="upload-progress mt-3">
+                <div class="progress">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated"
+                         role="progressbar"
+                         style="width: @UploadProgress%">
+                        @UploadProgress%
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public string? ProjectId { get; set; }
+    [Parameter] public EventCallback OnFilesUploaded { get; set; }
+
+    private class UploadedFileInfo
+    {
+        public string FileName { get; set; } = "";
+        public string Status { get; set; } = "";
+        public string StatusClass { get; set; } = "";
+    }
+
+    private string UniqueId = Guid.NewGuid().ToString("N");
+    private bool IsDragging = false;
+    private bool IsUploading = false;
+    private int UploadProgress = 0;
+    private List<UploadedFileInfo> UploadedFiles = new();
+
+    private async Task OpenFileDialog()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("eval", $"document.getElementById('fileInput-{UniqueId}').click()");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error opening file dialog");
+        }
+    }
+
+    private void HandleDragEnter()
+    {
+        IsDragging = true;
+    }
+
+    private void HandleDragLeave()
+    {
+        IsDragging = false;
+    }
+
+    private void HandleDrop()
+    {
+        IsDragging = false;
+    }
+
+    private async Task HandleFileSelection(InputFileChangeEventArgs e)
+    {
+        IsUploading = true;
+        UploadProgress = 0;
+        UploadedFiles.Clear();
+
+        var files = e.GetMultipleFiles(10);
+        var totalFiles = files.Count;
+        var processedFiles = 0;
+
+        foreach (var file in files)
+        {
+            var fileInfo = new UploadedFileInfo { FileName = file.Name };
+
+            try
+            {
+                using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+
+                (bool success, string message) = file.Name.EndsWith(".xslt") || file.Name.EndsWith(".xsl")
+                    ? await FileService.UploadXsltFileAsync(stream)
+                    : await FileService.UploadXmlFileAsync(ProjectId ?? "default", file.Name, stream);
+
+                fileInfo.Status = success ? "Success" : $"Failed: {message}";
+                fileInfo.StatusClass = success ? "success" : "danger";
+
+                Logger.LogInformation("File {FileName} upload: {Status}", file.Name, fileInfo.Status);
+            }
+            catch (Exception ex)
+            {
+                fileInfo.Status = $"Error: {ex.Message}";
+                fileInfo.StatusClass = "danger";
+                Logger.LogError(ex, "Error uploading file {FileName}", file.Name);
+            }
+
+            UploadedFiles.Add(fileInfo);
+            processedFiles++;
+            UploadProgress = (int)((double)processedFiles / totalFiles * 100);
+            StateHasChanged();
+        }
+
+        IsUploading = false;
+        StateHasChanged();
+
+        if (OnFilesUploaded.HasDelegate)
+        {
+            await OnFilesUploaded.InvokeAsync();
+        }
+    }
+
+    private string GetFileIcon(string fileName)
+    {
+        return fileName.ToLower() switch
+        {
+            var n when n.EndsWith(".xml") => "bi-file-earmark-code",
+            var n when n.EndsWith(".xslt") || n.EndsWith(".xsl") => "bi-file-earmark-text",
+            _ => "bi-file-earmark"
+        };
+    }
+}

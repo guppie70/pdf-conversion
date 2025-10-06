@@ -5,6 +5,7 @@
 @implements IAsyncDisposable
 @inject IProjectManagementService ProjectService
 @inject IXsltTransformationService XsltService
+@inject IFileService FileService
 @inject IJSRuntime JSRuntime
 @inject ILogger<Development> Logger
 @inject DevelopmentToolbarState ToolbarState
@@ -38,6 +39,12 @@
                     <label class="form-check-label" for="autoTransform">
                         Auto-transform on XSLT change
                     </label>
+                </div>
+
+                <hr class="my-3" />
+
+                <div class="mt-3">
+                    <FileUpload ProjectId="@SelectedProjectId" OnFilesUploaded="OnFilesUploaded" />
                 </div>
             </div>
         </div>
@@ -627,6 +634,26 @@
         SuccessMessage = null;
         UpdateToolbarState();
         StateHasChanged();
+    }
+
+    private async Task OnFilesUploaded()
+    {
+        // Refresh file list
+        if (!string.IsNullOrEmpty(SelectedProjectId))
+        {
+            try
+            {
+                ProjectFiles = (await ProjectService.GetProjectFilesAsync(SelectedProjectId)).ToList();
+                UpdateToolbarState();
+                StateHasChanged();
+                Logger.LogInformation("File list refreshed after upload");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error refreshing file list after upload");
+                ErrorMessage = $"Failed to refresh file list: {ex.Message}";
+            }
+        }
     }
 
     // Zoom controls

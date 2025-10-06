@@ -6,6 +6,7 @@
 @implements IDisposable
 @inject IProjectManagementService ProjectService
 @inject IXsltTransformationService XsltService
+@inject IFileService FileService
 @inject IJSRuntime JSRuntime
 @inject ILogger<Production> Logger
 @inject NavigationManager Navigation
@@ -62,6 +63,10 @@
             <button class="btn btn-info" @onclick="ExportResultsAsync"
                     disabled="@(IsProcessing || !HasCompletedProjects)">
                 <i class="bi bi-download"></i> Export Results
+            </button>
+            <button class="btn btn-secondary" @onclick="DownloadLogsAsync"
+                    disabled="@IsProcessing">
+                <i class="bi bi-file-text"></i> Download Logs
             </button>
             <button class="btn btn-danger" @onclick="ClearResultsAsync"
                     disabled="@IsProcessing">
@@ -681,18 +686,54 @@
 
     private async Task ExportResultsAsync()
     {
+        await ExportAllAsZipAsync();
+    }
+
+    private async Task ExportAllAsZipAsync()
+    {
         try
         {
-            // TODO: Implement ZIP export functionality
-            // This would require adding a ZipArchive library and creating a service
-            SuccessMessage = "Export functionality coming soon!";
-            Logger.LogInformation("Export results requested");
-            await Task.CompletedTask;
+            var zipBytes = await FileService.GenerateAllResultsZipAsync();
+            if (zipBytes.Length > 0)
+            {
+                var fileName = $"all-results-{DateTime.Now:yyyyMMdd-HHmmss}.zip";
+                await JSRuntime.InvokeVoidAsync("downloadFile", fileName, "application/zip",
+                    Convert.ToBase64String(zipBytes));
+                SuccessMessage = $"Downloaded {fileName}";
+            }
+            else
+            {
+                ErrorMessage = "No results available to export";
+            }
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error exporting results");
-            ErrorMessage = $"Failed to export results: {ex.Message}";
+            Logger.LogError(ex, "Error exporting all results as ZIP");
+            ErrorMessage = $"Export failed: {ex.Message}";
+        }
+    }
+
+    private async Task DownloadLogsAsync()
+    {
+        try
+        {
+            var zipBytes = await FileService.GetTransformationLogsAsync();
+            if (zipBytes.Length > 0)
+            {
+                var fileName = $"logs-{DateTime.Now:yyyyMMdd-HHmmss}.zip";
+                await JSRuntime.InvokeVoidAsync("downloadFile", fileName, "application/zip",
+                    Convert.ToBase64String(zipBytes));
+                SuccessMessage = $"Downloaded {fileName}";
+            }
+            else
+            {
+                ErrorMessage = "No logs available to download";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error downloading logs");
+            ErrorMessage = $"Download failed: {ex.Message}";
         }
     }
 
