@@ -22,6 +22,7 @@ if (builder.Environment.IsDevelopment())
 // Register custom services
 builder.Services.AddScoped<IProjectManagementService, ProjectManagementService>();
 builder.Services.AddScoped<IXsltTransformationService, XsltTransformationService>();
+builder.Services.AddScoped<DevelopmentToolbarState>();
 
 // Configure HttpClient for XSLT3Service
 builder.Services.AddHttpClient<IXslt3ServiceClient, Xslt3ServiceClient>(client =>

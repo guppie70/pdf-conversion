@@ -1,20 +1,76 @@
 ﻿@inherits LayoutComponentBase
+@using PdfConversion.Services
+@inject NavigationManager Navigation
+@inject DevelopmentToolbarState ToolbarState
+@implements IDisposable
 
 <PageTitle>PdfConversion</PageTitle>
 
 <div class="page">
     <header class="top-nav">
-        <div class="nav-brand">
-            <a href="/" class="brand-link">PDF to Taxxor TDM</a>
-        </div>
         <nav class="nav-links">
-            <a href="/" class="nav-link">Home</a>
-            <a href="/development" class="nav-link">Development</a>
-            <a href="/production" class="nav-link">Production</a>
+            <NavLink href="/" class="nav-link" Match="NavLinkMatch.All">Home</NavLink>
+            <NavLink href="/development" class="nav-link">Development</NavLink>
+            <NavLink href="/production" class="nav-link">Production</NavLink>
         </nav>
-        <div class="nav-actions">
-            <a href="https://docs.microsoft.com/aspnet/" target="_blank" class="about-link">About</a>
-        </div>
+
+        @if (IsOnDevelopmentPage)
+        {
+            <div class="nav-toolbar">
+                <select class="form-select form-select-sm toolbar-select" @onchange="OnProjectChanged" disabled="@ToolbarState.IsLoading">
+                    <option value="">Project...</option>
+                    @if (ToolbarState.Projects != null)
+                    {
+                        @foreach (var project in ToolbarState.Projects)
+                        {
+                            <option value="@project.ProjectId" selected="@(ToolbarState.SelectedProjectId == project.ProjectId)">
+                                @project.Name (@project.FileCount)
+                            </option>
+                        }
+                    }
+                </select>
+
+                <select class="form-select form-select-sm toolbar-select" @onchange="OnFileChanged" disabled="@(ToolbarState.IsLoading || string.IsNullOrEmpty(ToolbarState.SelectedProjectId))">
+                    <option value="">File...</option>
+                    @if (ToolbarState.ProjectFiles != null)
+                    {
+                        @foreach (var file in ToolbarState.ProjectFiles)
+                        {
+                            <option value="@file" selected="@(ToolbarState.SelectedFileName == file)">@file</option>
+                        }
+                    }
+                </select>
+
+                <div class="nav-toolbar-actions">
+                    <button class="btn btn-sm btn-light" @onclick="OnTransform" disabled="@(!ToolbarState.CanTransform || ToolbarState.IsTransforming)" title="Transform">
+                        @if (ToolbarState.IsTransforming)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-play-fill"></i>
+                        }
+                    </button>
+                    <button class="btn btn-sm btn-success" @onclick="OnSave" disabled="@(!ToolbarState.CanSave || ToolbarState.IsSaving)" title="Save XSLT">
+                        @if (ToolbarState.IsSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-save"></i>
+                        }
+                    </button>
+                    <button class="btn btn-sm btn-secondary" @onclick="OnReset" disabled="@ToolbarState.IsLoading" title="Reset">
+                        <i class="bi bi-arrow-counterclockwise"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-light" @onclick="OnToggleSettings" title="Settings">
+                        <i class="bi bi-gear-fill"></i>
+                    </button>
+                </div>
+            </div>
+        }
     </header>
 
     <main>
@@ -23,3 +79,69 @@
         </article>
     </main>
 </div>
+
+@code {
+    private bool IsOnDevelopmentPage => Navigation.Uri.Contains("/development", StringComparison.OrdinalIgnoreCase);
+
+    protected override void OnInitialized()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+        ToolbarState.OnChange += StateHasChanged;
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        StateHasChanged();
+    }
+
+    private async Task OnProjectChanged(ChangeEventArgs e)
+    {
+        if (ToolbarState.OnProjectChanged != null)
+        {
+            await ToolbarState.OnProjectChanged(e.Value?.ToString() ?? "");
+        }
+    }
+
+    private async Task OnFileChanged(ChangeEventArgs e)
+    {
+        if (ToolbarState.OnFileChanged != null)
+        {
+            await ToolbarState.OnFileChanged(e.Value?.ToString() ?? "");
+        }
+    }
+
+    private async Task OnTransform()
+    {
+        if (ToolbarState.OnTransform != null)
+        {
+            await ToolbarState.OnTransform();
+        }
+    }
+
+    private async Task OnSave()
+    {
+        if (ToolbarState.OnSave != null)
+        {
+            await ToolbarState.OnSave();
+        }
+    }
+
+    private async Task OnReset()
+    {
+        if (ToolbarState.OnReset != null)
+        {
+            await ToolbarState.OnReset();
+        }
+    }
+
+    private void OnToggleSettings()
+    {
+        ToolbarState.OnToggleSettings?.Invoke();
+    }
+
+    public void Dispose()
+    {
+        Navigation.LocationChanged -= OnLocationChanged;
+        ToolbarState.OnChange -= StateHasChanged;
+    }
+}

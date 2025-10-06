@@ -7,90 +7,33 @@
 @inject IXsltTransformationService XsltService
 @inject IJSRuntime JSRuntime
 @inject ILogger<Development> Logger
+@inject DevelopmentToolbarState ToolbarState
 
 <PageTitle>Development Mode</PageTitle>
 
-<!-- Top Toolbar -->
-<div class="toolbar bg-light border-bottom mb-0">
-    <div class="row g-2 align-items-end">
-        <div class="col-auto" style="min-width: 200px;">
-            <label for="projectSelect" class="form-label small fw-bold">Project</label>
-            <select id="projectSelect" class="form-select form-select-sm" @onchange="OnProjectChanged" disabled="@IsLoading">
-                <option value="">Select...</option>
-                @if (Projects != null)
-                {
-                    @foreach (var project in Projects)
-                    {
-                        <option value="@project.ProjectId" selected="@(SelectedProjectId == project.ProjectId)">
-                            @project.Name (@project.FileCount files)
-                        </option>
-                    }
-                }
-            </select>
-        </div>
-        <div class="col-auto" style="min-width: 250px;">
-            <label for="fileSelect" class="form-label small fw-bold">File</label>
-            <select id="fileSelect" class="form-select form-select-sm" @onchange="OnFileChanged" disabled="@(IsLoading || string.IsNullOrEmpty(SelectedProjectId))">
-                <option value="">Select...</option>
-                @if (ProjectFiles != null)
-                {
-                    @foreach (var file in ProjectFiles)
-                    {
-                        <option value="@file" selected="@(SelectedFileName == file)">@file</option>
-                    }
-                }
-            </select>
-        </div>
-        <div class="col text-end">
-            <button class="btn btn-primary btn-sm" @onclick="TransformAsync" disabled="@(!CanTransform || IsTransforming)">
-                @if (IsTransforming)
-                {
-                    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                }
-                else
-                {
-                    <i class="bi bi-play-fill"></i>
-                }
-                <span class="d-none d-lg-inline ms-1">Transform</span>
-            </button>
-            <button class="btn btn-success btn-sm ms-1" @onclick="SaveXsltAsync" disabled="@(!CanSave || IsSaving)">
-                @if (IsSaving)
-                {
-                    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                }
-                else
-                {
-                    <i class="bi bi-save"></i>
-                }
-                <span class="d-none d-lg-inline ms-1">Save</span>
-            </button>
-            <button class="btn btn-secondary btn-sm ms-1" @onclick="ResetAsync" disabled="@IsLoading">
-                <i class="bi bi-arrow-counterclockwise"></i>
-                <span class="d-none d-lg-inline ms-1">Reset</span>
-            </button>
-            <button class="btn btn-outline-secondary btn-sm ms-1" @onclick="ToggleSettings">
-                <i class="bi bi-gear-fill"></i>
-            </button>
-        </div>
-    </div>
-
-    @if (ShowSettings)
-    {
-        <div class="row mt-3 pt-3 border-top">
-            <div class="col-md-12">
-                <div class="form-check form-check-inline">
+<!-- Settings Panel (floating overlay when settings button clicked) -->
+@if (ShowSettings)
+{
+    <div class="settings-overlay">
+        <div class="settings-panel">
+            <div class="settings-header">
+                <h6 class="mb-0">Transformation Settings</h6>
+                <button type="button" class="btn-close" @onclick="ToggleSettings" aria-label="Close"></button>
+            </div>
+            <div class="settings-body">
+                <div class="form-check mb-2">
                     <input class="form-check-input" type="checkbox" id="useXslt3" @bind="UseXslt3Service">
                     <label class="form-check-label" for="useXslt3">
                         Use XSLT3 Service (XSLT 2.0/3.0)
                     </label>
                 </div>
-                <div class="form-check form-check-inline">
+                <div class="form-check mb-2">
                     <input class="form-check-input" type="checkbox" id="normalizeHeaders" @bind="NormalizeHeaders">
                     <label class="form-check-label" for="normalizeHeaders">
                         Normalize Headers
                     </label>
                 </div>
-                <div class="form-check form-check-inline">
+                <div class="form-check mb-2">
                     <input class="form-check-input" type="checkbox" id="autoTransform" @bind="AutoTransform">
                     <label class="form-check-label" for="autoTransform">
                         Auto-transform on XSLT change
@@ -98,8 +41,8 @@
                 </div>
             </div>
         </div>
-    }
-</div>
+    </div>
+}
 
 <!-- Error Display -->
 @if (!string.IsNullOrEmpty(ErrorMessage))
@@ -285,8 +228,33 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Wire up toolbar state
+        ToolbarState.OnProjectChanged = async (projectId) => await OnProjectChanged(new ChangeEventArgs { Value = projectId });
+        ToolbarState.OnFileChanged = async (fileName) => await OnFileChanged(new ChangeEventArgs { Value = fileName });
+        ToolbarState.OnTransform = TransformAsync;
+        ToolbarState.OnSave = SaveXsltAsync;
+        ToolbarState.OnReset = ResetAsync;
+        ToolbarState.OnToggleSettings = ToggleSettings;
+
         await LoadProjectsAsync();
         await LoadXsltAsync();
+
+        UpdateToolbarState();
+    }
+
+    private void UpdateToolbarState()
+    {
+        ToolbarState.Projects = Projects;
+        ToolbarState.ProjectFiles = ProjectFiles;
+        ToolbarState.SelectedProjectId = SelectedProjectId;
+        ToolbarState.SelectedFileName = SelectedFileName;
+        ToolbarState.IsLoading = IsLoading;
+        ToolbarState.IsTransforming = IsTransforming;
+        ToolbarState.IsSaving = IsSaving;
+        ToolbarState.CanTransform = CanTransform;
+        ToolbarState.CanSave = CanSave;
+        ToolbarState.ShowSettings = ShowSettings;
+        ToolbarState.NotifyStateChanged();
     }
 
     private async Task LoadProjectsAsync()
@@ -294,6 +262,7 @@
         try
         {
             IsLoading = true;
+            UpdateToolbarState();
             ErrorMessage = null;
             Projects = (await ProjectService.GetProjectsAsync()).ToList();
             Logger.LogInformation("Loaded {Count} projects", Projects.Count);
@@ -306,6 +275,7 @@
         finally
         {
             IsLoading = false;
+            UpdateToolbarState();
         }
     }
 
@@ -359,6 +329,8 @@
             if (!string.IsNullOrEmpty(SelectedProjectId))
             {
                 IsLoading = true;
+                UpdateToolbarState();
+                StateHasChanged();
                 ProjectFiles = (await ProjectService.GetProjectFilesAsync(SelectedProjectId)).ToList();
                 Logger.LogInformation("Loaded {Count} files for project {ProjectId}", ProjectFiles.Count, SelectedProjectId);
             }
@@ -371,6 +343,8 @@
         finally
         {
             IsLoading = false;
+            UpdateToolbarState();
+            StateHasChanged();
         }
     }
 
@@ -382,10 +356,13 @@
             XmlContent = null;
             OutputContent = null;
             ErrorMessage = null;
+            UpdateToolbarState();
+            StateHasChanged();
 
             if (!string.IsNullOrEmpty(SelectedProjectId) && !string.IsNullOrEmpty(SelectedFileName))
             {
                 IsLoadingXml = true;
+                StateHasChanged();
                 XmlContent = await ProjectService.ReadInputFileAsync(SelectedProjectId, SelectedFileName);
                 Logger.LogInformation("Loaded file {FileName} from project {ProjectId}", SelectedFileName, SelectedProjectId);
 
@@ -404,6 +381,8 @@
         finally
         {
             IsLoadingXml = false;
+            UpdateToolbarState();
+            StateHasChanged();
         }
     }
 
@@ -423,6 +402,7 @@
         try
         {
             IsTransforming = true;
+            UpdateToolbarState();
             ErrorMessage = null;
             SuccessMessage = null;
 
@@ -459,6 +439,7 @@
         finally
         {
             IsTransforming = false;
+            UpdateToolbarState();
         }
     }
 
@@ -469,6 +450,7 @@
         try
         {
             IsSaving = true;
+            UpdateToolbarState();
             ErrorMessage = null;
             SuccessMessage = null;
 
@@ -486,6 +468,7 @@
         finally
         {
             IsSaving = false;
+            UpdateToolbarState();
         }
     }
 
@@ -501,11 +484,16 @@
         SuccessMessage = null;
 
         await LoadXsltAsync();
+        UpdateToolbarState();
     }
 
     private void ToggleSettings()
     {
         ShowSettings = !ShowSettings;
+        ErrorMessage = null;
+        SuccessMessage = null;
+        UpdateToolbarState();
+        StateHasChanged();
     }
 
     private void SetRenderedMode()

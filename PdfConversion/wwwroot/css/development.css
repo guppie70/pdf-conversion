@@ -11,7 +11,7 @@
 
 /* Workspace container */
 .development-workspace {
-    height: calc(100vh - 56px - 68px);
+    height: calc(100vh - 60px);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -77,6 +77,16 @@
     min-height: 52px;
 }
 
+/* Align left panel header with navigation links */
+.panel-left .panel-header {
+    padding-left: 2rem;
+}
+
+/* Align right panel header with navigation toolbar */
+.panel-right .panel-header {
+    padding-right: 1rem;
+}
+
 .panel-header .fw-bold {
     font-size: 0.9rem;
     font-weight: 600;
@@ -94,8 +104,8 @@
 }
 
 .panel-header .nav-pills .nav-link {
-    padding: 0.35rem 0.85rem;
-    font-size: 0.8125rem;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
     border-radius: 0.25rem;
     font-weight: 500;
 }
@@ -206,7 +216,56 @@
     border-width: 0.15em;
 }
 
-/* Settings panel */
+/* Settings panel - floating overlay */
+.settings-overlay {
+    position: fixed;
+    top: 60px;
+    right: 0;
+    z-index: 1000;
+    animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.settings-panel {
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 0.5rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    margin: 1rem;
+    min-width: 320px;
+    max-width: 400px;
+}
+
+.settings-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid #dee2e6;
+    background: linear-gradient(180deg, #f8f9fa 0%, #ffffff 100%);
+    border-radius: 0.5rem 0.5rem 0 0;
+}
+
+.settings-header h6 {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #212529;
+}
+
+.settings-body {
+    padding: 1rem;
+}
+
 .form-check-inline {
     margin-right: 1.5rem;
 }

@@ -3,7 +3,10 @@
 window.PanelResize = {
     init: function () {
         const container = document.getElementById('panels-container');
-        if (!container) return;
+        if (!container) {
+            console.error('Panel resize: container not found');
+            return;
+        }
 
         const leftPanel = document.getElementById('panel-left');
         const centerPanel = document.getElementById('panel-center');
@@ -11,7 +14,16 @@ window.PanelResize = {
         const handle1 = document.getElementById('resize-handle-1');
         const handle2 = document.getElementById('resize-handle-2');
 
-        if (!leftPanel || !centerPanel || !rightPanel || !handle1 || !handle2) return;
+        if (!leftPanel || !centerPanel || !rightPanel || !handle1 || !handle2) {
+            console.error('Panel resize: missing elements', {
+                leftPanel: !!leftPanel,
+                centerPanel: !!centerPanel,
+                rightPanel: !!rightPanel,
+                handle1: !!handle1,
+                handle2: !!handle2
+            });
+            return;
+        }
 
         // Load saved widths from localStorage
         const savedWidths = this.loadWidths();
@@ -130,18 +142,53 @@ window.PanelResize = {
     }
 };
 
-// Initialize on page load
+// Initialize after Blazor is ready
+function initializeWhenReady() {
+    // Wait for Blazor to render the panels
+    const checkInterval = setInterval(() => {
+        const container = document.getElementById('panels-container');
+        if (container && container.children.length > 0) {
+            clearInterval(checkInterval);
+            console.log('Panels found, initializing resize...');
+            window.PanelResize.init();
+        }
+    }, 100);
+
+    // Timeout after 5 seconds
+    setTimeout(() => {
+        clearInterval(checkInterval);
+        console.warn('Panel resize initialization timeout');
+    }, 5000);
+}
+
+// Try to initialize on page load
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-        window.PanelResize.init();
-    });
+    document.addEventListener('DOMContentLoaded', initializeWhenReady);
 } else {
-    window.PanelResize.init();
+    initializeWhenReady();
 }
 
 // Re-initialize after Blazor updates
-if (window.Blazor) {
-    window.Blazor.addEventListener('enhancedload', () => {
-        setTimeout(() => window.PanelResize.init(), 100);
-    });
-}
+document.addEventListener('DOMContentLoaded', () => {
+    // Listen for Blazor reconnection/update events
+    if (typeof MutationObserver !== 'undefined') {
+        const observer = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                if (mutation.addedNodes.length > 0) {
+                    const container = document.getElementById('panels-container');
+                    if (container && !container.hasAttribute('data-resize-initialized')) {
+                        console.log('Panels re-rendered, re-initializing resize...');
+                        container.setAttribute('data-resize-initialized', 'true');
+                        window.PanelResize.init();
+                        break;
+                    }
+                }
+            }
+        });
+
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+    }
+});
