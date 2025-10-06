@@ -38,17 +38,20 @@ public class XsltTransformationService : IXsltTransformationService
     private readonly ILogger<XsltTransformationService> _logger;
     private readonly IMemoryCache _cache;
     private readonly IXslt3ServiceClient? _xslt3Client;
+    private readonly ITransformationLogService? _transformationLogService;
     private const string CacheKeyPrefix = "XsltTemplate_";
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(10);
 
     public XsltTransformationService(
         ILogger<XsltTransformationService> logger,
         IMemoryCache cache,
-        IXslt3ServiceClient? xslt3Client = null)
+        IXslt3ServiceClient? xslt3Client = null,
+        ITransformationLogService? transformationLogService = null)
     {
         _logger = logger;
         _cache = cache;
         _xslt3Client = xslt3Client;
+        _transformationLogService = transformationLogService;
     }
 
     public async Task<TransformationResult> TransformAsync(string xmlContent, string xsltContent, TransformationOptions? options = null)
@@ -162,6 +165,21 @@ public class XsltTransformationService : IXsltTransformationService
             result.ProcessingTimeMs = stopwatch.ElapsedMilliseconds;
 
             _logger.LogInformation("Transformation completed successfully in {ElapsedMs}ms", result.ProcessingTimeMs);
+
+            // Log transformation to the transformation log service
+            _transformationLogService?.LogTransformation(new TransformationLog
+            {
+                ProjectId = options.Parameters.GetValueOrDefault("project-id") ?? "unknown",
+                FileName = options.Parameters.GetValueOrDefault("file-name"),
+                StartTime = DateTime.Now.AddMilliseconds(-result.ProcessingTimeMs),
+                EndTime = DateTime.Now,
+                Status = "Success",
+                Details = $"Processed successfully. Tables: {result.TablesProcessed}, Headers normalized: {result.HeadersNormalized}",
+                ProcessingTimeMs = result.ProcessingTimeMs,
+                HeadersNormalized = result.HeadersNormalized,
+                TablesProcessed = result.TablesProcessed
+            });
+
             return result;
         }
         catch (XsltException ex)
@@ -170,6 +188,19 @@ public class XsltTransformationService : IXsltTransformationService
             result.IsSuccess = false;
             result.ErrorMessage = $"XSLT error at line {ex.LineNumber}: {ex.Message}";
             result.ProcessingTimeMs = stopwatch.ElapsedMilliseconds;
+
+            // Log error transformation
+            _transformationLogService?.LogTransformation(new TransformationLog
+            {
+                ProjectId = options?.Parameters.GetValueOrDefault("project-id") ?? "unknown",
+                FileName = options?.Parameters.GetValueOrDefault("file-name"),
+                StartTime = DateTime.Now.AddMilliseconds(-result.ProcessingTimeMs),
+                EndTime = DateTime.Now,
+                Status = "Error",
+                Details = $"XSLT error at line {ex.LineNumber}: {ex.Message}",
+                ProcessingTimeMs = result.ProcessingTimeMs
+            });
+
             return result;
         }
         catch (XmlException ex)
@@ -178,6 +209,19 @@ public class XsltTransformationService : IXsltTransformationService
             result.IsSuccess = false;
             result.ErrorMessage = $"XML error at line {ex.LineNumber}: {ex.Message}";
             result.ProcessingTimeMs = stopwatch.ElapsedMilliseconds;
+
+            // Log error transformation
+            _transformationLogService?.LogTransformation(new TransformationLog
+            {
+                ProjectId = options?.Parameters.GetValueOrDefault("project-id") ?? "unknown",
+                FileName = options?.Parameters.GetValueOrDefault("file-name"),
+                StartTime = DateTime.Now.AddMilliseconds(-result.ProcessingTimeMs),
+                EndTime = DateTime.Now,
+                Status = "Error",
+                Details = $"XML error at line {ex.LineNumber}: {ex.Message}",
+                ProcessingTimeMs = result.ProcessingTimeMs
+            });
+
             return result;
         }
         catch (Exception ex)
@@ -186,6 +230,19 @@ public class XsltTransformationService : IXsltTransformationService
             result.IsSuccess = false;
             result.ErrorMessage = $"Transformation failed: {ex.Message}";
             result.ProcessingTimeMs = stopwatch.ElapsedMilliseconds;
+
+            // Log error transformation
+            _transformationLogService?.LogTransformation(new TransformationLog
+            {
+                ProjectId = options?.Parameters.GetValueOrDefault("project-id") ?? "unknown",
+                FileName = options?.Parameters.GetValueOrDefault("file-name"),
+                StartTime = DateTime.Now.AddMilliseconds(-result.ProcessingTimeMs),
+                EndTime = DateTime.Now,
+                Status = "Error",
+                Details = $"Transformation failed: {ex.Message}",
+                ProcessingTimeMs = result.ProcessingTimeMs
+            });
+
             return result;
         }
     }

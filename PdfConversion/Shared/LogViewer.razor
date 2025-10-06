@@ -1,0 +1,174 @@
+@using PdfConversion.Services
+@using PdfConversion.Models
+@inject ITransformationLogService LogService
+@inject ILogger<LogViewer> Logger
+@implements IDisposable
+
+<div class="log-viewer @(IsExpanded ? "expanded" : "collapsed")">
+    <div class="log-header" @onclick="ToggleExpand">
+        <div class="log-title">
+            <i class="bi bi-journal-text"></i>
+            <span>Transformation Logs (@LogService.GetTotalCount())</span>
+        </div>
+        <div class="log-controls">
+            @if (IsExpanded)
+            {
+                <button class="btn btn-sm btn-outline-secondary me-2" @onclick:stopPropagation="true" @onclick="RefreshLogs">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+                <button class="btn btn-sm btn-outline-danger me-2" @onclick:stopPropagation="true" @onclick="ClearLogs">
+                    <i class="bi bi-trash"></i> Clear
+                </button>
+            }
+            <i class="bi @(IsExpanded ? "bi-chevron-down" : "bi-chevron-up")"></i>
+        </div>
+    </div>
+
+    @if (IsExpanded)
+    {
+        <div class="log-body">
+            <div class="log-filters">
+                <div class="filter-group">
+                    <label>Status:</label>
+                    <select class="form-select form-select-sm" @bind="FilterStatus" @bind:after="RefreshLogs">
+                        <option value="">All</option>
+                        <option value="Success">Success</option>
+                        <option value="Error">Error</option>
+                        <option value="Warning">Warning</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Search:</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="Search logs..."
+                           @bind="SearchText" @bind:event="oninput" @bind:after="RefreshLogs" />
+                </div>
+                <div class="filter-group">
+                    <label>Show:</label>
+                    <select class="form-select form-select-sm" @bind="LogCount" @bind:after="RefreshLogs">
+                        <option value="50">Last 50</option>
+                        <option value="100">Last 100</option>
+                        <option value="500">Last 500</option>
+                        <option value="1000">All</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="log-content" @ref="logContentRef">
+                @if (FilteredLogs.Any())
+                {
+                    <table class="table table-sm table-hover">
+                        <thead>
+                            <tr>
+                                <th style="width: 140px;">Timestamp</th>
+                                <th style="width: 80px;">Status</th>
+                                <th style="width: 120px;">Project</th>
+                                <th style="width: 150px;">File</th>
+                                <th style="width: 80px;">Duration</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var log in FilteredLogs)
+                            {
+                                <tr class="log-entry log-@log.Status.ToLower()">
+                                    <td>@log.StartTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                    <td>
+                                        <span class="badge bg-@GetStatusBadgeClass(log.Status)">
+                                            @log.Status
+                                        </span>
+                                    </td>
+                                    <td>@log.ProjectId</td>
+                                    <td>@(log.FileName ?? "N/A")</td>
+                                    <td>@((log.EndTime - log.StartTime).TotalMilliseconds.ToString("F0"))ms</td>
+                                    <td class="log-details">@log.Details</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                else
+                {
+                    <div class="text-center text-muted p-3">
+                        <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+                        <p class="mt-2">No logs found</p>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private ElementReference logContentRef;
+    private System.Threading.Timer? _refreshTimer;
+
+    private bool IsExpanded { get; set; } = false;
+    private string FilterStatus { get; set; } = "";
+    private string SearchText { get; set; } = "";
+    private int LogCount { get; set; } = 100;
+    private List<TransformationLog> FilteredLogs { get; set; } = new();
+
+    protected override void OnInitialized()
+    {
+        RefreshLogs();
+
+        // Auto-refresh logs every 2 seconds
+        _refreshTimer = new System.Threading.Timer(async _ =>
+        {
+            await InvokeAsync(() =>
+            {
+                RefreshLogs();
+                StateHasChanged();
+            });
+        }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+    }
+
+    private void ToggleExpand()
+    {
+        IsExpanded = !IsExpanded;
+        if (IsExpanded)
+        {
+            RefreshLogs();
+        }
+    }
+
+    private void RefreshLogs()
+    {
+        var logs = LogService.GetRecentLogs(LogCount);
+
+        if (!string.IsNullOrEmpty(FilterStatus))
+        {
+            logs = logs.Where(l => l.Status == FilterStatus);
+        }
+
+        if (!string.IsNullOrEmpty(SearchText))
+        {
+            logs = logs.Where(l =>
+                l.ProjectId.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
+                (l.FileName?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (l.Details?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+
+        FilteredLogs = logs.ToList();
+    }
+
+    private async Task ClearLogs()
+    {
+        LogService.ClearLogs();
+        RefreshLogs();
+        await Task.CompletedTask;
+    }
+
+    private string GetStatusBadgeClass(string status) => status switch
+    {
+        "Success" => "success",
+        "Error" => "danger",
+        "Warning" => "warning",
+        _ => "secondary"
+    };
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+}

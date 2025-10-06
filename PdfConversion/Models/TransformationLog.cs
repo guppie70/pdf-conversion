@@ -44,4 +44,19 @@ public class TransformationLog
     /// The XSLT template used for this transformation
     /// </summary>
     public string XsltUsed { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Number of headers that were normalized
+    /// </summary>
+    public int? HeadersNormalized { get; set; }
+
+    /// <summary>
+    /// Number of tables that were processed
+    /// </summary>
+    public int? TablesProcessed { get; set; }
+
+    /// <summary>
+    /// Processing time in milliseconds
+    /// </summary>
+    public long? ProcessingTimeMs { get; set; }
 }

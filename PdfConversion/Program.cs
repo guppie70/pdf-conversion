@@ -1,8 +1,34 @@
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using PdfConversion.Services;
+using Serilog;
+using Serilog.Events;
 
-var builder = WebApplication.CreateBuilder(args);
+// Configure Serilog
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Debug()
+    .MinimumLevel.Override("Microsoft", LogEventLevel.Information)
+    .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+    .Enrich.FromLogContext()
+    .Enrich.WithMachineName()
+    .Enrich.WithThreadId()
+    .WriteTo.Console(
+        outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
+    .WriteTo.File(
+        "/app/logs/pdfconversion-.log",
+        rollingInterval: RollingInterval.Day,
+        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
+        retainedFileCountLimit: 30)
+    .CreateLogger();
+
+try
+{
+    Log.Information("Starting PDF Conversion application");
+
+    var builder = WebApplication.CreateBuilder(args);
+
+    // Use Serilog for logging
+    builder.Host.UseSerilog();
 
 // Add services to the container.
 builder.Services.AddRazorPages();
@@ -11,18 +37,11 @@ builder.Services.AddServerSideBlazor();
 // Add memory cache for service caching
 builder.Services.AddMemoryCache();
 
-// Add logging
-builder.Logging.ClearProviders();
-builder.Logging.AddConsole();
-if (builder.Environment.IsDevelopment())
-{
-    builder.Logging.AddDebug();
-}
-
 // Register custom services
 builder.Services.AddScoped<IProjectManagementService, ProjectManagementService>();
 builder.Services.AddScoped<IXsltTransformationService, XsltTransformationService>();
 builder.Services.AddScoped<DevelopmentToolbarState>();
+builder.Services.AddSingleton<ITransformationLogService, TransformationLogService>();
 
 // Configure HttpClient for XSLT3Service
 builder.Services.AddHttpClient<IXslt3ServiceClient, Xslt3ServiceClient>(client =>
@@ -56,4 +75,15 @@ app.MapFallbackToPage("/_Host");
 // Add health check endpoint for Docker
 app.MapGet("/health", () => Results.Ok("Healthy"));
 
-app.Run();
+    Log.Information("Application started successfully");
+    app.Run();
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "Application terminated unexpectedly");
+    throw;
+}
+finally
+{
+    Log.CloseAndFlush();
+}

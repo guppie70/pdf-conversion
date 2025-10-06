@@ -1,0 +1,114 @@
+.log-viewer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: white;
+    border-top: 2px solid #dee2e6;
+    box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+    z-index: 1000;
+    transition: all 0.3s ease;
+}
+
+.log-viewer.collapsed {
+    height: 45px;
+}
+
+.log-viewer.expanded {
+    height: 400px;
+}
+
+.log-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 20px;
+    background: #f8f9fa;
+    cursor: pointer;
+    user-select: none;
+}
+
+.log-header:hover {
+    background: #e9ecef;
+}
+
+.log-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+}
+
+.log-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.log-body {
+    padding: 15px;
+    height: calc(100% - 45px);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.log-filters {
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.filter-group label {
+    margin: 0;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.filter-group select,
+.filter-group input {
+    min-width: 150px;
+}
+
+.log-content {
+    flex: 1;
+    overflow-y: auto;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+}
+
+.log-entry.log-error {
+    background-color: #f8d7da;
+}
+
+.log-entry.log-warning {
+    background-color: #fff3cd;
+}
+
+.log-entry.log-success {
+    background-color: #d1e7dd;
+}
+
+.log-details {
+    max-width: 400px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.log-content table {
+    margin-bottom: 0;
+}
+
+.log-content thead {
+    position: sticky;
+    top: 0;
+    background: white;
+    z-index: 1;
+}
