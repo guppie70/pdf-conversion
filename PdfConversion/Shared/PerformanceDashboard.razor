@@ -1,0 +1,297 @@
+@using PdfConversion.Services
+@using PdfConversion.Models
+@inject IPerformanceMonitoringService? PerformanceService
+@inject IDistributedCacheService? CacheService
+@inject IMemoryPoolManager? MemoryPoolManager
+@inject IBatchTransformationService? BatchService
+
+<div class="performance-dashboard">
+    <div class="dashboard-header">
+        <h3>Performance Monitoring</h3>
+        <div class="dashboard-actions">
+            <button class="btn btn-sm btn-outline-primary" @onclick="RefreshMetrics">
+                <span class="oi oi-reload"></span> Refresh
+            </button>
+            <button class="btn btn-sm btn-outline-danger" @onclick="ResetMetrics">
+                <span class="oi oi-x"></span> Reset
+            </button>
+        </div>
+    </div>
+
+    @if (_metrics != null)
+    {
+        <div class="metrics-grid">
+            <!-- Transformation Metrics -->
+            <div class="metric-card">
+                <div class="metric-header">Transformations</div>
+                <div class="metric-value">@_metrics.TotalTransformations</div>
+                <div class="metric-details">
+                    <span class="text-success">✓ @_metrics.SuccessfulTransformations</span>
+                    <span class="text-danger">✗ @_metrics.FailedTransformations</span>
+                </div>
+                <div class="metric-footer">
+                    Success Rate: @((_metrics.TotalTransformations > 0 ? (double)_metrics.SuccessfulTransformations / _metrics.TotalTransformations * 100 : 0).ToString("F1"))%
+                </div>
+            </div>
+
+            <!-- Performance Metrics -->
+            <div class="metric-card">
+                <div class="metric-header">Performance</div>
+                <div class="metric-value">@_metrics.AverageTransformationTimeMs.ToString("F0") ms</div>
+                <div class="metric-details">
+                    <span>Min: @_metrics.MinTransformationTimeMs ms</span>
+                    <span>Max: @_metrics.MaxTransformationTimeMs ms</span>
+                </div>
+                <div class="metric-footer">
+                    @_metrics.TransformationsPerSecond.ToString("F2") per second
+                </div>
+            </div>
+
+            <!-- Memory Metrics -->
+            <div class="metric-card">
+                <div class="metric-header">Memory</div>
+                <div class="metric-value">@_metrics.CurrentMemoryUsageMB MB</div>
+                <div class="metric-details">
+                    <span>Peak: @_metrics.PeakMemoryUsageMB MB</span>
+                </div>
+                <div class="metric-footer @(_isMemoryHigh ? "text-danger" : "text-success")">
+                    @(_isMemoryHigh ? "⚠ High Pressure" : "✓ Normal")
+                </div>
+            </div>
+
+            <!-- Slow Operations -->
+            <div class="metric-card @(_metrics.SlowOperations > 0 ? "metric-card-warning" : "")">
+                <div class="metric-header">Slow Operations</div>
+                <div class="metric-value">@_metrics.SlowOperations</div>
+                <div class="metric-details">
+                    <span>Threshold: > 5 seconds</span>
+                </div>
+                <div class="metric-footer">
+                    @if (_metrics.SlowOperations > 0)
+                    {
+                        <span class="text-warning">⚠ Review required</span>
+                    }
+                    else
+                    {
+                        <span class="text-success">✓ All operations fast</span>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Cache Statistics -->
+        @if (_cacheStats != null)
+        {
+            <div class="cache-section">
+                <h4>Cache Performance</h4>
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-header">Hit Rate</div>
+                        <div class="metric-value">@((_cacheStats.HitRate * 100).ToString("F1"))%</div>
+                        <div class="metric-details">
+                            <span>Hits: @_cacheStats.Hits</span>
+                            <span>Misses: @_cacheStats.Misses</span>
+                        </div>
+                        <div class="metric-footer">
+                            Cache: @_cacheStats.CacheType
+                        </div>
+                    </div>
+
+                    <div class="metric-card">
+                        <div class="metric-header">Time Saved</div>
+                        <div class="metric-value">@FormatTime(_cacheStats.TotalTimeSavedMs)</div>
+                        <div class="metric-details">
+                            <span>Avg: @_cacheStats.AverageTimeSavedMs.ToString("F0") ms</span>
+                        </div>
+                        <div class="metric-footer">
+                            @(_cacheStats.IsRedisAvailable ? "✓ Redis Active" : "⚠ Memory Only")
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- Memory Pool Statistics -->
+        @if (_memoryStats != null)
+        {
+            <div class="memory-section">
+                <h4>Memory Pool Efficiency</h4>
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-header">Buffers</div>
+                        <div class="metric-value">@_memoryStats.BuffersRented</div>
+                        <div class="metric-details">
+                            <span>Returned: @_memoryStats.BuffersReturned</span>
+                            <span>Active: @(_memoryStats.BuffersRented - _memoryStats.BuffersReturned)</span>
+                        </div>
+                        <div class="metric-footer">
+                            Efficiency: @((_memoryStats.MemoryEfficiencyRatio * 100).ToString("F1"))%
+                        </div>
+                    </div>
+
+                    <div class="metric-card">
+                        <div class="metric-header">Total Allocated</div>
+                        <div class="metric-value">@FormatBytes(_memoryStats.TotalAllocatedBytes)</div>
+                        <div class="metric-details">
+                            <span>Returned: @FormatBytes(_memoryStats.TotalReturnedBytes)</span>
+                        </div>
+                        <div class="metric-footer">
+                            Active: @FormatBytes(_memoryStats.CurrentRentedBytes)
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- Queue Statistics -->
+        @if (_queueStats != null)
+        {
+            <div class="queue-section">
+                <h4>Batch Processing Queue</h4>
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-header">Queue Status</div>
+                        <div class="metric-value">@_queueStats.QueuedRequests</div>
+                        <div class="metric-details">
+                            <span>Processing: @_queueStats.ProcessingRequests</span>
+                            <span>Completed: @_queueStats.CompletedRequests</span>
+                        </div>
+                        <div class="metric-footer">
+                            Avg Time: @_queueStats.AverageProcessingTimeMs.ToString("F0") ms
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- Recent Slow Operations -->
+        @if (_metrics.RecentSlowOperations.Any())
+        {
+            <div class="slow-operations-section">
+                <h4>Recent Slow Operations</h4>
+                <div class="slow-operations-list">
+                    @foreach (var op in _metrics.RecentSlowOperations.Take(10))
+                    {
+                        <div class="slow-op-item">
+                            <div class="slow-op-time">@op.Timestamp.ToString("HH:mm:ss")</div>
+                            <div class="slow-op-name">@op.Operation</div>
+                            <div class="slow-op-duration">@op.DurationMs ms</div>
+                            <div class="slow-op-details">
+                                @if (!string.IsNullOrEmpty(op.ProjectId))
+                                {
+                                    <span>Project: @op.ProjectId</span>
+                                }
+                                @if (!string.IsNullOrEmpty(op.FileName))
+                                {
+                                    <span>File: @op.FileName</span>
+                                }
+                                <span>Memory: @op.MemoryUsedMB MB</span>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- Projects Breakdown -->
+        @if (_metrics.TransformationsByProject.Any())
+        {
+            <div class="projects-section">
+                <h4>Transformations by Project</h4>
+                <div class="projects-list">
+                    @foreach (var project in _metrics.TransformationsByProject.OrderByDescending(p => p.Value))
+                    {
+                        <div class="project-item">
+                            <div class="project-name">@project.Key</div>
+                            <div class="project-count">@project.Value transformations</div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="loading-message">
+            <span class="spinner-border spinner-border-sm"></span> Loading performance metrics...
+        </div>
+    }
+</div>
+
+@code {
+    private PerformanceMetrics? _metrics;
+    private CacheStatistics? _cacheStats;
+    private MemoryStatistics? _memoryStats;
+    private QueueStatistics? _queueStats;
+    private bool _isMemoryHigh;
+    private System.Threading.Timer? _refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshMetrics();
+
+        // Auto-refresh every 5 seconds
+        _refreshTimer = new System.Threading.Timer(async _ =>
+        {
+            await InvokeAsync(async () =>
+            {
+                await RefreshMetrics();
+                StateHasChanged();
+            });
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private async Task RefreshMetrics()
+    {
+        if (PerformanceService != null)
+        {
+            _metrics = await PerformanceService.GetMetricsAsync();
+            _isMemoryHigh = PerformanceService.IsMemoryPressureHigh();
+        }
+
+        if (CacheService != null)
+        {
+            _cacheStats = await CacheService.GetStatisticsAsync();
+        }
+
+        if (MemoryPoolManager != null)
+        {
+            _memoryStats = MemoryPoolManager.GetMemoryStatistics();
+        }
+
+        if (BatchService != null)
+        {
+            _queueStats = await BatchService.GetQueueStatisticsAsync();
+        }
+    }
+
+    private async Task ResetMetrics()
+    {
+        if (PerformanceService != null)
+        {
+            await PerformanceService.ResetMetricsAsync();
+        }
+
+        await RefreshMetrics();
+    }
+
+    private string FormatTime(long milliseconds)
+    {
+        if (milliseconds < 1000) return $"{milliseconds} ms";
+        if (milliseconds < 60000) return $"{(milliseconds / 1000.0).ToString("F1")} s";
+        return $"{(milliseconds / 60000.0).ToString("F1")} min";
+    }
+
+    private string FormatBytes(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{(bytes / 1024.0).ToString("F1")} KB";
+        if (bytes < 1024 * 1024 * 1024) return $"{(bytes / (1024.0 * 1024)).ToString("F1")} MB";
+        return $"{(bytes / (1024.0 * 1024 * 1024)).ToString("F1")} GB";
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+}

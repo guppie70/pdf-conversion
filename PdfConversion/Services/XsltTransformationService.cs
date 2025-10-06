@@ -39,6 +39,8 @@ public class XsltTransformationService : IXsltTransformationService
     private readonly IMemoryCache _cache;
     private readonly IXslt3ServiceClient? _xslt3Client;
     private readonly ITransformationLogService? _transformationLogService;
+    private readonly IDistributedCacheService? _distributedCacheService;
+    private readonly IPerformanceMonitoringService? _performanceMonitoring;
     private const string CacheKeyPrefix = "XsltTemplate_";
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(10);
 
@@ -46,12 +48,16 @@ public class XsltTransformationService : IXsltTransformationService
         ILogger<XsltTransformationService> logger,
         IMemoryCache cache,
         IXslt3ServiceClient? xslt3Client = null,
-        ITransformationLogService? transformationLogService = null)
+        ITransformationLogService? transformationLogService = null,
+        IDistributedCacheService? distributedCacheService = null,
+        IPerformanceMonitoringService? performanceMonitoring = null)
     {
         _logger = logger;
         _cache = cache;
         _xslt3Client = xslt3Client;
         _transformationLogService = transformationLogService;
+        _distributedCacheService = distributedCacheService;
+        _performanceMonitoring = performanceMonitoring;
     }
 
     public async Task<TransformationResult> TransformAsync(string xmlContent, string xsltContent, TransformationOptions? options = null)
@@ -59,10 +65,29 @@ public class XsltTransformationService : IXsltTransformationService
         options ??= new TransformationOptions();
         var stopwatch = Stopwatch.StartNew();
         var result = new TransformationResult();
+        var projectId = options.Parameters.GetValueOrDefault("project-id");
+
+        // Track operation performance
+        using var perfTracker = _performanceMonitoring?.TrackOperation("XsltTransformation", projectId);
 
         try
         {
             _logger.LogDebug("Starting XSLT transformation (UseXslt3Service: {UseXslt3Service})", options.UseXslt3Service);
+
+            // Check distributed cache first if available
+            if (_distributedCacheService != null)
+            {
+                var xmlHash = ComputeHash(xmlContent);
+                var xsltHash = ComputeHash(xsltContent);
+
+                var cachedResult = await _distributedCacheService.GetTransformationResultAsync(xmlHash, xsltHash);
+                if (cachedResult != null)
+                {
+                    _logger.LogInformation("Transformation result found in distributed cache");
+                    _performanceMonitoring?.RecordTransformation(true, cachedResult.ProcessingTimeMs, projectId);
+                    return cachedResult;
+                }
+            }
 
             // Use XSLT3Service if requested and available
             if (options.UseXslt3Service && _xslt3Client != null)
@@ -166,6 +191,15 @@ public class XsltTransformationService : IXsltTransformationService
 
             _logger.LogInformation("Transformation completed successfully in {ElapsedMs}ms", result.ProcessingTimeMs);
 
+            // Cache successful transformation result
+            if (_distributedCacheService != null)
+            {
+                var xmlHash = ComputeHash(xmlContent);
+                var xsltHash = ComputeHash(xsltContent);
+                await _distributedCacheService.SetTransformationResultAsync(xmlHash, xsltHash, result);
+                _logger.LogDebug("Cached transformation result");
+            }
+
             // Log transformation to the transformation log service
             _transformationLogService?.LogTransformation(new TransformationLog
             {
@@ -179,6 +213,9 @@ public class XsltTransformationService : IXsltTransformationService
                 HeadersNormalized = result.HeadersNormalized,
                 TablesProcessed = result.TablesProcessed
             });
+
+            // Record performance metrics
+            _performanceMonitoring?.RecordTransformation(true, result.ProcessingTimeMs, projectId);
 
             return result;
         }
@@ -201,6 +238,9 @@ public class XsltTransformationService : IXsltTransformationService
                 ProcessingTimeMs = result.ProcessingTimeMs
             });
 
+            // Record failed transformation
+            _performanceMonitoring?.RecordTransformation(false, result.ProcessingTimeMs, projectId);
+
             return result;
         }
         catch (XmlException ex)
@@ -222,6 +262,9 @@ public class XsltTransformationService : IXsltTransformationService
                 ProcessingTimeMs = result.ProcessingTimeMs
             });
 
+            // Record failed transformation
+            _performanceMonitoring?.RecordTransformation(false, result.ProcessingTimeMs, projectId);
+
             return result;
         }
         catch (Exception ex)
@@ -242,6 +285,9 @@ public class XsltTransformationService : IXsltTransformationService
                 Details = $"Transformation failed: {ex.Message}",
                 ProcessingTimeMs = result.ProcessingTimeMs
             });
+
+            // Record failed transformation
+            _performanceMonitoring?.RecordTransformation(false, result.ProcessingTimeMs, projectId);
 
             return result;
         }

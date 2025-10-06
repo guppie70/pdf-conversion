@@ -35,7 +35,21 @@ builder.Services.AddRazorPages();
 builder.Services.AddServerSideBlazor();
 
 // Add memory cache for service caching
-builder.Services.AddMemoryCache();
+builder.Services.AddMemoryCache(options =>
+{
+    options.SizeLimit = 1024 * 1024 * 100; // 100MB limit
+});
+
+// Add distributed cache (Redis) - optional, falls back to memory
+var redisConnection = builder.Configuration.GetValue<string>("Redis:ConnectionString");
+if (!string.IsNullOrEmpty(redisConnection))
+{
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = redisConnection;
+        options.InstanceName = "PdfConversion:";
+    });
+}
 
 // Register custom services
 builder.Services.AddScoped<IProjectManagementService, ProjectManagementService>();
@@ -43,6 +57,13 @@ builder.Services.AddScoped<IXsltTransformationService, XsltTransformationService
 builder.Services.AddScoped<IFileService, FileService>();
 builder.Services.AddScoped<DevelopmentToolbarState>();
 builder.Services.AddSingleton<ITransformationLogService, TransformationLogService>();
+
+// Register performance optimization services
+builder.Services.AddSingleton<IDistributedCacheService, DistributedCacheService>();
+builder.Services.AddSingleton<IPerformanceMonitoringService, PerformanceMonitoringService>();
+builder.Services.AddSingleton<IMemoryPoolManager, MemoryPoolManager>();
+builder.Services.AddScoped<IStreamingXsltTransformationService, StreamingXsltTransformationService>();
+builder.Services.AddSingleton<IBatchTransformationService, BatchTransformationService>();
 
 // Configure HttpClient for XSLT3Service
 builder.Services.AddHttpClient<IXslt3ServiceClient, Xslt3ServiceClient>(client =>
