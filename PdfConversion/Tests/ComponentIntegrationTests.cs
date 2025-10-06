@@ -17,6 +17,12 @@ public class ComponentIntegrationTests : TestContext
     private readonly Mock<IProjectManagementService> _mockProjectService;
     private readonly Mock<IXsltTransformationService> _mockXsltService;
     private readonly Mock<Microsoft.Extensions.Logging.ILogger<Development>> _mockLogger;
+    private readonly Mock<IFileService> _mockFileService;
+    private readonly Mock<ITransformationLogService> _mockLogService;
+    private readonly Mock<IDistributedCacheService> _mockCacheService;
+    private readonly Mock<IPerformanceMonitoringService> _mockPerfService;
+    private readonly Mock<IMemoryPoolManager> _mockMemoryPool;
+    private readonly Mock<IBatchTransformationService> _mockBatchService;
     private readonly DevelopmentToolbarState _toolbarState;
 
     public ComponentIntegrationTests()
@@ -24,12 +30,24 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService = new Mock<IProjectManagementService>();
         _mockXsltService = new Mock<IXsltTransformationService>();
         _mockLogger = new Mock<Microsoft.Extensions.Logging.ILogger<Development>>();
+        _mockFileService = new Mock<IFileService>();
+        _mockLogService = new Mock<ITransformationLogService>();
+        _mockCacheService = new Mock<IDistributedCacheService>();
+        _mockPerfService = new Mock<IPerformanceMonitoringService>();
+        _mockMemoryPool = new Mock<IMemoryPoolManager>();
+        _mockBatchService = new Mock<IBatchTransformationService>();
         _toolbarState = new DevelopmentToolbarState();
 
         // Register services
         Services.AddSingleton(_mockProjectService.Object);
         Services.AddSingleton(_mockXsltService.Object);
         Services.AddSingleton(_mockLogger.Object);
+        Services.AddSingleton(_mockFileService.Object);
+        Services.AddSingleton(_mockLogService.Object);
+        Services.AddSingleton(_mockCacheService.Object);
+        Services.AddSingleton(_mockPerfService.Object);
+        Services.AddSingleton(_mockMemoryPool.Object);
+        Services.AddSingleton(_mockBatchService.Object);
         Services.AddSingleton(_toolbarState);
     }
 
