@@ -273,3 +273,69 @@ window.addEventListener('beforeunload', () => {
         window.MonacoEditorInterop.dispose();
     }
 });
+
+// File download utility
+window.downloadFile = function (fileName, contentType, base64Content) {
+    try {
+        // Convert base64 to blob
+        const binaryString = window.atob(base64Content);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: contentType });
+
+        // Create download link
+        const link = document.createElement('a');
+        link.href = window.URL.createObjectURL(blob);
+        link.download = fileName;
+
+        // Trigger download
+        document.body.appendChild(link);
+        link.click();
+
+        // Cleanup
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(link.href);
+
+        console.log(`Downloaded file: ${fileName}`);
+    } catch (error) {
+        console.error('Error downloading file:', error);
+        throw error;
+    }
+};
+
+// LocalStorage utilities for persisting selections
+window.developmentStorage = {
+    saveSelection: function(projectId, fileName) {
+        try {
+            localStorage.setItem('dev_selectedProject', projectId || '');
+            localStorage.setItem('dev_selectedFile', fileName || '');
+            console.log(`Saved selection: project=${projectId}, file=${fileName}`);
+        } catch (error) {
+            console.error('Error saving selection to localStorage:', error);
+        }
+    },
+
+    loadSelection: function() {
+        try {
+            const projectId = localStorage.getItem('dev_selectedProject') || null;
+            const fileName = localStorage.getItem('dev_selectedFile') || null;
+            console.log(`Loaded selection: project=${projectId}, file=${fileName}`);
+            return { projectId, fileName };
+        } catch (error) {
+            console.error('Error loading selection from localStorage:', error);
+            return { projectId: null, fileName: null };
+        }
+    },
+
+    clearSelection: function() {
+        try {
+            localStorage.removeItem('dev_selectedProject');
+            localStorage.removeItem('dev_selectedFile');
+            console.log('Cleared saved selection');
+        } catch (error) {
+            console.error('Error clearing selection from localStorage:', error);
+        }
+    }
+};

@@ -108,10 +108,52 @@
     font-size: 0.75rem;
     border-radius: 0.25rem;
     font-weight: 500;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: #6c757d;
+    transition: all 0.15s ease-in-out;
+}
+
+.panel-header .nav-pills .nav-link:hover {
+    background-color: #e9ecef;
+    color: #495057;
 }
 
 .panel-header .nav-pills .nav-link.active {
     background-color: #0d6efd;
+    color: #fff;
+}
+
+/* Preview controls */
+.preview-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-left: auto;
+}
+
+.preview-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.zoom-indicator {
+    font-size: 0.75rem;
+    color: #6c757d;
+    font-weight: 500;
+    min-width: 35px;
+    text-align: center;
+}
+
+.preview-actions .btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+}
+
+.preview-actions .btn-sm i {
+    font-size: 0.75rem;
 }
 
 .panel-content {
@@ -147,16 +189,72 @@
     background: #ffffff;
 }
 
+/* Transformation overlay */
+.transformation-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    animation: fadeIn 0.2s ease-in;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+.transformation-indicator {
+    text-align: center;
+}
+
+.transformation-indicator .spinner-border {
+    width: 3rem;
+    height: 3rem;
+    border-width: 0.3em;
+}
+
+.transformation-indicator p {
+    margin: 0;
+}
+
 .preview-stats {
     position: absolute;
     bottom: 0;
     left: 0;
     right: 0;
-    padding: 0.625rem 1.25rem;
+    padding: 0.75rem 1.25rem;
     background: linear-gradient(180deg, rgba(248, 249, 250, 0.98) 0%, rgba(248, 249, 250, 1) 100%);
     border-top: 1px solid #e9ecef;
     backdrop-filter: blur(4px);
-    font-size: 0.75rem;
+    z-index: 5;
+}
+
+.stats-content {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.stats-content .badge {
+    font-size: 0.7rem;
+    font-weight: 500;
+    padding: 0.35rem 0.65rem;
+}
+
+.stats-content .badge i {
+    margin-right: 0.25rem;
 }
 
 /* Empty state styling */

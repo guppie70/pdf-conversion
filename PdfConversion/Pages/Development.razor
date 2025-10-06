@@ -2,6 +2,7 @@
 @using PdfConversion.Services
 @using PdfConversion.Models
 @using Microsoft.JSInterop
+@using System.Xml.Linq
 @implements IAsyncDisposable
 @inject IProjectManagementService ProjectService
 @inject IXsltTransformationService XsltService
@@ -127,63 +128,106 @@
         <div class="panel panel-right" id="panel-right">
             <div class="panel-header">
                 <span class="fw-bold">Output Preview</span>
-                <ul class="nav nav-pills nav-sm ms-auto">
-                    <li class="nav-item">
-                        <a class="nav-link @(PreviewMode == "rendered" ? "active" : "")" href="#" @onclick="SetRenderedMode" @onclick:preventDefault>
-                            Rendered
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link @(PreviewMode == "source" ? "active" : "")" href="#" @onclick="SetSourceMode" @onclick:preventDefault>
-                            Source
-                        </a>
-                    </li>
-                </ul>
+                <div class="preview-controls">
+                    @if (!string.IsNullOrEmpty(OutputContent))
+                    {
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="sourceToggle" @bind="ShowSource">
+                            <label class="form-check-label" for="sourceToggle">Source</label>
+                        </div>
+                    }
+                    @if (!string.IsNullOrEmpty(OutputContent))
+                    {
+                        <div class="preview-actions">
+                            @if (!ShowSource)
+                            {
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="ZoomOut" title="Zoom Out" disabled="@(ZoomLevel <= 50)">
+                                    <i class="bi bi-zoom-out"></i>
+                                </button>
+                                <span class="zoom-indicator">@ZoomLevel%</span>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="ZoomIn" title="Zoom In" disabled="@(ZoomLevel >= 200)">
+                                    <i class="bi bi-zoom-in"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="ResetZoom" title="Reset Zoom">
+                                    <i class="bi bi-arrow-counterclockwise"></i>
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="CopyToClipboard" title="Copy to Clipboard">
+                                    <i class="bi bi-clipboard"></i> Copy
+                                </button>
+                            }
+                            <button class="btn btn-sm btn-primary" @onclick="DownloadOutput" title="Download Output">
+                                <i class="bi bi-download"></i> Download
+                            </button>
+                        </div>
+                    }
+                </div>
             </div>
             <div class="panel-content">
                 @if (IsTransforming)
                 {
-                    <div class="text-center p-5">
-                        <div class="spinner-border text-success" role="status">
-                            <span class="visually-hidden">Transforming...</span>
+                    <div class="transformation-overlay">
+                        <div class="transformation-indicator">
+                            <div class="spinner-border text-success" role="status">
+                                <span class="visually-hidden">Transforming...</span>
+                            </div>
+                            <p class="mt-3 fw-bold">Transforming XML...</p>
+                            <p class="text-muted small">Please wait while the transformation is in progress</p>
                         </div>
-                        <p class="mt-2 text-muted">Transforming XML...</p>
                     </div>
                 }
-                else if (!string.IsNullOrEmpty(OutputContent))
+                @if (!string.IsNullOrEmpty(OutputContent))
                 {
-                    @if (PreviewMode == "rendered")
+                    @if (!ShowSource)
                     {
-                        <div class="preview-rendered">
+                        <div class="preview-rendered" style="font-size: @(ZoomLevel)%;">
                             @((MarkupString)OutputContent)
                         </div>
                     }
                     else
                     {
-                        <textarea class="code-editor" readonly>@OutputContent</textarea>
+                        <textarea id="output-source" class="code-editor" readonly>@FormattedOutputContent</textarea>
                     }
                     @if (TransformationStats != null)
                     {
                         <div class="preview-stats">
-                            <small class="text-muted">
-                                Processed in @TransformationStats.ProcessingTimeMs ms
+                            <div class="stats-content">
+                                <span class="badge bg-success">
+                                    <i class="bi bi-clock"></i> @TransformationStats.ProcessingTimeMs ms
+                                </span>
                                 @if (TransformationStats.HeadersNormalized > 0)
                                 {
-                                    <span> | @TransformationStats.HeadersNormalized headers normalized</span>
+                                    <span class="badge bg-info">
+                                        <i class="bi bi-type-h1"></i> @TransformationStats.HeadersNormalized headers normalized
+                                    </span>
                                 }
                                 @if (TransformationStats.TablesProcessed > 0)
                                 {
-                                    <span> | @TransformationStats.TablesProcessed tables processed</span>
+                                    <span class="badge bg-primary">
+                                        <i class="bi bi-table"></i> @TransformationStats.TablesProcessed tables processed
+                                    </span>
                                 }
-                            </small>
+                                @if (TransformationStats.WarningMessages.Any())
+                                {
+                                    <span class="badge bg-warning text-dark">
+                                        <i class="bi bi-exclamation-triangle"></i> @TransformationStats.WarningMessages.Count warnings
+                                    </span>
+                                }
+                            </div>
                         </div>
                     }
                 }
-                else
+                else if (!IsTransforming)
                 {
                     <div class="text-center p-5 text-muted">
                         <i class="bi bi-eye" style="font-size: 3rem;"></i>
-                        <p class="mt-3">Click "Transform" to preview the output</p>
+                        <p class="mt-3">@(CanTransform ? "Click \"Transform\" to preview the output" : "Select a project and file to begin")</p>
+                        @if (AutoTransform && CanTransform)
+                        {
+                            <p class="small">Auto-transform is enabled. Edit the XSLT to see live preview.</p>
+                        }
                     </div>
                 }
             </div>
@@ -192,6 +236,13 @@
 </div>
 
 @code {
+    // LocalStorage model
+    private class SavedSelection
+    {
+        public string? ProjectId { get; set; }
+        public string? FileName { get; set; }
+    }
+
     // State
     private List<Project>? Projects;
     private List<string>? ProjectFiles;
@@ -211,12 +262,16 @@
     private string? ErrorMessage;
     private string? SuccessMessage;
     private bool ShowSettings = false;
-    private string PreviewMode = "rendered";
+    private bool ShowSource = false;
+    private bool isRestoringFromStorage = false;
 
     // Settings
     private bool UseXslt3Service = false;
     private bool NormalizeHeaders = true;
     private bool AutoTransform = false;
+
+    // Preview Controls
+    private int ZoomLevel = 100;
 
     // Computed Properties
     private bool CanTransform => !string.IsNullOrEmpty(SelectedProjectId)
@@ -225,6 +280,26 @@
                                 && !string.IsNullOrEmpty(XsltContent);
 
     private bool CanSave => !string.IsNullOrEmpty(XsltContent);
+
+    private string FormattedOutputContent
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(OutputContent))
+                return string.Empty;
+
+            try
+            {
+                var doc = XDocument.Parse(OutputContent);
+                return doc.ToString();
+            }
+            catch
+            {
+                // If XML parsing fails, return original content
+                return OutputContent;
+            }
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -345,6 +420,12 @@
             IsLoading = false;
             UpdateToolbarState();
             StateHasChanged();
+
+            // Save selection to localStorage (unless we're restoring)
+            if (!isRestoringFromStorage)
+            {
+                await JSRuntime.InvokeVoidAsync("developmentStorage.saveSelection", SelectedProjectId, SelectedFileName);
+            }
         }
     }
 
@@ -383,6 +464,12 @@
             IsLoadingXml = false;
             UpdateToolbarState();
             StateHasChanged();
+
+            // Save selection to localStorage (unless we're restoring)
+            if (!isRestoringFromStorage)
+            {
+                await JSRuntime.InvokeVoidAsync("developmentStorage.saveSelection", SelectedProjectId, SelectedFileName);
+            }
         }
     }
 
@@ -418,7 +505,7 @@
             {
                 OutputContent = result.OutputContent;
                 TransformationStats = result;
-                Logger.LogInformation("Transformation successful in {Time}ms", result.ProcessingTimeMs);
+                Logger.LogInformation("Transformation successful in {Time}ms. OutputContent length: {Length}", result.ProcessingTimeMs, OutputContent?.Length ?? 0);
 
                 if (result.WarningMessages.Any())
                 {
@@ -440,6 +527,7 @@
         {
             IsTransforming = false;
             UpdateToolbarState();
+            StateHasChanged();
         }
     }
 
@@ -469,6 +557,7 @@
         {
             IsSaving = false;
             UpdateToolbarState();
+            StateHasChanged();
         }
     }
 
@@ -496,14 +585,89 @@
         StateHasChanged();
     }
 
-    private void SetRenderedMode()
+    // Zoom controls
+    private void ZoomIn()
     {
-        PreviewMode = "rendered";
+        if (ZoomLevel < 200)
+        {
+            ZoomLevel += 10;
+            StateHasChanged();
+        }
     }
 
-    private void SetSourceMode()
+    private void ZoomOut()
     {
-        PreviewMode = "source";
+        if (ZoomLevel > 50)
+        {
+            ZoomLevel -= 10;
+            StateHasChanged();
+        }
+    }
+
+    private void ResetZoom()
+    {
+        ZoomLevel = 100;
+        StateHasChanged();
+    }
+
+    // Copy to clipboard
+    private async Task CopyToClipboard()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(OutputContent))
+            {
+                await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", OutputContent);
+                SuccessMessage = "Output copied to clipboard";
+                Logger.LogInformation("Output copied to clipboard");
+                StateHasChanged();
+
+                // Auto-dismiss success message after 3 seconds
+                _ = Task.Delay(3000).ContinueWith(_ =>
+                {
+                    SuccessMessage = null;
+                    InvokeAsync(StateHasChanged);
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error copying to clipboard");
+            ErrorMessage = $"Failed to copy to clipboard: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    // Download output
+    private async Task DownloadOutput()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(OutputContent))
+            {
+                var fileName = $"{SelectedProjectId ?? "output"}_{DateTime.Now:yyyyMMdd_HHmmss}.xhtml";
+                var bytes = System.Text.Encoding.UTF8.GetBytes(OutputContent);
+                var base64 = Convert.ToBase64String(bytes);
+
+                await JSRuntime.InvokeVoidAsync("downloadFile", fileName, "application/xhtml+xml", base64);
+                SuccessMessage = $"Downloaded {fileName}";
+                Logger.LogInformation("Downloaded output as {FileName}", fileName);
+                StateHasChanged();
+
+                // Auto-dismiss success message after 3 seconds
+                _ = Task.Delay(3000).ContinueWith(_ =>
+                {
+                    SuccessMessage = null;
+                    InvokeAsync(StateHasChanged);
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error downloading output");
+            ErrorMessage = $"Failed to download output: {ex.Message}";
+            StateHasChanged();
+        }
     }
 
     // Monaco Editor Integration
@@ -512,23 +676,73 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender && !string.IsNullOrEmpty(XsltContent) && !monacoInitialized)
+        if (firstRender)
         {
+            // Wait a bit to ensure JavaScript files are fully loaded
+            await Task.Delay(200);
+
+            // Initialize Monaco Editor
+            if (!string.IsNullOrEmpty(XsltContent) && !monacoInitialized)
+            {
+                try
+                {
+                    dotNetRef = DotNetObjectReference.Create(this);
+                    await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.initialize",
+                        "monaco-editor-container",
+                        XsltContent,
+                        dotNetRef,
+                        "vs-light");
+                    monacoInitialized = true;
+                    Logger.LogInformation("Monaco Editor initialized successfully");
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "Failed to initialize Monaco Editor");
+                    ErrorMessage = "Failed to initialize code editor. Using fallback mode.";
+                }
+            }
+
+            // Load saved selections from localStorage and restore them
+
             try
             {
-                dotNetRef = DotNetObjectReference.Create(this);
-                await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.initialize",
-                    "monaco-editor-container",
-                    XsltContent,
-                    dotNetRef,
-                    "vs-light");
-                monacoInitialized = true;
-                Logger.LogInformation("Monaco Editor initialized successfully");
+                var savedSelection = await JSRuntime.InvokeAsync<SavedSelection>("developmentStorage.loadSelection");
+                if (savedSelection != null && !string.IsNullOrEmpty(savedSelection.ProjectId))
+                {
+                    Logger.LogInformation("Restoring saved selection: Project={Project}, File={File}",
+                        savedSelection.ProjectId, savedSelection.FileName);
+
+                    // Set flag to prevent saving during restoration
+                    isRestoringFromStorage = true;
+
+                    try
+                    {
+                        // Restore project selection
+                        await OnProjectChanged(new ChangeEventArgs { Value = savedSelection.ProjectId });
+
+                        // Restore file selection if available
+                        if (!string.IsNullOrEmpty(savedSelection.FileName))
+                        {
+                            // Wait for project files to load
+                            await Task.Delay(800);
+                            await OnFileChanged(new ChangeEventArgs { Value = savedSelection.FileName });
+                        }
+                    }
+                    finally
+                    {
+                        // Clear the flag after restoration is complete
+                        isRestoringFromStorage = false;
+                    }
+                }
+                else
+                {
+                    Logger.LogInformation("No saved selection found in localStorage");
+                }
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Failed to initialize Monaco Editor");
-                ErrorMessage = "Failed to initialize code editor. Using fallback mode.";
+                Logger.LogWarning(ex, "Could not restore saved selection from localStorage");
+                isRestoringFromStorage = false;
             }
         }
     }
