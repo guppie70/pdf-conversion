@@ -1,33 +1,840 @@
 @page "/production"
+@using PdfConversion.Services
+@using PdfConversion.Models
+@using Microsoft.JSInterop
+@using System.Text
+@implements IDisposable
+@inject IProjectManagementService ProjectService
+@inject IXsltTransformationService XsltService
+@inject IJSRuntime JSRuntime
+@inject ILogger<Production> Logger
+@inject NavigationManager Navigation
 
-<PageTitle>Production Mode</PageTitle>
+<PageTitle>Production Mode - Batch Processing</PageTitle>
 
-<h1>Production Mode</h1>
+<!-- Error Display -->
+@if (!string.IsNullOrEmpty(ErrorMessage))
+{
+    <div class="alert alert-danger alert-dismissible fade show m-3" role="alert">
+        <strong>Error:</strong> @ErrorMessage
+        <button type="button" class="btn-close" @onclick="() => ErrorMessage = null"></button>
+    </div>
+}
 
-<div class="alert alert-warning" role="alert">
-    <h4 class="alert-heading">Batch Processing</h4>
-    <p>This page will provide batch transformation capabilities for all projects:</p>
-    <ul>
-        <li>Project list with status indicators</li>
-        <li>Bulk transformation execution</li>
-        <li>Error reporting and logging</li>
-        <li>Export functionality</li>
-    </ul>
-</div>
+@if (!string.IsNullOrEmpty(SuccessMessage))
+{
+    <div class="alert alert-success alert-dismissible fade show m-3" role="alert">
+        <strong>Success:</strong> @SuccessMessage
+        <button type="button" class="btn-close" @onclick="() => SuccessMessage = null"></button>
+    </div>
+}
 
-<div class="row">
-    <div class="col-md-12">
-        <div class="card">
-            <div class="card-header">
-                <h5>Available Projects</h5>
+<div class="production-container">
+    <!-- Batch Operations Toolbar -->
+    <div class="batch-toolbar">
+        <div class="toolbar-group">
+            <button class="btn btn-primary" @onclick="TransformAllAsync" disabled="@(IsProcessing || ProjectStatuses.Count == 0)">
+                <i class="bi bi-lightning-fill"></i> Transform All
+            </button>
+            <button class="btn btn-success" @onclick="TransformSelectedAsync"
+                    disabled="@(IsProcessing || !HasSelectedProjects)">
+                <i class="bi bi-check-circle-fill"></i> Transform Selected (@SelectedCount)
+            </button>
+            <button class="btn btn-warning" @onclick="RetryFailedAsync"
+                    disabled="@(IsProcessing || !HasFailedProjects)">
+                <i class="bi bi-arrow-clockwise"></i> Retry Failed
+            </button>
+        </div>
+        <div class="toolbar-group">
+            <div class="dropdown">
+                <button class="btn btn-outline-secondary dropdown-toggle" type="button"
+                        id="filterDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="bi bi-funnel"></i> Filter: @SelectedFilter
+                </button>
+                <ul class="dropdown-menu" aria-labelledby="filterDropdown">
+                    <li><a class="dropdown-item" @onclick='() => SetFilter("All")'>All</a></li>
+                    <li><a class="dropdown-item" @onclick='() => SetFilter("NotStarted")'>Not Started</a></li>
+                    <li><a class="dropdown-item" @onclick='() => SetFilter("InProgress")'>In Progress</a></li>
+                    <li><a class="dropdown-item" @onclick='() => SetFilter("Completed")'>Completed</a></li>
+                    <li><a class="dropdown-item" @onclick='() => SetFilter("Error")'>Error</a></li>
+                </ul>
             </div>
-            <div class="card-body">
-                <p class="text-muted">Project list and batch operations will be implemented here.</p>
-            </div>
+            <button class="btn btn-info" @onclick="ExportResultsAsync"
+                    disabled="@(IsProcessing || !HasCompletedProjects)">
+                <i class="bi bi-download"></i> Export Results
+            </button>
+            <button class="btn btn-danger" @onclick="ClearResultsAsync"
+                    disabled="@IsProcessing">
+                <i class="bi bi-trash"></i> Clear Results
+            </button>
         </div>
     </div>
+
+    <!-- Progress Tracking (visible during processing) -->
+    @if (IsProcessing)
+    {
+        <div class="progress-panel">
+            <div class="progress-header">
+                <h5 class="mb-2">
+                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                    Processing Projects...
+                </h5>
+                <button class="btn btn-sm btn-outline-danger" @onclick="CancelProcessing">
+                    <i class="bi bi-x-circle"></i> Cancel
+                </button>
+            </div>
+            <div class="progress-body">
+                <div class="progress-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">Progress:</span>
+                        <span class="stat-value">@TotalProcessed / @TotalToProcess projects</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Success:</span>
+                        <span class="stat-value text-success">@SuccessCount</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Errors:</span>
+                        <span class="stat-value text-danger">@ErrorCount</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Elapsed:</span>
+                        <span class="stat-value">@ElapsedTime</span>
+                    </div>
+                    @if (EstimatedTimeRemaining != null)
+                    {
+                        <div class="stat-item">
+                            <span class="stat-label">Est. Remaining:</span>
+                            <span class="stat-value">@EstimatedTimeRemaining</span>
+                        </div>
+                    }
+                </div>
+                <div class="progress mb-2">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated"
+                         role="progressbar"
+                         style="width: @ProgressPercentage%"
+                         aria-valuenow="@ProgressPercentage"
+                         aria-valuemin="0"
+                         aria-valuemax="100">
+                        @ProgressPercentage%
+                    </div>
+                </div>
+                @if (!string.IsNullOrEmpty(CurrentFile))
+                {
+                    <div class="current-file">
+                        <small class="text-muted">Processing: <strong>@CurrentFile</strong></small>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- Results Summary (visible after processing) -->
+    @if (HasProcessedAny && !IsProcessing)
+    {
+        <div class="results-summary">
+            <h5 class="mb-3">Results Summary</h5>
+            <div class="summary-stats">
+                <div class="summary-card">
+                    <div class="summary-icon bg-primary">
+                        <i class="bi bi-files"></i>
+                    </div>
+                    <div class="summary-content">
+                        <div class="summary-value">@TotalProcessed</div>
+                        <div class="summary-label">Total Processed</div>
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-icon bg-success">
+                        <i class="bi bi-check-circle"></i>
+                    </div>
+                    <div class="summary-content">
+                        <div class="summary-value">@SuccessCount</div>
+                        <div class="summary-label">Success</div>
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-icon bg-danger">
+                        <i class="bi bi-x-circle"></i>
+                    </div>
+                    <div class="summary-content">
+                        <div class="summary-value">@ErrorCount</div>
+                        <div class="summary-label">Errors</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Projects Grid -->
+    <div class="projects-grid">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th style="width: 50px;">
+                        <input type="checkbox" class="form-check-input"
+                               @bind="SelectAll"
+                               @bind:after="ToggleSelectAll" />
+                    </th>
+                    <th @onclick='() => SortBy("ProjectId")' style="cursor: pointer;">
+                        Project ID @SortIndicator("ProjectId")
+                    </th>
+                    <th @onclick='() => SortBy("Status")' style="cursor: pointer;">
+                        Status @SortIndicator("Status")
+                    </th>
+                    <th @onclick='() => SortBy("FileCount")' style="cursor: pointer;">
+                        File Count @SortIndicator("FileCount")
+                    </th>
+                    <th @onclick='() => SortBy("LastProcessed")' style="cursor: pointer;">
+                        Last Processed @SortIndicator("LastProcessed")
+                    </th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (IsLoading)
+                {
+                    <tr>
+                        <td colspan="6" class="text-center py-5">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading projects...</span>
+                            </div>
+                            <p class="mt-2 text-muted">Loading projects...</p>
+                        </td>
+                    </tr>
+                }
+                else if (!FilteredProjectStatuses.Any())
+                {
+                    <tr>
+                        <td colspan="6" class="text-center py-5 text-muted">
+                            <i class="bi bi-inbox" style="font-size: 3rem;"></i>
+                            <p class="mt-3">No projects found matching the current filter</p>
+                        </td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var project in FilteredProjectStatuses)
+                    {
+                        <tr class="@GetRowClass(project)">
+                            <td>
+                                <input type="checkbox" class="form-check-input"
+                                       @bind="project.IsSelected"
+                                       @bind:after="OnSelectionChanged"
+                                       disabled="@IsProcessing" />
+                            </td>
+                            <td>
+                                <strong>@project.ProjectId</strong>
+                                <br />
+                                <small class="text-muted">@project.Name</small>
+                            </td>
+                            <td>
+                                @GetStatusBadge(project)
+                            </td>
+                            <td>
+                                @project.FileCount
+                                @if (project.ProcessedFiles.Any())
+                                {
+                                    <br />
+                                    <small class="text-muted">(@project.ProcessedFiles.Count processed)</small>
+                                }
+                            </td>
+                            <td>
+                                @if (project.LastProcessed.HasValue)
+                                {
+                                    <span>@project.LastProcessed.Value.ToString("yyyy-MM-dd HH:mm")</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">Never</span>
+                                }
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-primary"
+                                        @onclick="() => TransformProjectAsync(project)"
+                                        disabled="@(IsProcessing || project.Status == "InProgress")">
+                                    <i class="bi bi-play-fill"></i> Transform
+                                </button>
+                                @if (project.Status == "Completed")
+                                {
+                                    <button class="btn btn-sm btn-success"
+                                            @onclick="() => DownloadProjectOutputAsync(project)"
+                                            disabled="@IsProcessing">
+                                        <i class="bi bi-download"></i> Download
+                                    </button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Error Details Section -->
+    @if (Errors.Any())
+    {
+        <div class="error-details mt-4">
+            <div class="accordion" id="errorAccordion">
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="headingErrors">
+                        <button class="accordion-button" type="button"
+                                data-bs-toggle="collapse"
+                                data-bs-target="#collapseErrors"
+                                aria-expanded="true"
+                                aria-controls="collapseErrors">
+                            <i class="bi bi-exclamation-triangle-fill text-danger me-2"></i>
+                            Error Details (@Errors.Count errors)
+                        </button>
+                    </h2>
+                    <div id="collapseErrors" class="accordion-collapse collapse show"
+                         aria-labelledby="headingErrors" data-bs-parent="#errorAccordion">
+                        <div class="accordion-body">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Timestamp</th>
+                                            <th>Project ID</th>
+                                            <th>File</th>
+                                            <th>Error Message</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var error in Errors)
+                                        {
+                                            <tr>
+                                                <td>@error.Timestamp.ToString("HH:mm:ss")</td>
+                                                <td><strong>@error.ProjectId</strong></td>
+                                                <td>@(error.FileName ?? "N/A")</td>
+                                                <td class="text-danger">@error.ErrorMessage</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
 </div>
 
 @code {
-    // TODO: Implement production mode functionality
+    // Project status tracking
+    private class ProjectStatusInfo
+    {
+        public string ProjectId { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string Status { get; set; } = "NotStarted";
+        public int FileCount { get; set; }
+        public DateTime? LastProcessed { get; set; }
+        public bool IsSelected { get; set; }
+        public string? ErrorMessage { get; set; }
+        public List<string> ProcessedFiles { get; set; } = new();
+    }
+
+    // Error tracking
+    private class ErrorInfo
+    {
+        public DateTime Timestamp { get; set; } = DateTime.Now;
+        public string ProjectId { get; set; } = string.Empty;
+        public string? FileName { get; set; }
+        public string ErrorMessage { get; set; } = string.Empty;
+    }
+
+    // State
+    private List<ProjectStatusInfo> ProjectStatuses = new();
+    private List<ErrorInfo> Errors = new();
+
+    private bool IsLoading = true;
+    private bool IsProcessing = false;
+    private bool CancellationRequested = false;
+    private string? ErrorMessage;
+    private string? SuccessMessage;
+    private string? CurrentFile;
+
+    // Progress tracking
+    private int TotalProcessed = 0;
+    private int TotalToProcess = 0;
+    private int SuccessCount = 0;
+    private int ErrorCount = 0;
+    private DateTime? StartTime;
+    private System.Timers.Timer? elapsedTimer;
+
+    // Sorting and filtering
+    private string SortColumn = "ProjectId";
+    private bool SortAscending = true;
+    private string SelectedFilter = "All";
+    private bool SelectAll = false;
+
+    // Computed properties
+    private bool HasSelectedProjects => ProjectStatuses.Any(p => p.IsSelected);
+    private int SelectedCount => ProjectStatuses.Count(p => p.IsSelected);
+    private bool HasFailedProjects => ProjectStatuses.Any(p => p.Status == "Error");
+    private bool HasCompletedProjects => ProjectStatuses.Any(p => p.Status == "Completed");
+    private bool HasProcessedAny => TotalProcessed > 0;
+    private int ProgressPercentage => TotalToProcess > 0 ? (TotalProcessed * 100 / TotalToProcess) : 0;
+
+    private string ElapsedTime
+    {
+        get
+        {
+            if (StartTime == null) return "00:00";
+            var elapsed = DateTime.Now - StartTime.Value;
+            return $"{elapsed.Minutes:D2}:{elapsed.Seconds:D2}";
+        }
+    }
+
+    private string? EstimatedTimeRemaining
+    {
+        get
+        {
+            if (StartTime == null || TotalProcessed == 0 || TotalToProcess == 0) return null;
+            var elapsed = DateTime.Now - StartTime.Value;
+            var avgTimePerProject = elapsed.TotalSeconds / TotalProcessed;
+            var remaining = (TotalToProcess - TotalProcessed) * avgTimePerProject;
+            var timeSpan = TimeSpan.FromSeconds(remaining);
+            return $"{timeSpan.Minutes:D2}:{timeSpan.Seconds:D2}";
+        }
+    }
+
+    private IEnumerable<ProjectStatusInfo> FilteredProjectStatuses
+    {
+        get
+        {
+            var filtered = SelectedFilter == "All"
+                ? ProjectStatuses
+                : ProjectStatuses.Where(p => p.Status == SelectedFilter);
+
+            return SortColumn switch
+            {
+                "ProjectId" => SortAscending
+                    ? filtered.OrderBy(p => p.ProjectId)
+                    : filtered.OrderByDescending(p => p.ProjectId),
+                "Status" => SortAscending
+                    ? filtered.OrderBy(p => p.Status)
+                    : filtered.OrderByDescending(p => p.Status),
+                "FileCount" => SortAscending
+                    ? filtered.OrderBy(p => p.FileCount)
+                    : filtered.OrderByDescending(p => p.FileCount),
+                "LastProcessed" => SortAscending
+                    ? filtered.OrderBy(p => p.LastProcessed ?? DateTime.MinValue)
+                    : filtered.OrderByDescending(p => p.LastProcessed ?? DateTime.MinValue),
+                _ => filtered
+            };
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProjectsAsync();
+
+        // Set up elapsed time timer
+        elapsedTimer = new System.Timers.Timer(1000); // Update every second
+        elapsedTimer.Elapsed += (sender, e) => InvokeAsync(StateHasChanged);
+        elapsedTimer.AutoReset = true;
+    }
+
+    private async Task LoadProjectsAsync()
+    {
+        try
+        {
+            IsLoading = true;
+            ErrorMessage = null;
+            StateHasChanged();
+
+            var projects = await ProjectService.GetProjectsAsync();
+
+            ProjectStatuses = projects.Select(p => new ProjectStatusInfo
+            {
+                ProjectId = p.ProjectId,
+                Name = p.Name,
+                Status = p.Status.ToString(),
+                FileCount = p.FileCount,
+                LastProcessed = p.LastProcessedDate,
+                IsSelected = false
+            }).ToList();
+
+            Logger.LogInformation("Loaded {Count} projects", ProjectStatuses.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading projects");
+            ErrorMessage = $"Failed to load projects: {ex.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task TransformAllAsync()
+    {
+        var allProjects = ProjectStatuses.ToList();
+        await TransformProjectsAsync(allProjects);
+    }
+
+    private async Task TransformSelectedAsync()
+    {
+        var selectedProjects = ProjectStatuses.Where(p => p.IsSelected).ToList();
+        await TransformProjectsAsync(selectedProjects);
+    }
+
+    private async Task RetryFailedAsync()
+    {
+        var failedProjects = ProjectStatuses.Where(p => p.Status == "Error").ToList();
+
+        // Clear previous errors for retry
+        foreach (var project in failedProjects)
+        {
+            project.ErrorMessage = null;
+            project.ProcessedFiles.Clear();
+        }
+
+        await TransformProjectsAsync(failedProjects);
+    }
+
+    private async Task TransformProjectAsync(ProjectStatusInfo project)
+    {
+        await TransformProjectsAsync(new List<ProjectStatusInfo> { project });
+    }
+
+    private async Task TransformProjectsAsync(List<ProjectStatusInfo> projects)
+    {
+        if (!projects.Any()) return;
+
+        IsProcessing = true;
+        CancellationRequested = false;
+        StartTime = DateTime.Now;
+        TotalToProcess = projects.Count;
+        TotalProcessed = 0;
+        SuccessCount = 0;
+        ErrorCount = 0;
+        Errors.Clear();
+        elapsedTimer?.Start();
+        StateHasChanged();
+
+        try
+        {
+            // Load XSLT template once
+            var xsltPath = "/app/xslt/transformation.xslt";
+            string xsltContent;
+
+            if (File.Exists(xsltPath))
+            {
+                xsltContent = await File.ReadAllTextAsync(xsltPath);
+            }
+            else
+            {
+                ErrorMessage = "XSLT template not found at /app/xslt/transformation.xslt";
+                return;
+            }
+
+            var options = new TransformationOptions
+            {
+                UseXslt3Service = false,
+                NormalizeHeaders = true
+            };
+
+            foreach (var project in projects)
+            {
+                if (CancellationRequested)
+                {
+                    Logger.LogInformation("Batch processing cancelled by user");
+                    SuccessMessage = $"Processing cancelled. Completed {SuccessCount} of {TotalToProcess} projects.";
+                    break;
+                }
+
+                project.Status = "InProgress";
+                project.ErrorMessage = null;
+                project.ProcessedFiles.Clear();
+                StateHasChanged();
+
+                try
+                {
+                    var files = await ProjectService.GetProjectFilesAsync(project.ProjectId);
+                    var filesList = files.ToList();
+
+                    if (!filesList.Any())
+                    {
+                        throw new Exception("No XML files found in project");
+                    }
+
+                    // Combine all files for this project
+                    var combinedOutput = new StringBuilder();
+                    var hasErrors = false;
+
+                    foreach (var file in filesList)
+                    {
+                        CurrentFile = $"{project.ProjectId}/{file}";
+                        StateHasChanged();
+
+                        try
+                        {
+                            var xmlContent = await ProjectService.ReadInputFileAsync(project.ProjectId, file);
+                            var result = await XsltService.TransformAsync(xmlContent, xsltContent, options);
+
+                            if (result.IsSuccess)
+                            {
+                                combinedOutput.AppendLine(result.OutputContent);
+                                project.ProcessedFiles.Add(file);
+                            }
+                            else
+                            {
+                                hasErrors = true;
+                                ErrorCount++;
+                                Errors.Add(new ErrorInfo
+                                {
+                                    ProjectId = project.ProjectId,
+                                    FileName = file,
+                                    ErrorMessage = result.ErrorMessage
+                                });
+                                Logger.LogError("Transformation failed for {ProjectId}/{File}: {Error}",
+                                    project.ProjectId, file, result.ErrorMessage);
+                            }
+                        }
+                        catch (Exception fileEx)
+                        {
+                            hasErrors = true;
+                            ErrorCount++;
+                            Errors.Add(new ErrorInfo
+                            {
+                                ProjectId = project.ProjectId,
+                                FileName = file,
+                                ErrorMessage = fileEx.Message
+                            });
+                            Logger.LogError(fileEx, "Error processing file {ProjectId}/{File}", project.ProjectId, file);
+                        }
+                    }
+
+                    // Save combined output
+                    if (combinedOutput.Length > 0)
+                    {
+                        await ProjectService.SaveOutputAsync(project.ProjectId, combinedOutput.ToString());
+                        project.LastProcessed = DateTime.Now;
+
+                        if (hasErrors)
+                        {
+                            project.Status = "Error";
+                            project.ErrorMessage = $"Processed {project.ProcessedFiles.Count} of {filesList.Count} files with errors";
+                        }
+                        else
+                        {
+                            project.Status = "Completed";
+                            SuccessCount++;
+                        }
+                    }
+                    else
+                    {
+                        project.Status = "Error";
+                        project.ErrorMessage = "No files were successfully processed";
+                        ErrorCount++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    project.Status = "Error";
+                    project.ErrorMessage = ex.Message;
+                    ErrorCount++;
+                    Errors.Add(new ErrorInfo
+                    {
+                        ProjectId = project.ProjectId,
+                        ErrorMessage = ex.Message
+                    });
+                    Logger.LogError(ex, "Error processing project {ProjectId}", project.ProjectId);
+                }
+
+                TotalProcessed++;
+                CurrentFile = null;
+                StateHasChanged();
+            }
+
+            if (!CancellationRequested)
+            {
+                SuccessMessage = $"Batch processing complete! Successfully processed {SuccessCount} of {TotalToProcess} projects.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Fatal error during batch processing");
+            ErrorMessage = $"Batch processing failed: {ex.Message}";
+        }
+        finally
+        {
+            IsProcessing = false;
+            elapsedTimer?.Stop();
+            CurrentFile = null;
+            StateHasChanged();
+        }
+    }
+
+    private void CancelProcessing()
+    {
+        CancellationRequested = true;
+        Logger.LogInformation("Cancellation requested");
+    }
+
+    private async Task ExportResultsAsync()
+    {
+        try
+        {
+            // TODO: Implement ZIP export functionality
+            // This would require adding a ZipArchive library and creating a service
+            SuccessMessage = "Export functionality coming soon!";
+            Logger.LogInformation("Export results requested");
+            await Task.CompletedTask;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error exporting results");
+            ErrorMessage = $"Failed to export results: {ex.Message}";
+        }
+    }
+
+    private async Task ClearResultsAsync()
+    {
+        try
+        {
+            var confirmed = await JSRuntime.InvokeAsync<bool>("confirm",
+                "Are you sure you want to clear all results? This will reset all project statuses.");
+
+            if (confirmed)
+            {
+                foreach (var project in ProjectStatuses)
+                {
+                    project.Status = "NotStarted";
+                    project.LastProcessed = null;
+                    project.ErrorMessage = null;
+                    project.ProcessedFiles.Clear();
+                    project.IsSelected = false;
+                }
+
+                TotalProcessed = 0;
+                SuccessCount = 0;
+                ErrorCount = 0;
+                Errors.Clear();
+
+                SuccessMessage = "All results cleared successfully";
+                Logger.LogInformation("Results cleared");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error clearing results");
+            ErrorMessage = $"Failed to clear results: {ex.Message}";
+        }
+    }
+
+    private async Task DownloadProjectOutputAsync(ProjectStatusInfo project)
+    {
+        try
+        {
+            var outputPath = $"/app/data/output/optiver/projects/{project.ProjectId}/taxxor.xhtml";
+
+            if (File.Exists(outputPath))
+            {
+                var content = await File.ReadAllTextAsync(outputPath);
+                var fileName = $"{project.ProjectId}_taxxor.xhtml";
+                var bytes = System.Text.Encoding.UTF8.GetBytes(content);
+                var base64 = Convert.ToBase64String(bytes);
+
+                await JSRuntime.InvokeVoidAsync("downloadFile", fileName, "application/xhtml+xml", base64);
+                Logger.LogInformation("Downloaded output for project {ProjectId}", project.ProjectId);
+            }
+            else
+            {
+                ErrorMessage = $"Output file not found for project {project.ProjectId}";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error downloading project output");
+            ErrorMessage = $"Failed to download output: {ex.Message}";
+        }
+    }
+
+    // Sorting
+    private void SortBy(string column)
+    {
+        if (SortColumn == column)
+        {
+            SortAscending = !SortAscending;
+        }
+        else
+        {
+            SortColumn = column;
+            SortAscending = true;
+        }
+        StateHasChanged();
+    }
+
+    private MarkupString SortIndicator(string column)
+    {
+        if (SortColumn != column) return (MarkupString)string.Empty;
+        return (MarkupString)(SortAscending ? "▲" : "▼");
+    }
+
+    // Filtering
+    private void SetFilter(string filter)
+    {
+        SelectedFilter = filter;
+        StateHasChanged();
+    }
+
+    // Selection
+    private void ToggleSelectAll()
+    {
+        foreach (var project in ProjectStatuses)
+        {
+            project.IsSelected = SelectAll;
+        }
+        StateHasChanged();
+    }
+
+    private void OnSelectionChanged()
+    {
+        SelectAll = ProjectStatuses.All(p => p.IsSelected);
+        StateHasChanged();
+    }
+
+    // UI Helpers
+    private string GetRowClass(ProjectStatusInfo project)
+    {
+        return project.Status switch
+        {
+            "InProgress" => "table-info",
+            "Completed" => "table-success",
+            "Error" => "table-danger",
+            _ => ""
+        };
+    }
+
+    private RenderFragment GetStatusBadge(ProjectStatusInfo project) => __builder =>
+    {
+        var (badgeClass, icon, text) = project.Status switch
+        {
+            "NotStarted" => ("bg-secondary", "bi-circle", "Not Started"),
+            "InProgress" => ("bg-primary", "bi-arrow-repeat spin", "In Progress"),
+            "Completed" => ("bg-success", "bi-check-circle-fill", "Completed"),
+            "Error" => ("bg-danger", "bi-x-circle-fill", "Error"),
+            _ => ("bg-secondary", "bi-circle", project.Status)
+        };
+
+        <span class="badge @badgeClass">
+            <i class="bi @icon"></i> @text
+        </span>
+        @if (!string.IsNullOrEmpty(project.ErrorMessage))
+        {
+            <br />
+            <small class="text-danger">@project.ErrorMessage</small>
+        }
+    };
+
+    public void Dispose()
+    {
+        elapsedTimer?.Dispose();
+    }
 }
