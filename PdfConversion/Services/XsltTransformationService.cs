@@ -134,6 +134,7 @@ public class XsltTransformationService : IXsltTransformationService
             var cacheKey = CacheKeyPrefix + ComputeHash(xsltContent);
             var transform = _cache.GetOrCreate(cacheKey, entry =>
             {
+                entry.SetSize(1); // 1 entry = 1 size unit
                 entry.AbsoluteExpirationRelativeToNow = CacheDuration;
                 _logger.LogDebug("Compiling and caching XSLT template");
                 return CompileXslt(xsltContent);

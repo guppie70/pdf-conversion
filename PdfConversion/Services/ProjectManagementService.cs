@@ -100,7 +100,10 @@ public class ProjectManagementService : IProjectManagementService
             }
 
             // Cache the results
-            _cache.Set(ProjectsCacheKey, projects, CacheDuration);
+            var cacheOptions = new MemoryCacheEntryOptions()
+                .SetSize(1) // 1 entry = 1 size unit
+                .SetAbsoluteExpiration(CacheDuration);
+            _cache.Set(ProjectsCacheKey, projects, cacheOptions);
 
             _logger.LogInformation("Found {Count} projects in {Path}", projects.Count, _inputBasePath);
             return projects;
