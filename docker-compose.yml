@@ -40,6 +40,11 @@ services:
     networks:
       - blazornetwork
     restart: unless-stopped
+    volumes:
+      - ./config/Xslt3Service:/mnt/_config
+    environment:
+      - LOG_FILE=/tmp/xslt3service.log
+      - LOGGING_LEVEL_ROOT=INFO
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4806/health"]
       interval: 30s
@@ -55,3 +60,4 @@ networks:
 volumes:
   pdfconversion-obj:
   pdfconversion-bin:
+  xslt3service-logs:
