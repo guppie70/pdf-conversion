@@ -1,7 +1,10 @@
 ﻿@inherits LayoutComponentBase
 @using PdfConversion.Services
+@using PdfConversion.Shared
 @inject NavigationManager Navigation
 @inject DevelopmentToolbarState ToolbarState
+@inject ThemeService ThemeService
+@inject IJSRuntime JSRuntime
 @implements IDisposable
 
 <PageTitle>PdfConversion</PageTitle>
@@ -42,7 +45,7 @@
                 </select>
 
                 <div class="nav-toolbar-actions">
-                    <button class="btn btn-sm btn-light" @onclick="OnTransform" disabled="@(!ToolbarState.CanTransform || ToolbarState.IsTransforming)" title="Transform">
+                    <button class="btn btn-sm btn-light" @onclick="OnTransform" disabled="@(!ToolbarState.CanTransform || ToolbarState.IsTransforming)" title="Transform (Ctrl+Enter)" data-bs-toggle="tooltip">
                         @if (ToolbarState.IsTransforming)
                         {
                             <span class="spinner-border spinner-border-sm"></span>
@@ -52,7 +55,7 @@
                             <i class="bi bi-play-fill"></i>
                         }
                     </button>
-                    <button class="btn btn-sm btn-success" @onclick="OnSave" disabled="@(!ToolbarState.CanSave || ToolbarState.IsSaving)" title="Save XSLT">
+                    <button class="btn btn-sm btn-success" @onclick="OnSave" disabled="@(!ToolbarState.CanSave || ToolbarState.IsSaving)" title="Save XSLT (Ctrl+S)" data-bs-toggle="tooltip">
                         @if (ToolbarState.IsSaving)
                         {
                             <span class="spinner-border spinner-border-sm"></span>
@@ -62,12 +65,21 @@
                             <i class="bi bi-save"></i>
                         }
                     </button>
-                    <button class="btn btn-sm btn-secondary" @onclick="OnReset" disabled="@ToolbarState.IsLoading" title="Reset">
+                    <button class="btn btn-sm btn-secondary" @onclick="OnReset" disabled="@ToolbarState.IsLoading" title="Reset" data-bs-toggle="tooltip">
                         <i class="bi bi-arrow-counterclockwise"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-light" @onclick="OnToggleSettings" title="Settings">
+                    <button class="btn btn-sm btn-outline-light" @onclick="OnToggleSettings" title="Settings" data-bs-toggle="tooltip">
                         <i class="bi bi-gear-fill"></i>
                     </button>
+                    <button class="btn btn-sm btn-outline-light" @onclick="ToggleHelp" title="Help (?)" data-bs-toggle="tooltip">
+                        <i class="bi bi-question-circle"></i>
+                    </button>
+                    <label class="theme-toggle ms-2" title="Toggle dark/light theme">
+                        <input type="checkbox" checked="@(ThemeService.CurrentTheme == "dark")" @onchange="ToggleTheme">
+                        <span class="theme-toggle-slider"></span>
+                        <i class="bi bi-sun-fill theme-toggle-icon sun"></i>
+                        <i class="bi bi-moon-fill theme-toggle-icon moon"></i>
+                    </label>
                 </div>
             </div>
         }
@@ -78,15 +90,30 @@
             @Body
         </article>
     </main>
+
+    <ToastNotification />
+    <HelpPanel IsVisible="@ShowHelp" OnClose="ToggleHelp" />
 </div>
 
 @code {
     private bool IsOnDevelopmentPage => Navigation.Uri.Contains("/development", StringComparison.OrdinalIgnoreCase);
+    private bool ShowHelp = false;
 
     protected override void OnInitialized()
     {
         Navigation.LocationChanged += OnLocationChanged;
         ToolbarState.OnChange += StateHasChanged;
+        ThemeService.OnThemeChanged += StateHasChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Initialize theme from localStorage
+            await JSRuntime.InvokeVoidAsync("ThemeManager.initialize");
+            await JSRuntime.InvokeVoidAsync("TooltipManager.initialize");
+        }
     }
 
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
@@ -139,9 +166,23 @@
         ToolbarState.OnToggleSettings?.Invoke();
     }
 
+    private void ToggleHelp()
+    {
+        ShowHelp = !ShowHelp;
+        StateHasChanged();
+    }
+
+    private async Task ToggleTheme()
+    {
+        var newTheme = await JSRuntime.InvokeAsync<string>("ThemeManager.toggleTheme");
+        ThemeService.SetTheme(newTheme);
+        StateHasChanged();
+    }
+
     public void Dispose()
     {
         Navigation.LocationChanged -= OnLocationChanged;
         ToolbarState.OnChange -= StateHasChanged;
+        ThemeService.OnThemeChanged -= StateHasChanged;
     }
 }

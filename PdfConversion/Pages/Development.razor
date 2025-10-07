@@ -1,7 +1,9 @@
 @page "/development"
 @using PdfConversion.Services
 @using PdfConversion.Models
+@using PdfConversion.Shared
 @using Microsoft.JSInterop
+@using static PdfConversion.Shared.LoadingSkeleton
 @implements IAsyncDisposable
 @inject IProjectManagementService ProjectService
 @inject IXsltTransformationService XsltService
@@ -9,6 +11,7 @@
 @inject IJSRuntime JSRuntime
 @inject ILogger<Development> Logger
 @inject DevelopmentToolbarState ToolbarState
+@inject ThemeService ThemeService
 
 <PageTitle>Development Mode</PageTitle>
 
@@ -51,23 +54,6 @@
     </div>
 }
 
-<!-- Error Display -->
-@if (!string.IsNullOrEmpty(ErrorMessage))
-{
-    <div class="alert alert-danger alert-dismissible fade show m-3" role="alert">
-        <strong>Error:</strong> @ErrorMessage
-        <button type="button" class="btn-close" @onclick="() => ErrorMessage = null"></button>
-    </div>
-}
-
-@if (!string.IsNullOrEmpty(SuccessMessage))
-{
-    <div class="alert alert-success alert-dismissible fade show m-3" role="alert">
-        <strong>Success:</strong> @SuccessMessage
-        <button type="button" class="btn-close" @onclick="() => SuccessMessage = null"></button>
-    </div>
-}
-
 <!-- Three-Panel Layout -->
 <div class="development-workspace">
     <div class="panels-container" id="panels-container">
@@ -78,26 +64,19 @@
                 <span class="text-muted small">@(SelectedFileName ?? "No file selected")</span>
             </div>
             <div class="panel-content">
-                @if (IsLoadingXml)
-                {
-                    <div class="text-center p-5">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading XML...</span>
+                <LoadingSkeleton IsLoading="@IsLoadingXml" Type="SkeletonType.CodeEditor" Lines="25">
+                    @if (!string.IsNullOrEmpty(XmlContent))
+                    {
+                        <textarea class="code-editor" readonly>@XmlContent</textarea>
+                    }
+                    else
+                    {
+                        <div class="text-center p-5 text-muted">
+                            <i class="bi bi-file-earmark-code" style="font-size: 3rem;"></i>
+                            <p class="mt-3">Select a project and file to view the source XML</p>
                         </div>
-                        <p class="mt-2 text-muted">Loading XML...</p>
-                    </div>
-                }
-                else if (!string.IsNullOrEmpty(XmlContent))
-                {
-                    <textarea class="code-editor" readonly>@XmlContent</textarea>
-                }
-                else
-                {
-                    <div class="text-center p-5 text-muted">
-                        <i class="bi bi-file-earmark-code" style="font-size: 3rem;"></i>
-                        <p class="mt-3">Select a project and file to view the source XML</p>
-                    </div>
-                }
+                    }
+                </LoadingSkeleton>
             </div>
         </div>
 
@@ -111,19 +90,9 @@
                 <span class="text-muted small">transformation.xslt</span>
             </div>
             <div class="panel-content">
-                @if (IsLoadingXslt)
-                {
-                    <div class="text-center p-5">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading XSLT...</span>
-                        </div>
-                        <p class="mt-2 text-muted">Loading XSLT...</p>
-                    </div>
-                }
-                else
-                {
+                <LoadingSkeleton IsLoading="@IsLoadingXslt" Type="SkeletonType.CodeEditor" Lines="30">
                     <div id="monaco-editor-container" style="width: 100%; height: 100%;"></div>
-                }
+                </LoadingSkeleton>
             </div>
         </div>
 
@@ -277,8 +246,6 @@
     private bool IsLoadingXslt = false;
     private bool IsTransforming = false;
     private bool IsSaving = false;
-    private string? ErrorMessage;
-    private string? SuccessMessage;
     private bool ShowSettings = false;
     private bool ShowSource = false;
     private bool ShowFormattedXml = true;
@@ -318,7 +285,7 @@
             catch (Exception ex)
             {
                 Logger.LogError(ex, "Error formatting XML on source toggle");
-                ErrorMessage = "Failed to format XML. Please try again.";
+                ToastNotification.ShowError("Failed to format XML. Please try again.");
             }
         }
 
@@ -346,7 +313,7 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error toggling XML format");
-            ErrorMessage = "Failed to format XML. Please try again.";
+            ToastNotification.ShowError("Failed to format XML. Please try again.");
         }
 
         StateHasChanged();
@@ -389,14 +356,13 @@
         {
             IsLoading = true;
             UpdateToolbarState();
-            ErrorMessage = null;
             Projects = (await ProjectService.GetProjectsAsync()).ToList();
             Logger.LogInformation("Loaded {Count} projects", Projects.Count);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading projects");
-            ErrorMessage = $"Failed to load projects: {ex.Message}";
+            ToastNotification.ShowError($"Failed to load projects: {ex.Message}");
         }
         finally
         {
@@ -410,7 +376,6 @@
         try
         {
             IsLoadingXslt = true;
-            ErrorMessage = null;
 
             var xsltPath = "/app/xslt/transformation.xslt";
             if (File.Exists(xsltPath))
@@ -427,13 +392,13 @@
             else
             {
                 Logger.LogWarning("XSLT template not found at {Path}", xsltPath);
-                ErrorMessage = "XSLT template not found";
+                ToastNotification.ShowWarning("XSLT template not found");
             }
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading XSLT");
-            ErrorMessage = $"Failed to load XSLT: {ex.Message}";
+            ToastNotification.ShowError($"Failed to load XSLT: {ex.Message}");
         }
         finally
         {
@@ -450,7 +415,6 @@
             XmlContent = null;
             OutputContent = null;
             ProjectFiles = null;
-            ErrorMessage = null;
 
             if (!string.IsNullOrEmpty(SelectedProjectId))
             {
@@ -464,7 +428,7 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading project files");
-            ErrorMessage = $"Failed to load project files: {ex.Message}";
+            ToastNotification.ShowError($"Failed to load project files: {ex.Message}");
         }
         finally
         {
@@ -487,7 +451,6 @@
             SelectedFileName = e.Value?.ToString();
             XmlContent = null;
             OutputContent = null;
-            ErrorMessage = null;
             UpdateToolbarState();
             StateHasChanged();
 
@@ -508,7 +471,7 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading XML file");
-            ErrorMessage = $"Failed to load XML file: {ex.Message}";
+            ToastNotification.ShowError($"Failed to load XML file: {ex.Message}");
         }
         finally
         {
@@ -541,8 +504,6 @@
         {
             IsTransforming = true;
             UpdateToolbarState();
-            ErrorMessage = null;
-            SuccessMessage = null;
 
             var options = new TransformationOptions
             {
@@ -557,22 +518,26 @@
                 OutputContent = result.OutputContent;
                 TransformationStats = result;
                 Logger.LogInformation("Transformation successful in {Time}ms. OutputContent length: {Length}", result.ProcessingTimeMs, OutputContent?.Length ?? 0);
+                ToastNotification.ShowSuccess($"Transformation completed in {result.ProcessingTimeMs}ms");
 
                 if (result.WarningMessages.Any())
                 {
-                    SuccessMessage = $"Transformation completed with warnings: {string.Join(", ", result.WarningMessages)}";
+                    foreach (var warning in result.WarningMessages)
+                    {
+                        ToastNotification.ShowWarning(warning);
+                    }
                 }
             }
             else
             {
-                ErrorMessage = result.ErrorMessage;
                 Logger.LogError("Transformation failed: {Error}", result.ErrorMessage);
+                ToastNotification.ShowError($"Transformation failed: {result.ErrorMessage}");
             }
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error during transformation");
-            ErrorMessage = $"Transformation error: {ex.Message}";
+            ToastNotification.ShowError($"Transformation error: {ex.Message}");
         }
         finally
         {
@@ -590,19 +555,17 @@
         {
             IsSaving = true;
             UpdateToolbarState();
-            ErrorMessage = null;
-            SuccessMessage = null;
 
             var xsltPath = "/app/xslt/transformation.xslt";
             await File.WriteAllTextAsync(xsltPath, XsltContent!);
 
-            SuccessMessage = "XSLT template saved successfully";
+            ToastNotification.ShowSuccess("XSLT template saved successfully");
             Logger.LogInformation("XSLT template saved to {Path}", xsltPath);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error saving XSLT");
-            ErrorMessage = $"Failed to save XSLT: {ex.Message}";
+            ToastNotification.ShowError($"Failed to save XSLT: {ex.Message}");
         }
         finally
         {
@@ -620,8 +583,6 @@
         XmlContent = null;
         OutputContent = null;
         TransformationStats = null;
-        ErrorMessage = null;
-        SuccessMessage = null;
 
         await LoadXsltAsync();
         UpdateToolbarState();
@@ -630,8 +591,6 @@
     private void ToggleSettings()
     {
         ShowSettings = !ShowSettings;
-        ErrorMessage = null;
-        SuccessMessage = null;
         UpdateToolbarState();
         StateHasChanged();
     }
@@ -651,7 +610,7 @@
             catch (Exception ex)
             {
                 Logger.LogError(ex, "Error refreshing file list after upload");
-                ErrorMessage = $"Failed to refresh file list: {ex.Message}";
+                ToastNotification.ShowError($"Failed to refresh file list: {ex.Message}");
             }
         }
     }
@@ -689,23 +648,14 @@
             if (!string.IsNullOrEmpty(OutputContent))
             {
                 await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", OutputContent);
-                SuccessMessage = "Output copied to clipboard";
+                ToastNotification.ShowSuccess("Output copied to clipboard");
                 Logger.LogInformation("Output copied to clipboard");
-                StateHasChanged();
-
-                // Auto-dismiss success message after 3 seconds
-                _ = Task.Delay(3000).ContinueWith(_ =>
-                {
-                    SuccessMessage = null;
-                    InvokeAsync(StateHasChanged);
-                });
             }
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error copying to clipboard");
-            ErrorMessage = $"Failed to copy to clipboard: {ex.Message}";
-            StateHasChanged();
+            ToastNotification.ShowError($"Failed to copy to clipboard: {ex.Message}");
         }
     }
 
@@ -721,29 +671,21 @@
                 var base64 = Convert.ToBase64String(bytes);
 
                 await JSRuntime.InvokeVoidAsync("downloadFile", fileName, "application/xhtml+xml", base64);
-                SuccessMessage = $"Downloaded {fileName}";
+                ToastNotification.ShowSuccess($"Downloaded {fileName}");
                 Logger.LogInformation("Downloaded output as {FileName}", fileName);
-                StateHasChanged();
-
-                // Auto-dismiss success message after 3 seconds
-                _ = Task.Delay(3000).ContinueWith(_ =>
-                {
-                    SuccessMessage = null;
-                    InvokeAsync(StateHasChanged);
-                });
             }
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error downloading output");
-            ErrorMessage = $"Failed to download output: {ex.Message}";
-            StateHasChanged();
+            ToastNotification.ShowError($"Failed to download output: {ex.Message}");
         }
     }
 
     // Monaco Editor Integration
     private DotNetObjectReference<Development>? dotNetRef;
     private bool monacoInitialized = false;
+    private bool keyboardShortcutsInitialized = false;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -752,24 +694,40 @@
             // Wait a bit to ensure JavaScript files are fully loaded
             await Task.Delay(200);
 
+            // Initialize keyboard shortcuts
+            if (!keyboardShortcutsInitialized)
+            {
+                try
+                {
+                    dotNetRef = DotNetObjectReference.Create(this);
+                    await JSRuntime.InvokeVoidAsync("KeyboardShortcuts.initialize", dotNetRef);
+                    keyboardShortcutsInitialized = true;
+                    Logger.LogInformation("Keyboard shortcuts initialized");
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "Failed to initialize keyboard shortcuts");
+                }
+            }
+
             // Initialize Monaco Editor
             if (!string.IsNullOrEmpty(XsltContent) && !monacoInitialized)
             {
                 try
                 {
-                    dotNetRef = DotNetObjectReference.Create(this);
+                    var theme = ThemeService.GetMonacoTheme();
                     await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.initialize",
                         "monaco-editor-container",
                         XsltContent,
                         dotNetRef,
-                        "vs-light");
+                        theme);
                     monacoInitialized = true;
                     Logger.LogInformation("Monaco Editor initialized successfully");
                 }
                 catch (Exception ex)
                 {
                     Logger.LogError(ex, "Failed to initialize Monaco Editor");
-                    ErrorMessage = "Failed to initialize code editor. Using fallback mode.";
+                    ToastNotification.ShowError("Failed to initialize code editor. Using fallback mode.");
                 }
             }
 
@@ -835,6 +793,14 @@
     public async Task OnTransformShortcut()
     {
         await TransformAsync();
+    }
+
+    [JSInvokable]
+    public void OnShowHelp()
+    {
+        // This would trigger help panel in MainLayout
+        // For now, just show a toast
+        ToastNotification.ShowInfo("Press ? to show help panel");
     }
 
     public async ValueTask DisposeAsync()

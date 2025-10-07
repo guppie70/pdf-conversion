@@ -12,8 +12,13 @@
     <link rel="stylesheet" href="css/bootstrap/bootstrap.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <link href="css/site.css?v=2" rel="stylesheet" />
+    <link href="css/theme.css" rel="stylesheet" />
     <link href="css/development.css" rel="stylesheet" />
     <link href="css/production.css" rel="stylesheet" />
+    <link href="css/toast.css" rel="stylesheet" />
+    <link href="css/skeleton.css" rel="stylesheet" />
+    <link href="css/help.css" rel="stylesheet" />
+    <link href="css/responsive.css" rel="stylesheet" />
     <link href="PdfConversion.styles.css" rel="stylesheet" />
     <link rel="icon" type="image/png" href="favicon.png"/>
 
@@ -57,5 +62,18 @@
 
     <!-- Panel Resize Functionality -->
     <script src="js/resize.js"></script>
+
+    <!-- Keyboard Shortcuts and UI Enhancements -->
+    <script src="js/shortcuts.js"></script>
+
+    <!-- File Download Helper -->
+    <script>
+        window.downloadFile = function (fileName, contentType, base64Data) {
+            const linkElement = document.createElement('a');
+            linkElement.setAttribute('href', `data:${contentType};base64,${base64Data}`);
+            linkElement.setAttribute('download', fileName);
+            linkElement.click();
+        };
+    </script>
 </body>
 </html>

@@ -1,0 +1,160 @@
+@namespace PdfConversion.Shared
+
+@if (IsVisible)
+{
+    <div class="help-overlay" @onclick="Close">
+        <div class="help-panel" @onclick:stopPropagation="true">
+            <div class="help-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-question-circle me-2"></i>
+                    Help & Documentation
+                </h5>
+                <button type="button" class="btn-close" @onclick="Close" aria-label="Close"></button>
+            </div>
+
+            <div class="help-body">
+                <nav class="help-nav">
+                    <button class="help-nav-item @(ActiveTab == "shortcuts" ? "active" : "")" @onclick='() => ActiveTab = "shortcuts"'>
+                        <i class="bi bi-keyboard"></i> Keyboard Shortcuts
+                    </button>
+                    <button class="help-nav-item @(ActiveTab == "xslt" ? "active" : "")" @onclick='() => ActiveTab = "xslt"'>
+                        <i class="bi bi-code-square"></i> XSLT Examples
+                    </button>
+                    <button class="help-nav-item @(ActiveTab == "guide" ? "active" : "")" @onclick='() => ActiveTab = "guide"'>
+                        <i class="bi bi-book"></i> User Guide
+                    </button>
+                </nav>
+
+                <div class="help-content">
+                    @if (ActiveTab == "shortcuts")
+                    {
+                        <div class="help-section">
+                            <h6>Keyboard Shortcuts</h6>
+                            <div class="shortcuts-list">
+                                <div class="shortcut-item">
+                                    <kbd>Ctrl</kbd> + <kbd>S</kbd>
+                                    <span>Save XSLT</span>
+                                </div>
+                                <div class="shortcut-item">
+                                    <kbd>Ctrl</kbd> + <kbd>Enter</kbd>
+                                    <span>Transform XML</span>
+                                </div>
+                                <div class="shortcut-item">
+                                    <kbd>Ctrl</kbd> + <kbd>O</kbd>
+                                    <span>Focus project selector</span>
+                                </div>
+                                <div class="shortcut-item">
+                                    <kbd>F11</kbd>
+                                    <span>Toggle fullscreen editor</span>
+                                </div>
+                                <div class="shortcut-item">
+                                    <kbd>Ctrl</kbd> + <kbd>/</kbd>
+                                    <span>Toggle comment in editor</span>
+                                </div>
+                                <div class="shortcut-item">
+                                    <kbd>Ctrl</kbd> + <kbd>F</kbd>
+                                    <span>Find in editor</span>
+                                </div>
+                                <div class="shortcut-item">
+                                    <kbd>?</kbd>
+                                    <span>Show this help</span>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    else if (ActiveTab == "xslt")
+                    {
+                        <div class="help-section">
+                            <h6>XSLT Examples</h6>
+
+                            <div class="example-block">
+                                <p class="example-title">Basic Element Mapping</p>
+                                <pre class="example-code"><code>&lt;xsl:template match="H1"&gt;
+  &lt;h1&gt;&lt;xsl:apply-templates/&gt;&lt;/h1&gt;
+&lt;/xsl:template&gt;</code></pre>
+                            </div>
+
+                            <div class="example-block">
+                                <p class="example-title">Table Transformation</p>
+                                <pre class="example-code"><code>&lt;xsl:template match="Table"&gt;
+  &lt;div class="table-wrapper"&gt;
+    &lt;table&gt;
+      &lt;xsl:apply-templates/&gt;
+    &lt;/table&gt;
+  &lt;/div&gt;
+&lt;/xsl:template&gt;</code></pre>
+                            </div>
+
+                            <div class="example-block">
+                                <p class="example-title">Conditional Processing</p>
+                                <pre class="example-code"><code>&lt;xsl:choose&gt;
+  &lt;xsl:when test="@@type='header'"&gt;
+    &lt;th&gt;&lt;xsl:apply-templates/&gt;&lt;/th&gt;
+  &lt;/xsl:when&gt;
+  &lt;xsl:otherwise&gt;
+    &lt;td&gt;&lt;xsl:apply-templates/&gt;&lt;/td&gt;
+  &lt;/xsl:otherwise&gt;
+&lt;/xsl:choose&gt;</code></pre>
+                            </div>
+                        </div>
+                    }
+                    else if (ActiveTab == "guide")
+                    {
+                        <div class="help-section">
+                            <h6>Quick Start Guide</h6>
+
+                            <ol class="guide-steps">
+                                <li>
+                                    <strong>Select a Project</strong>
+                                    <p>Choose a project from the dropdown in the toolbar.</p>
+                                </li>
+                                <li>
+                                    <strong>Select a File</strong>
+                                    <p>Choose an XML file from the selected project.</p>
+                                </li>
+                                <li>
+                                    <strong>Edit XSLT</strong>
+                                    <p>Modify the XSLT transformation in the center panel.</p>
+                                </li>
+                                <li>
+                                    <strong>Transform</strong>
+                                    <p>Click the Transform button or press Ctrl+Enter to preview the output.</p>
+                                </li>
+                                <li>
+                                    <strong>Save</strong>
+                                    <p>Save your XSLT changes with Ctrl+S or the Save button.</p>
+                                </li>
+                            </ol>
+
+                            <div class="tips-box">
+                                <h6><i class="bi bi-lightbulb"></i> Tips</h6>
+                                <ul>
+                                    <li>Enable "Auto-transform" in settings for live preview</li>
+                                    <li>Use the Source toggle to view raw XHTML output</li>
+                                    <li>Zoom controls help review detailed formatting</li>
+                                    <li>Download output to save transformed files</li>
+                                </ul>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public bool IsVisible { get; set; }
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    private string ActiveTab = "shortcuts";
+
+    private async Task Close()
+    {
+        IsVisible = false;
+        await OnClose.InvokeAsync();
+    }
+}
