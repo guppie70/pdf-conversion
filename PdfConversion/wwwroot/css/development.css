@@ -68,8 +68,8 @@
 
 .panel-header {
     padding: 0.875rem 1.25rem;
-    background: linear-gradient(180deg, #f8f9fa 0%, #ffffff 100%);
-    border-bottom: 2px solid #e9ecef;
+    background: var(--bg-secondary);
+    border-bottom: 2px solid var(--border-color);
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -90,7 +90,7 @@
 .panel-header .fw-bold {
     font-size: 0.9rem;
     font-weight: 600;
-    color: #212529;
+    color: var(--text-primary);
     letter-spacing: 0.3px;
 }
 
@@ -111,13 +111,13 @@
     border: none;
     background: transparent;
     cursor: pointer;
-    color: #6c757d;
+    color: var(--text-secondary);
     transition: all 0.15s ease-in-out;
 }
 
 .panel-header .nav-pills .nav-link:hover {
-    background-color: #e9ecef;
-    color: #495057;
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
 }
 
 .panel-header .nav-pills .nav-link.active {
@@ -188,22 +188,23 @@
     margin: 0;
     padding: 1.25rem;
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Courier New', monospace;
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     line-height: 1.6;
-    background: #f6f8fa;
-    color: #24292e;
+    background: var(--code-bg);
+    color: var(--code-text);
     overflow: auto;
     white-space: pre-wrap; /* Changed from 'pre' to 'pre-wrap' to handle long lines better */
     word-wrap: break-word;
     tab-size: 2;
-    border: none;
+    border: 1px solid var(--border-color);
 }
 
 .preview-rendered {
     padding: 2rem;
     height: 100%;
     overflow: auto;
-    background: #ffffff;
+    background: var(--panel-bg);
+    color: var(--text-primary);
 }
 
 /* Transformation overlay */
@@ -251,9 +252,8 @@
     left: 0;
     right: 0;
     padding: 0.75rem 1.25rem;
-    background: linear-gradient(180deg, rgba(248, 249, 250, 0.98) 0%, rgba(248, 249, 250, 1) 100%);
-    border-top: 1px solid #e9ecef;
-    backdrop-filter: blur(4px);
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
     z-index: 5;
 }
 
