@@ -15,19 +15,19 @@
     --shadow: rgba(0, 0, 0, 0.1);
 }
 
-/* Dark theme - Monaco vs-dark inspired */
+/* Dark theme - VS Code Dark Modern inspired */
 [data-theme="dark"] {
-    --bg-primary: #1a1d23;
-    --bg-secondary: #23262d;
-    --bg-tertiary: #2d3139;
-    --text-primary: #f8f9fa;
-    --text-secondary: #dee2e6;
-    --text-muted: #adb5bd;
-    --border-color: #3d4149;
-    --panel-bg: #23262d;
-    --code-bg: #1e1e1e; /* Monaco vs-dark background color */
-    --code-text: #d4d4d4; /* Monaco vs-dark text color */
-    --shadow: rgba(0, 0, 0, 0.3);
+    --bg-primary: #1f1f1f;        /* VS Code editor background */
+    --bg-secondary: #252526;      /* VS Code sidebar background */
+    --bg-tertiary: #2d2d30;       /* VS Code panel background */
+    --text-primary: #cccccc;      /* VS Code main text color */
+    --text-secondary: #9d9d9d;    /* VS Code secondary text */
+    --text-muted: #858585;        /* VS Code muted text */
+    --border-color: #2b2b2b;      /* VS Code subtle borders */
+    --panel-bg: #252526;
+    --code-bg: #1e1e1e;           /* VS Code editor background */
+    --code-text: #d4d4d4;         /* VS Code editor text */
+    --shadow: rgba(0, 0, 0, 0.4);
 }
 
 /* Apply theme variables */
@@ -76,7 +76,7 @@ body {
 
 /* Dark theme specific adjustments */
 [data-theme="dark"] .top-nav {
-    background: linear-gradient(135deg, #004080 0%, #0066cc 100%);
+    background: #007acc; /* VS Code blue accent */
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 }
 

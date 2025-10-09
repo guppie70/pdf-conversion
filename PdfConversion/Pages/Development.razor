@@ -361,10 +361,31 @@
         // Register file watcher callback (replaces any existing callback to prevent double subscription)
         FileWatcher.SetFileChangedCallback(OnXsltFileChangedExternally);
 
+        // Subscribe to theme changes
+        ThemeService.OnThemeChanged += OnThemeChanged;
+
         await LoadProjectsAsync();
         await LoadXsltAsync();
 
         UpdateToolbarState();
+    }
+
+    private async void OnThemeChanged()
+    {
+        try
+        {
+            // Update Monaco editor theme if initialized
+            if (monacoInitialized)
+            {
+                var theme = ThemeService.GetMonacoTheme();
+                await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.setTheme", theme);
+                Logger.LogInformation("Updated Monaco editor theme to {Theme}", theme);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error updating Monaco editor theme");
+        }
     }
 
     private void UpdateToolbarState()

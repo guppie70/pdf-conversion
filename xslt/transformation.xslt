@@ -6,7 +6,7 @@
                 xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
                 exclude-result-prefixes="xs x rdf">
 
-    <xsl:output method="xml"
+    <xsl:output method="xhtml"
                 encoding="UTF-8"
                 indent="yes"
                 omit-xml-declaration="no"/>
