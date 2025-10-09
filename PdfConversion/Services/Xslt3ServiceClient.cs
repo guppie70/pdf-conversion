@@ -194,15 +194,41 @@ public class Xslt3ServiceClient : IXslt3ServiceClient
         {
             _logger.LogDebug("Checking XSLT3Service availability");
 
-            var response = await _httpClient.GetAsync("/health", HttpCompletionOption.ResponseHeadersRead);
+            // Use /health/readiness for dependency checks (more appropriate than /health)
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var response = await _httpClient.GetAsync(
+                "/health/readiness",
+                HttpCompletionOption.ResponseHeadersRead,
+                cts.Token);
+
             var isAvailable = response.IsSuccessStatusCode;
 
-            _logger.LogInformation("XSLT3Service availability: {IsAvailable}", isAvailable);
+            if (isAvailable)
+            {
+                _logger.LogInformation("XSLT3Service is available and ready");
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "XSLT3Service readiness check returned {StatusCode}",
+                    response.StatusCode);
+            }
+
             return isAvailable;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("XSLT3Service health check timed out after 5 seconds");
+            return false;
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "XSLT3Service is unreachable");
+            return false;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "XSLT3Service health check failed");
+            _logger.LogError(ex, "XSLT3Service health check failed unexpectedly");
             return false;
         }
     }

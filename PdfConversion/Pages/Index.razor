@@ -1,6 +1,7 @@
 ﻿@page "/"
 @using PdfConversion.Services
 @inject IProjectManagementService ProjectService
+@inject Xslt3ServiceClient Xslt3Client
 
 <PageTitle>PDF to Taxxor TDM Conversion Tool</PageTitle>
 
@@ -80,7 +81,25 @@
             </div>
             <div class="card-body">
                 <p class="mb-2"><strong>Environment:</strong> @Environment</p>
-                <p class="mb-2"><strong>XSLT Service:</strong> <span class="badge bg-secondary">Not Connected</span></p>
+                <p class="mb-2">
+                    <strong>XSLT Service:</strong>
+                    @if (IsCheckingService)
+                    {
+                        <span class="badge bg-secondary">Checking...</span>
+                    }
+                    else if (ServiceStatus == ServiceConnectionStatus.Connected)
+                    {
+                        <span class="badge bg-success">✓ Connected</span>
+                    }
+                    else if (ServiceStatus == ServiceConnectionStatus.Error)
+                    {
+                        <span class="badge bg-warning">Error</span>
+                    }
+                    else
+                    {
+                        <span class="badge bg-danger">✗ Not Connected</span>
+                    }
+                </p>
                 <p class="mb-0"><strong>Projects Available:</strong> <span class="badge bg-@(ProjectCount > 0 ? "success" : "secondary")">@ProjectCount</span></p>
             </div>
         </div>
@@ -89,11 +108,25 @@
 </div>
 
 @code {
+    private enum ServiceConnectionStatus
+    {
+        Checking,
+        Connected,
+        NotConnected,
+        Error
+    }
+
     private string Environment => System.Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production";
     private int ProjectCount { get; set; } = 0;
+    private ServiceConnectionStatus ServiceStatus { get; set; } = ServiceConnectionStatus.Checking;
+    private bool IsCheckingService => ServiceStatus == ServiceConnectionStatus.Checking;
 
     protected override async Task OnInitializedAsync()
     {
+        // Check XSLT service status
+        await CheckXsltServiceStatusAsync();
+
+        // Check project count
         try
         {
             var projects = await ProjectService.GetProjectsAsync();
@@ -103,6 +136,20 @@
         {
             // If service fails, ProjectCount remains 0
             ProjectCount = 0;
+        }
+    }
+
+    private async Task CheckXsltServiceStatusAsync()
+    {
+        try
+        {
+            ServiceStatus = ServiceConnectionStatus.Checking;
+            var isAvailable = await Xslt3Client.IsServiceAvailableAsync();
+            ServiceStatus = isAvailable ? ServiceConnectionStatus.Connected : ServiceConnectionStatus.NotConnected;
+        }
+        catch (Exception)
+        {
+            ServiceStatus = ServiceConnectionStatus.Error;
         }
     }
 }
