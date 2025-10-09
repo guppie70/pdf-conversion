@@ -37,7 +37,7 @@
 /* Resize handles */
 .resize-handle {
     width: 5px;
-    background: #e9ecef;
+    background: var(--border-color);
     cursor: col-resize;
     flex-shrink: 0;
     position: relative;
@@ -46,7 +46,7 @@
 
 .resize-handle:hover,
 .resize-handle:active {
-    background: #0d6efd;
+    background: #007acc; /* VS Code blue accent */
 }
 
 .resize-handle::before {
@@ -57,13 +57,15 @@
     transform: translate(-50%, -50%);
     width: 3px;
     height: 40px;
-    background: rgba(0, 0, 0, 0.1);
+    background: var(--text-muted);
+    opacity: 0.3;
     border-radius: 2px;
+    transition: opacity 0.2s;
 }
 
 .resize-handle:hover::before,
 .resize-handle:active::before {
-    background: rgba(255, 255, 255, 0.8);
+    opacity: 0.8;
 }
 
 .panel-header {
