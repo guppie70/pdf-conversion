@@ -115,7 +115,109 @@ window.xmlFormatter = {
         const elements = (xml.match(/<[^\/][^>]*>/g) || []).length;
 
         return { lines, chars, elements };
+    },
+
+    /**
+     * Apply syntax highlighting to XML content
+     * @param {string} xml - Raw XML content
+     * @returns {string} HTML with syntax highlighting
+     */
+    highlightXml: function(xml) {
+        if (!xml || typeof xml !== 'string') {
+            return xml || '';
+        }
+
+        try {
+            // Escape HTML entities first
+            const escaped = xml
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+
+            // Apply syntax highlighting with span elements
+            const highlighted = escaped
+                // Comments
+                .replace(/(&lt;!--[\s\S]*?--&gt;)/g, '<span class="xml-comment">$1</span>')
+                // CDATA
+                .replace(/(&lt;!\[CDATA\[[\s\S]*?\]\]&gt;)/g, '<span class="xml-cdata">$1</span>')
+                // Processing instructions
+                .replace(/(&lt;\?[\s\S]*?\?&gt;)/g, '<span class="xml-pi">$1</span>')
+                // DOCTYPE
+                .replace(/(&lt;!DOCTYPE[\s\S]*?&gt;)/g, '<span class="xml-doctype">$1</span>')
+                // Tags with attributes
+                .replace(/(&lt;\/?)(\w+(?::\w+)?)((?:\s+[\w:]+(?:\s*=\s*(?:"[^"]*"|'[^']*'))?)*\s*)(\/?)(&gt;)/g, function(match, openTag, tagName, attributes, selfClose, closeTag) {
+                    let result = '<span class="xml-tag">' + openTag + '</span>';
+                    result += '<span class="xml-tag-name">' + tagName + '</span>';
+
+                    if (attributes) {
+                        // Highlight attributes
+                        result += attributes.replace(/([\w:]+)(\s*=\s*)("[^"]*"|'[^']*')/g,
+                            '<span class="xml-attr-name">$1</span>$2<span class="xml-attr-value">$3</span>');
+                    }
+
+                    result += '<span class="xml-tag">' + selfClose + closeTag + '</span>';
+                    return result;
+                });
+
+            return highlighted;
+        } catch (error) {
+            console.error('XML syntax highlighting error:', error);
+            return xml; // Return original on error
+        }
+    },
+
+    /**
+     * Apply syntax highlighting to an element's content
+     * @param {string} elementId - ID of the element containing XML text
+     */
+    highlightElement: function(elementId) {
+        const element = document.getElementById(elementId);
+        if (!element) {
+            console.warn(`Element with ID '${elementId}' not found`);
+            return;
+        }
+
+        try {
+            const raw = element.textContent;
+            const formatted = this.format(raw);
+            const highlighted = this.highlightXml(formatted);
+            element.innerHTML = highlighted;
+            console.log(`Applied syntax highlighting to element '${elementId}'`);
+        } catch (error) {
+            console.error('Error highlighting element:', error);
+        }
+    },
+
+    /**
+     * Save scroll position of an element
+     * @param {string} elementId - ID of the element
+     * @returns {object} Scroll position {top, left}
+     */
+    saveScrollPosition: function(elementId) {
+        const element = document.getElementById(elementId);
+        if (!element) {
+            return { top: 0, left: 0 };
+        }
+        return {
+            top: element.scrollTop,
+            left: element.scrollLeft
+        };
+    },
+
+    /**
+     * Restore scroll position of an element
+     * @param {string} elementId - ID of the element
+     * @param {object} position - Scroll position {top, left}
+     */
+    restoreScrollPosition: function(elementId, position) {
+        const element = document.getElementById(elementId);
+        if (!element || !position) {
+            return;
+        }
+        element.scrollTop = position.top;
+        element.scrollLeft = position.left;
+        console.log(`Restored scroll position for '${elementId}': top=${position.top}, left=${position.left}`);
     }
 };
 
-console.log('XML Formatter loaded successfully');
+console.log('XML Formatter with syntax highlighting loaded successfully');

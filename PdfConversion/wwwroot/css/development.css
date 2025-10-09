@@ -559,3 +559,74 @@
 .transform-success {
     animation: successGlow 1s ease-in-out;
 }
+
+/* XML Syntax Highlighting */
+.xml-tag {
+    color: #0000ff; /* Blue for tag brackets */
+    font-weight: normal;
+}
+
+.xml-tag-name {
+    color: #881280; /* Purple for tag names */
+    font-weight: 600;
+}
+
+.xml-attr-name {
+    color: #ff0000; /* Red for attribute names */
+    font-weight: normal;
+}
+
+.xml-attr-value {
+    color: #0000ff; /* Blue for attribute values */
+    font-weight: normal;
+}
+
+.xml-comment {
+    color: #008000; /* Green for comments */
+    font-style: italic;
+}
+
+.xml-cdata {
+    color: #808080; /* Gray for CDATA */
+}
+
+.xml-pi {
+    color: #ff00ff; /* Magenta for processing instructions */
+}
+
+.xml-doctype {
+    color: #808080; /* Gray for DOCTYPE */
+}
+
+/* Dark theme syntax highlighting */
+[data-theme="dark"] .xml-tag {
+    color: #569cd6; /* Light blue for tag brackets */
+}
+
+[data-theme="dark"] .xml-tag-name {
+    color: #ce9178; /* Light orange for tag names */
+}
+
+[data-theme="dark"] .xml-attr-name {
+    color: #9cdcfe; /* Light cyan for attribute names */
+}
+
+[data-theme="dark"] .xml-attr-value {
+    color: #ce9178; /* Light orange for attribute values */
+}
+
+[data-theme="dark"] .xml-comment {
+    color: #6a9955; /* Muted green for comments */
+}
+
+[data-theme="dark"] .xml-cdata {
+    color: #808080; /* Gray for CDATA */
+}
+
+[data-theme="dark"] .xml-pi {
+    color: #c586c0; /* Light magenta for processing instructions */
+}
+
+[data-theme="dark"] .xml-doctype {
+    color: #808080; /* Gray for DOCTYPE */
+}

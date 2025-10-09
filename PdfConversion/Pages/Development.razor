@@ -67,7 +67,7 @@
                 <LoadingSkeleton IsLoading="@IsLoadingXml" Type="SkeletonType.CodeEditor" Lines="25">
                     @if (!string.IsNullOrEmpty(XmlContent))
                     {
-                        <textarea class="code-editor" readonly>@XmlContent</textarea>
+                        <pre id="source-xml" class="code-viewer">@XmlContent</pre>
                     }
                     else
                     {
@@ -279,7 +279,7 @@
         // ShowRendered is already updated by @bind-value
         Logger.LogInformation("Rendered toggle changed: ShowRendered = {ShowRendered}", ShowRendered);
 
-        // If Source view is now active (Rendered OFF) and Format is checked, format the XML
+        // If Source view is now active (Rendered OFF) and Format is checked, apply syntax highlighting
         if (!ShowRendered && ShowFormattedXml)
         {
             // Give Blazor a moment to render the <pre> element
@@ -287,12 +287,12 @@
 
             try
             {
-                await JSRuntime.InvokeVoidAsync("xmlFormatter.formatElement", "output-source");
+                await JSRuntime.InvokeVoidAsync("xmlFormatter.highlightElement", "output-source");
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Error formatting XML when toggling to source view");
-                ToastNotification.ShowError("Failed to format XML. Please try again.");
+                Logger.LogError(ex, "Error applying syntax highlighting when toggling to source view");
+                ToastNotification.ShowError("Failed to apply syntax highlighting. Please try again.");
             }
         }
 
@@ -306,21 +306,28 @@
 
         try
         {
+            // Save scroll position before changing format
+            var scrollPosition = await JSRuntime.InvokeAsync<Dictionary<string, int>>("xmlFormatter.saveScrollPosition", "output-source");
+
             if (ShowFormattedXml)
             {
-                // Format the XML using JavaScript
-                await JSRuntime.InvokeVoidAsync("xmlFormatter.formatElement", "output-source");
+                // Apply syntax highlighting
+                await JSRuntime.InvokeVoidAsync("xmlFormatter.highlightElement", "output-source");
             }
             else
             {
                 // Show raw XML
                 await JSRuntime.InvokeVoidAsync("xmlFormatter.showRawElement", "output-source", OutputContent);
             }
+
+            // Restore scroll position after format change
+            await Task.Delay(50); // Give time for content to update
+            await JSRuntime.InvokeVoidAsync("xmlFormatter.restoreScrollPosition", "output-source", scrollPosition);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error toggling XML format");
-            ToastNotification.ShowError("Failed to format XML. Please try again.");
+            ToastNotification.ShowError("Failed to toggle format. Please try again.");
         }
 
         StateHasChanged();
@@ -486,6 +493,24 @@
             UpdateToolbarState();
             StateHasChanged();
 
+            // Apply syntax highlighting to source XML
+            if (!string.IsNullOrEmpty(XmlContent))
+            {
+                _ = InvokeAsync(async () =>
+                {
+                    await Task.Delay(100); // Give Blazor time to render
+                    try
+                    {
+                        await JSRuntime.InvokeVoidAsync("xmlFormatter.highlightElement", "source-xml");
+                        Logger.LogInformation("Applied syntax highlighting to source XML");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError(ex, "Error applying syntax highlighting to source XML");
+                    }
+                });
+            }
+
             // Save selection to localStorage (unless we're restoring)
             if (!isRestoringFromStorage)
             {
@@ -522,6 +547,21 @@
 
             if (result.IsSuccess)
             {
+                // Save scroll position before updating content (only if output already exists)
+                Dictionary<string, int>? scrollPosition = null;
+                if (!string.IsNullOrEmpty(OutputContent) && !ShowRendered)
+                {
+                    try
+                    {
+                        scrollPosition = await JSRuntime.InvokeAsync<Dictionary<string, int>>("xmlFormatter.saveScrollPosition", "output-source");
+                        Logger.LogInformation("Saved scroll position before transformation update");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogWarning(ex, "Could not save scroll position");
+                    }
+                }
+
                 OutputContent = result.OutputContent;
                 TransformationStats = result;
                 _outputContentKey++; // Force Blazor to recreate the <pre> element
@@ -538,21 +578,30 @@
                     }
                 }
 
-                // If we're in Source view (Rendered OFF) with formatting enabled, re-apply formatting after render
+                // If we're in Source view (Rendered OFF) with formatting enabled, re-apply syntax highlighting after render
                 if (!ShowRendered && ShowFormattedXml)
                 {
-                    // Schedule formatting after Blazor renders the new content
+                    // Schedule syntax highlighting after Blazor renders the new content
+                    var savedScrollPos = scrollPosition; // Capture for closure
                     _ = InvokeAsync(async () =>
                     {
                         await Task.Delay(100); // Give Blazor time to render
                         try
                         {
-                            await JSRuntime.InvokeVoidAsync("xmlFormatter.formatElement", "output-source");
-                            Logger.LogInformation("XML formatting applied after transformation");
+                            await JSRuntime.InvokeVoidAsync("xmlFormatter.highlightElement", "output-source");
+                            Logger.LogInformation("XML syntax highlighting applied after transformation");
+
+                            // Restore scroll position after highlighting
+                            if (savedScrollPos != null)
+                            {
+                                await Task.Delay(50); // Give time for highlighting to complete
+                                await JSRuntime.InvokeVoidAsync("xmlFormatter.restoreScrollPosition", "output-source", savedScrollPos);
+                                Logger.LogInformation("Restored scroll position after transformation");
+                            }
                         }
                         catch (Exception ex)
                         {
-                            Logger.LogError(ex, "Error formatting XML after transformation");
+                            Logger.LogError(ex, "Error applying syntax highlighting after transformation");
                         }
                     });
                 }
