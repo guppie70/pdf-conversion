@@ -282,8 +282,8 @@
         // If Source view is now active (Rendered OFF) and Format is checked, apply syntax highlighting
         if (!ShowRendered && ShowFormattedXml)
         {
-            // Give Blazor a moment to render the <pre> element
-            await Task.Delay(50);
+            // Minimal delay for Blazor render cycle
+            await Task.Yield();
 
             try
             {
@@ -320,8 +320,7 @@
                 await JSRuntime.InvokeVoidAsync("xmlFormatter.showRawElement", "output-source", OutputContent);
             }
 
-            // Restore scroll position after format change
-            await Task.Delay(50); // Give time for content to update
+            // Restore scroll position immediately after format change
             await JSRuntime.InvokeVoidAsync("xmlFormatter.restoreScrollPosition", "output-source", scrollPosition);
         }
         catch (Exception ex)
@@ -498,7 +497,7 @@
             {
                 _ = InvokeAsync(async () =>
                 {
-                    await Task.Delay(100); // Give Blazor time to render
+                    await Task.Yield(); // Minimal delay for Blazor render cycle
                     try
                     {
                         await JSRuntime.InvokeVoidAsync("xmlFormatter.highlightElement", "source-xml");
@@ -585,16 +584,16 @@
                     var savedScrollPos = scrollPosition; // Capture for closure
                     _ = InvokeAsync(async () =>
                     {
-                        await Task.Delay(100); // Give Blazor time to render
+                        // Minimal delay - just enough for Blazor to finish its render cycle
+                        await Task.Yield();
                         try
                         {
                             await JSRuntime.InvokeVoidAsync("xmlFormatter.highlightElement", "output-source");
                             Logger.LogInformation("XML syntax highlighting applied after transformation");
 
-                            // Restore scroll position after highlighting
+                            // Restore scroll position immediately after highlighting
                             if (savedScrollPos != null)
                             {
-                                await Task.Delay(50); // Give time for highlighting to complete
                                 await JSRuntime.InvokeVoidAsync("xmlFormatter.restoreScrollPosition", "output-source", savedScrollPos);
                                 Logger.LogInformation("Restored scroll position after transformation");
                             }
