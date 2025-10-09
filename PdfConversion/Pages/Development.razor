@@ -12,6 +12,7 @@
 @inject ILogger<Development> Logger
 @inject DevelopmentToolbarState ToolbarState
 @inject ThemeService ThemeService
+@inject IXsltFileWatcherService FileWatcher
 
 <PageTitle>Development Mode</PageTitle>
 
@@ -256,6 +257,7 @@
     private bool ShowRendered = false; // Default to source view
     private bool ShowFormattedXml = true;
     private bool isRestoringFromStorage = false;
+    private bool isUpdatingFromExternalFile = false; // Prevents Monaco from triggering auto-transform during external updates
 
     // Settings (defaults will be overridden by localStorage if available)
     private bool UseXslt3Service = true;
@@ -343,6 +345,9 @@
         ToolbarState.OnToggleSettings = ToggleSettings;
         // Note: OnToggleTransformationLog is handled in MainLayout
 
+        // Register file watcher callback (replaces any existing callback to prevent double subscription)
+        FileWatcher.SetFileChangedCallback(OnXsltFileChangedExternally);
+
         await LoadProjectsAsync();
         await LoadXsltAsync();
 
@@ -401,6 +406,18 @@
                 if (monacoInitialized)
                 {
                     await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.setValue", XsltContent);
+                }
+
+                // Start watching for file changes
+                try
+                {
+                    FileWatcher.StartWatching(xsltPath);
+                    Logger.LogInformation("Started watching XSLT file for external changes");
+                }
+                catch (Exception watchEx)
+                {
+                    Logger.LogError(watchEx, "Failed to start file watcher");
+                    // Non-critical, continue without watcher
                 }
             }
             else
@@ -521,11 +538,63 @@
 
     private async Task OnXsltChanged()
     {
+        // Don't trigger auto-transform if we're updating from external file
+        // (external file handler will trigger transform itself)
+        if (isUpdatingFromExternalFile)
+        {
+            Logger.LogDebug("OnXsltChanged: Skipping auto-transform (updating from external file)");
+            return;
+        }
+
         // Auto-transform if enabled
         if (AutoTransform && CanTransform && !IsTransforming)
         {
+            Logger.LogInformation("OnXsltChanged: Auto-transform triggered by editor change");
             await TransformAsync();
         }
+    }
+
+    private async void OnXsltFileChangedExternally(object? sender, XsltFileChangedEventArgs e)
+    {
+        // This is called from file watcher thread, marshal to UI thread
+        await InvokeAsync(async () =>
+        {
+            try
+            {
+                Logger.LogInformation("XSLT file updated externally at {Path}", e.FilePath);
+
+                // Set flag to prevent Monaco from triggering auto-transform
+                isUpdatingFromExternalFile = true;
+
+                // Update XSLT content
+                XsltContent = e.Content;
+
+                // Update Monaco editor if initialized
+                if (monacoInitialized)
+                {
+                    await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.setValue", XsltContent);
+                }
+
+                StateHasChanged();
+
+                // Auto-transform if enabled
+                if (AutoTransform && CanTransform && !IsTransforming)
+                {
+                    Logger.LogInformation("Auto-transform triggered by external file change");
+                    await TransformAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error handling external XSLT file change");
+                ToastNotification.ShowError($"Failed to reload XSLT: {ex.Message}");
+            }
+            finally
+            {
+                // Clear flag (Monaco won't fire change event due to isSettingValueProgrammatically)
+                isUpdatingFromExternalFile = false;
+            }
+        });
     }
 
     private async Task TransformAsync()
@@ -891,6 +960,7 @@
     [JSInvokable]
     public async Task OnEditorContentChanged(string content)
     {
+        Logger.LogDebug("OnEditorContentChanged called (isUpdatingFromExternalFile={IsUpdating})", isUpdatingFromExternalFile);
         XsltContent = content;
         await OnXsltChanged();
     }
@@ -929,6 +999,9 @@
 
     public async ValueTask DisposeAsync()
     {
+        // Clear file watcher callback
+        FileWatcher.SetFileChangedCallback(null);
+
         if (monacoInitialized)
         {
             try

@@ -112,9 +112,17 @@
     {
         if (firstRender)
         {
-            // Initialize theme from localStorage
-            await JSRuntime.InvokeVoidAsync("ThemeManager.initialize");
-            await JSRuntime.InvokeVoidAsync("TooltipManager.initialize");
+            // ThemeManager auto-initializes when shortcuts.js loads (no call needed here)
+
+            // Initialize tooltips for dynamically rendered elements
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("TooltipManager.initialize");
+            }
+            catch (Exception)
+            {
+                // TooltipManager may not be loaded during prerendering, ignore
+            }
         }
     }
 

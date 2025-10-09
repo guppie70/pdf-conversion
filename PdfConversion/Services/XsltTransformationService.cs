@@ -111,6 +111,26 @@ public class XsltTransformationService : IXsltTransformationService
                         result.HeadersNormalized = headersNormalized;
                     }
                     result.ProcessingTimeMs = stopwatch.ElapsedMilliseconds;
+
+                    // Log transformation (success or error)
+                    _transformationLogService?.LogTransformation(new TransformationLog
+                    {
+                        ProjectId = options.Parameters.GetValueOrDefault("project-id") ?? "unknown",
+                        FileName = options.Parameters.GetValueOrDefault("file-name"),
+                        StartTime = DateTime.Now.AddMilliseconds(-result.ProcessingTimeMs),
+                        EndTime = DateTime.Now,
+                        Status = result.IsSuccess ? "Success" : "Error",
+                        Details = result.IsSuccess
+                            ? $"Processed successfully. Tables: {result.TablesProcessed}, Headers normalized: {result.HeadersNormalized}"
+                            : result.ErrorMessage ?? "Unknown error",
+                        ProcessingTimeMs = result.ProcessingTimeMs,
+                        HeadersNormalized = result.HeadersNormalized,
+                        TablesProcessed = result.TablesProcessed
+                    });
+
+                    // Record performance metrics
+                    _performanceMonitoring?.RecordTransformation(result.IsSuccess, result.ProcessingTimeMs, projectId);
+
                     return result;
                 }
             }

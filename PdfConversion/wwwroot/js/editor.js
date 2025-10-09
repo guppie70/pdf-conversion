@@ -3,6 +3,7 @@
 window.MonacoEditorInterop = {
     editor: null,
     dotNetRef: null,
+    isSettingValueProgrammatically: false,
 
     /**
      * Initialize Monaco Editor for XSLT editing
@@ -58,6 +59,12 @@ window.MonacoEditorInterop = {
             // Handle content changes with debouncing
             let changeTimeout;
             this.editor.onDidChangeModelContent(() => {
+                // Skip change event if we're setting value programmatically
+                if (this.isSettingValueProgrammatically) {
+                    console.log('Monaco: Skipping change event (programmatic setValue)');
+                    return;
+                }
+
                 clearTimeout(changeTimeout);
                 changeTimeout = setTimeout(() => {
                     if (this.dotNetRef) {
@@ -187,7 +194,15 @@ window.MonacoEditorInterop = {
      */
     setValue: function (value) {
         if (!this.editor) return;
+
+        // Set flag to prevent change event from firing
+        this.isSettingValueProgrammatically = true;
         this.editor.setValue(value || '');
+
+        // Clear flag after a short delay (to ensure change event is skipped)
+        setTimeout(() => {
+            this.isSettingValueProgrammatically = false;
+        }, 100);
     },
 
     /**

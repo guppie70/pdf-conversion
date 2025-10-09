@@ -257,3 +257,14 @@ window.VisualFeedback = {
         }, 1000);
     }
 };
+
+// Auto-initialize theme on script load (before Blazor connects)
+// This prevents race conditions with Blazor's OnAfterRenderAsync
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        ThemeManager.initialize();
+    });
+} else {
+    // DOM already loaded
+    ThemeManager.initialize();
+}
