@@ -1,6 +1,7 @@
 using PdfConversion.Models;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using Polly;
 using Polly.CircuitBreaker;
 
@@ -142,7 +143,7 @@ public class Xslt3ServiceClient : IXslt3ServiceClient
             {
                 var errorContent = await response.Content.ReadAsStringAsync();
                 result.IsSuccess = false;
-                result.ErrorMessage = $"XSLT3Service returned {response.StatusCode}: {errorContent}";
+                result.ErrorMessage = FormatErrorMessage(response.StatusCode.ToString(), errorContent);
                 result.ProcessingTimeMs = stopwatch.ElapsedMilliseconds;
 
                 _logger.LogError("XSLT3Service transformation failed: {StatusCode} - {Error}",
@@ -230,6 +231,41 @@ public class Xslt3ServiceClient : IXslt3ServiceClient
         {
             _logger.LogError(ex, "XSLT3Service health check failed unexpectedly");
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Formats error messages from XSLT3Service for user-friendly display
+    /// </summary>
+    private string FormatErrorMessage(string statusCode, string errorContent)
+    {
+        try
+        {
+            // Try to parse JSON error response
+            using var doc = JsonDocument.Parse(errorContent);
+            var root = doc.RootElement;
+
+            // Extract error details
+            var exceptionType = root.TryGetProperty("exceptionType", out var typeElement)
+                ? typeElement.GetString() ?? "Error"
+                : "Error";
+
+            var message = root.TryGetProperty("message", out var msgElement)
+                ? msgElement.GetString() ?? errorContent
+                : errorContent;
+
+            // Format nicely for toast display
+            var formattedMessage = new StringBuilder();
+            formattedMessage.AppendLine($"XSLT Transformation Error ({exceptionType})");
+            formattedMessage.AppendLine();
+            formattedMessage.AppendLine(message);
+
+            return formattedMessage.ToString();
+        }
+        catch (JsonException)
+        {
+            // Not JSON or malformed - return as-is with status code
+            return $"XSLT3Service Error ({statusCode}):\n\n{errorContent}";
         }
     }
 }

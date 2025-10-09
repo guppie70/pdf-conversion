@@ -164,7 +164,19 @@
                         </div>
                     </div>
                 }
-                @if (!string.IsNullOrEmpty(OutputContent))
+                @if (!string.IsNullOrEmpty(TransformationError))
+                {
+                    <div class="p-4">
+                        <div class="alert alert-danger mb-0" role="alert">
+                            <h5 class="alert-heading">
+                                <i class="bi bi-exclamation-triangle-fill"></i> Transformation Error
+                            </h5>
+                            <hr />
+                            <pre class="mb-0" style="white-space: pre-wrap; font-family: 'Monaco', 'Menlo', 'Consolas', monospace; font-size: 0.875rem;">@TransformationError</pre>
+                        </div>
+                    </div>
+                }
+                else if (!string.IsNullOrEmpty(OutputContent))
                 {
                     @if (ShowRendered)
                     {
@@ -246,6 +258,7 @@
     private string? XsltContent;
     private string? OutputContent;
     private TransformationResult? TransformationStats;
+    private string? TransformationError;
 
     // UI State
     private bool IsLoading = false;
@@ -604,6 +617,7 @@
         try
         {
             IsTransforming = true;
+            TransformationError = null; // Clear any previous error
             UpdateToolbarState();
 
             var options = new TransformationOptions
@@ -616,6 +630,7 @@
 
             if (result.IsSuccess)
             {
+                TransformationError = null; // Clear error on success
                 // Save scroll position before updating content (only if output already exists)
                 Dictionary<string, int>? scrollPosition = null;
                 if (!string.IsNullOrEmpty(OutputContent) && !ShowRendered)
@@ -679,13 +694,13 @@
             else
             {
                 Logger.LogError("Transformation failed: {Error}", result.ErrorMessage);
-                ToastNotification.ShowError($"Transformation failed: {result.ErrorMessage}");
+                TransformationError = result.ErrorMessage;
             }
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error during transformation");
-            ToastNotification.ShowError($"Transformation error: {ex.Message}");
+            TransformationError = $"Transformation error: {ex.Message}";
         }
         finally
         {
