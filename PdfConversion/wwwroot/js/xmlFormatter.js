@@ -169,8 +169,9 @@ window.xmlFormatter = {
     /**
      * Apply syntax highlighting to an element's content
      * @param {string} elementId - ID of the element containing XML text
+     * @param {boolean} animate - Whether to animate the transition (default: false)
      */
-    highlightElement: function(elementId) {
+    highlightElement: function(elementId, animate = false) {
         const element = document.getElementById(elementId);
         if (!element) {
             console.warn(`Element with ID '${elementId}' not found`);
@@ -178,13 +179,41 @@ window.xmlFormatter = {
         }
 
         try {
-            const raw = element.textContent;
-            const formatted = this.format(raw);
-            const highlighted = this.highlightXml(formatted);
-            element.innerHTML = highlighted;
-            console.log(`Applied syntax highlighting to element '${elementId}'`);
+            if (animate) {
+                console.log(`Adding 'updating' class to '${elementId}' - fading out`);
+                // Add updating class to hide element
+                element.classList.add('updating');
+
+                // Force a reflow to ensure the opacity transition starts
+                void element.offsetHeight;
+
+                // Wait for fade-out to complete before applying highlighting
+                setTimeout(() => {
+                    const raw = element.textContent;
+                    const formatted = this.format(raw);
+                    const highlighted = this.highlightXml(formatted);
+                    element.innerHTML = highlighted;
+
+                    console.log(`Applied syntax highlighting to element '${elementId}' (animated: ${animate})`);
+
+                    // Wait for next frame to fade back in
+                    requestAnimationFrame(() => {
+                        console.log(`Removing 'updating' class from '${elementId}' - fading in`);
+                        element.classList.remove('updating');
+                    });
+                }, 20); // Wait 20ms for fade-out to be visible
+            } else {
+                const raw = element.textContent;
+                const formatted = this.format(raw);
+                const highlighted = this.highlightXml(formatted);
+                element.innerHTML = highlighted;
+                console.log(`Applied syntax highlighting to element '${elementId}' (animated: ${animate})`);
+            }
         } catch (error) {
             console.error('Error highlighting element:', error);
+            if (animate) {
+                element.classList.remove('updating');
+            }
         }
     },
 

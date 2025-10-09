@@ -197,6 +197,12 @@
     word-wrap: break-word;
     tab-size: 2;
     border: 1px solid var(--border-color);
+    transition: opacity 120ms ease-in-out;
+}
+
+.code-viewer.updating {
+    opacity: 0.3;
+    pointer-events: none;
 }
 
 .preview-rendered {

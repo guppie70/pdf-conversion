@@ -287,7 +287,8 @@
 
             try
             {
-                await JSRuntime.InvokeVoidAsync("xmlFormatter.highlightElement", "output-source");
+                // Use animation to hide element during highlighting
+                await JSRuntime.InvokeVoidAsync("xmlFormatter.highlightElement", "output-source", true);
             }
             catch (Exception ex)
             {
@@ -311,8 +312,8 @@
 
             if (ShowFormattedXml)
             {
-                // Apply syntax highlighting
-                await JSRuntime.InvokeVoidAsync("xmlFormatter.highlightElement", "output-source");
+                // Apply syntax highlighting with animation
+                await JSRuntime.InvokeVoidAsync("xmlFormatter.highlightElement", "output-source", true);
             }
             else
             {
@@ -588,7 +589,8 @@
                         await Task.Yield();
                         try
                         {
-                            await JSRuntime.InvokeVoidAsync("xmlFormatter.highlightElement", "output-source");
+                            // Use animation to hide element during highlighting
+                            await JSRuntime.InvokeVoidAsync("xmlFormatter.highlightElement", "output-source", true);
                             Logger.LogInformation("XML syntax highlighting applied after transformation");
 
                             // Restore scroll position immediately after highlighting
