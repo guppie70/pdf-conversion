@@ -173,7 +173,7 @@
                     }
                     else
                     {
-                        <pre id="output-source" class="code-viewer">@OutputContent</pre>
+                        <pre id="output-source" class="code-viewer" @key="@_outputContentKey">@OutputContent</pre>
                     }
                     @if (TransformationStats != null)
                     {
@@ -564,6 +564,7 @@
 
                 OutputContent = result.OutputContent;
                 TransformationStats = result;
+                _outputContentKey++; // Force Blazor to recreate element (required when mixing Blazor text with JS innerHTML)
                 Logger.LogInformation("Transformation successful in {Time}ms. OutputContent length: {Length}", result.ProcessingTimeMs, OutputContent?.Length ?? 0);
 
                 // Trigger visual success feedback (green glow on Transform button)
