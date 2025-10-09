@@ -160,6 +160,36 @@ body {
     color: var(--code-text);
 }
 
+/* Dark theme Bootstrap card overrides */
+[data-theme="dark"] .card {
+    background-color: var(--bg-secondary);
+    border-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .card-header {
+    background-color: var(--bg-tertiary);
+    border-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .card-body {
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .card-title {
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .card-text {
+    color: var(--text-secondary);
+}
+
+[data-theme="dark"] .card-header.bg-info {
+    background-color: #1a5c7a !important;
+    color: #f8f9fa;
+}
+
 /* Theme toggle button */
 .theme-toggle {
     position: relative;
