@@ -107,10 +107,10 @@
                     @if (!string.IsNullOrEmpty(OutputContent))
                     {
                         <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="sourceToggle" @bind-value="ShowSource" @bind-value:after="OnSourceToggled">
-                            <label class="form-check-label" for="sourceToggle">Source</label>
+                            <input class="form-check-input" type="checkbox" id="renderedToggle" @bind-value="ShowRendered" @bind-value:after="OnRenderedToggled">
+                            <label class="form-check-label" for="renderedToggle">HTML mode</label>
                         </div>
-                        @if (ShowSource)
+                        @if (!ShowRendered)
                         {
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox" id="formatToggle"
@@ -124,7 +124,7 @@
                     @if (!string.IsNullOrEmpty(OutputContent))
                     {
                         <div class="preview-actions">
-                            @if (!ShowSource)
+                            @if (ShowRendered)
                             {
                                 <button class="btn btn-sm btn-outline-secondary" @onclick="ZoomOut" title="Zoom Out" disabled="@(ZoomLevel <= 50)">
                                     <i class="bi bi-zoom-out"></i>
@@ -165,7 +165,7 @@
                 }
                 @if (!string.IsNullOrEmpty(OutputContent))
                 {
-                    @if (!ShowSource)
+                    @if (ShowRendered)
                     {
                         <div class="preview-rendered" style="font-size: @(ZoomLevel)%;">
                             @((MarkupString)OutputContent)
@@ -253,7 +253,7 @@
     private bool IsTransforming = false;
     private bool IsSaving = false;
     private bool ShowSettings = false;
-    private bool ShowSource = false;
+    private bool ShowRendered = false; // Default to source view
     private bool ShowFormattedXml = true;
     private bool isRestoringFromStorage = false;
 
@@ -274,13 +274,13 @@
 
     private bool CanSave => !string.IsNullOrEmpty(XsltContent);
 
-    private async Task OnSourceToggled()
+    private async Task OnRenderedToggled()
     {
-        // ShowSource is already updated by @bind-value
-        Logger.LogInformation("Source toggle changed: ShowSource = {ShowSource}", ShowSource);
+        // ShowRendered is already updated by @bind-value
+        Logger.LogInformation("Rendered toggle changed: ShowRendered = {ShowRendered}", ShowRendered);
 
-        // If Source view is now ON and Format is checked, format the XML
-        if (ShowSource && ShowFormattedXml)
+        // If Source view is now active (Rendered OFF) and Format is checked, format the XML
+        if (!ShowRendered && ShowFormattedXml)
         {
             // Give Blazor a moment to render the <pre> element
             await Task.Delay(50);
@@ -291,7 +291,7 @@
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Error formatting XML on source toggle");
+                Logger.LogError(ex, "Error formatting XML when toggling to source view");
                 ToastNotification.ShowError("Failed to format XML. Please try again.");
             }
         }
@@ -539,8 +539,8 @@
                     }
                 }
 
-                // If we're in Source view with formatting enabled, re-apply formatting after render
-                if (ShowSource && ShowFormattedXml)
+                // If we're in Source view (Rendered OFF) with formatting enabled, re-apply formatting after render
+                if (!ShowRendered && ShowFormattedXml)
                 {
                     // Schedule formatting after Blazor renders the new content
                     _ = InvokeAsync(async () =>
