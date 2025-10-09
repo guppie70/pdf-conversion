@@ -566,14 +566,15 @@
     animation: successGlow 1s ease-in-out;
 }
 
-/* XML Syntax Highlighting */
+/* XML Syntax Highlighting - Monaco Editor Theme */
+/* Light theme (vs-light) colors matching Monaco's XML highlighting */
 .xml-tag {
-    color: #0000ff; /* Blue for tag brackets */
+    color: #800000; /* Dark red for tag brackets */
     font-weight: normal;
 }
 
 .xml-tag-name {
-    color: #881280; /* Purple for tag names */
+    color: #800000; /* Dark red for tag names */
     font-weight: 600;
 }
 
@@ -583,7 +584,7 @@
 }
 
 .xml-attr-value {
-    color: #0000ff; /* Blue for attribute values */
+    color: #0451a5; /* Monaco blue for attribute values */
     font-weight: normal;
 }
 
@@ -597,20 +598,20 @@
 }
 
 .xml-pi {
-    color: #ff00ff; /* Magenta for processing instructions */
+    color: #800000; /* Dark red for processing instructions */
 }
 
 .xml-doctype {
     color: #808080; /* Gray for DOCTYPE */
 }
 
-/* Dark theme syntax highlighting */
+/* Dark theme syntax highlighting - Monaco vs-dark colors */
 [data-theme="dark"] .xml-tag {
-    color: #569cd6; /* Light blue for tag brackets */
+    color: #808080; /* Gray for tag brackets */
 }
 
 [data-theme="dark"] .xml-tag-name {
-    color: #ce9178; /* Light orange for tag names */
+    color: #4ec9b0; /* Cyan-green for tag names */
 }
 
 [data-theme="dark"] .xml-attr-name {

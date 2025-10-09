@@ -1,6 +1,6 @@
 /* Theme Support - Dark & Light */
 
-/* Light theme (default) */
+/* Light theme (default) - Monaco Editor inspired */
 :root {
     --bg-primary: #ffffff;
     --bg-secondary: #f8f9fa;
@@ -10,12 +10,12 @@
     --text-muted: #6c757d;
     --border-color: #dee2e6;
     --panel-bg: #ffffff;
-    --code-bg: #ffffff;
-    --code-text: #212529;
+    --code-bg: #fffffe; /* Slightly off-white like Monaco's vs-light */
+    --code-text: #000000; /* Pure black like Monaco for better contrast */
     --shadow: rgba(0, 0, 0, 0.1);
 }
 
-/* Dark theme */
+/* Dark theme - Monaco vs-dark inspired */
 [data-theme="dark"] {
     --bg-primary: #1a1d23;
     --bg-secondary: #23262d;
@@ -25,8 +25,8 @@
     --text-muted: #adb5bd;
     --border-color: #3d4149;
     --panel-bg: #23262d;
-    --code-bg: #2d3139;
-    --code-text: #f8f9fa;
+    --code-bg: #1e1e1e; /* Monaco vs-dark background color */
+    --code-text: #d4d4d4; /* Monaco vs-dark text color */
     --shadow: rgba(0, 0, 0, 0.3);
 }
 
