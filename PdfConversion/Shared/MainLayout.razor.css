@@ -79,8 +79,8 @@ main {
     border: 1px solid rgba(255, 255, 255, 0.3);
     color: #333;
     font-size: 0.85rem;
-    min-width: 140px;
-    max-width: 180px;
+    min-width: 250px;
+    max-width: 400px;
     height: 32px;
 }
 
