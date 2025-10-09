@@ -26,19 +26,19 @@
             </div>
             <div class="settings-body">
                 <div class="form-check mb-2">
-                    <input class="form-check-input" type="checkbox" id="useXslt3" @bind="UseXslt3Service">
+                    <input class="form-check-input" type="checkbox" id="useXslt3" @bind="UseXslt3Service" @bind:after="OnSettingsChanged">
                     <label class="form-check-label" for="useXslt3">
                         Use XSLT3 Service (XSLT 2.0/3.0)
                     </label>
                 </div>
                 <div class="form-check mb-2">
-                    <input class="form-check-input" type="checkbox" id="normalizeHeaders" @bind="NormalizeHeaders">
+                    <input class="form-check-input" type="checkbox" id="normalizeHeaders" @bind="NormalizeHeaders" @bind:after="OnSettingsChanged">
                     <label class="form-check-label" for="normalizeHeaders">
                         Normalize Headers
                     </label>
                 </div>
                 <div class="form-check mb-2">
-                    <input class="form-check-input" type="checkbox" id="autoTransform" @bind="AutoTransform">
+                    <input class="form-check-input" type="checkbox" id="autoTransform" @bind="AutoTransform" @bind:after="OnSettingsChanged">
                     <label class="form-check-label" for="autoTransform">
                         Auto-transform on XSLT change
                     </label>
@@ -223,11 +223,19 @@
 <LogViewer />
 
 @code {
-    // LocalStorage model
+    // LocalStorage models
     private class SavedSelection
     {
         public string? ProjectId { get; set; }
         public string? FileName { get; set; }
+    }
+
+    private class SavedSettings
+    {
+        public bool UseXslt3Service { get; set; }
+        public bool NormalizeHeaders { get; set; }
+        public bool AutoTransform { get; set; }
+        public bool HasStoredSettings { get; set; }
     }
 
     // State
@@ -251,8 +259,8 @@
     private bool ShowFormattedXml = true;
     private bool isRestoringFromStorage = false;
 
-    // Settings
-    private bool UseXslt3Service = false;
+    // Settings (defaults will be overridden by localStorage if available)
+    private bool UseXslt3Service = true;
     private bool NormalizeHeaders = true;
     private bool AutoTransform = false;
 
@@ -581,6 +589,26 @@
         StateHasChanged();
     }
 
+    private void OnSettingsChanged()
+    {
+        // Save settings to localStorage asynchronously (fire-and-forget)
+        _ = SaveSettingsAsync();
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("developmentStorage.saveSettings", UseXslt3Service, NormalizeHeaders, AutoTransform);
+            Logger.LogInformation("Settings saved: UseXslt3Service={UseXslt3}, NormalizeHeaders={Normalize}, AutoTransform={Auto}",
+                UseXslt3Service, NormalizeHeaders, AutoTransform);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save settings to localStorage");
+        }
+    }
+
     private async Task OnFilesUploaded()
     {
         // Refresh file list
@@ -679,6 +707,32 @@
         {
             // Wait a bit to ensure JavaScript files are fully loaded
             await Task.Delay(200);
+
+            // Load saved settings from localStorage
+            try
+            {
+                var savedSettings = await JSRuntime.InvokeAsync<SavedSettings>("developmentStorage.loadSettings");
+                if (savedSettings != null && savedSettings.HasStoredSettings)
+                {
+                    UseXslt3Service = savedSettings.UseXslt3Service;
+                    NormalizeHeaders = savedSettings.NormalizeHeaders;
+                    AutoTransform = savedSettings.AutoTransform;
+
+                    Logger.LogInformation("Restored settings from localStorage: UseXslt3Service={UseXslt3}, NormalizeHeaders={Normalize}, AutoTransform={Auto}",
+                        UseXslt3Service, NormalizeHeaders, AutoTransform);
+
+                    StateHasChanged();
+                }
+                else
+                {
+                    Logger.LogInformation("No stored settings found, using defaults: UseXslt3Service={UseXslt3}, NormalizeHeaders={Normalize}, AutoTransform={Auto}",
+                        UseXslt3Service, NormalizeHeaders, AutoTransform);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Could not restore settings from localStorage, using defaults");
+            }
 
             // Initialize keyboard shortcuts
             if (!keyboardShortcutsInitialized)

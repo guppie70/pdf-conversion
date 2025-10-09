@@ -337,5 +337,53 @@ window.developmentStorage = {
         } catch (error) {
             console.error('Error clearing selection from localStorage:', error);
         }
+    },
+
+    saveSettings: function(useXslt3Service, normalizeHeaders, autoTransform) {
+        try {
+            localStorage.setItem('dev_useXslt3Service', useXslt3Service.toString());
+            localStorage.setItem('dev_normalizeHeaders', normalizeHeaders.toString());
+            localStorage.setItem('dev_autoTransform', autoTransform.toString());
+            console.log(`Saved settings: xslt3=${useXslt3Service}, normalize=${normalizeHeaders}, auto=${autoTransform}`);
+        } catch (error) {
+            console.error('Error saving settings to localStorage:', error);
+        }
+    },
+
+    loadSettings: function() {
+        try {
+            const useXslt3Service = localStorage.getItem('dev_useXslt3Service');
+            const normalizeHeaders = localStorage.getItem('dev_normalizeHeaders');
+            const autoTransform = localStorage.getItem('dev_autoTransform');
+
+            const settings = {
+                useXslt3Service: useXslt3Service === 'true',
+                normalizeHeaders: normalizeHeaders !== 'false', // Default to true if not set
+                autoTransform: autoTransform === 'true',
+                hasStoredSettings: useXslt3Service !== null || normalizeHeaders !== null || autoTransform !== null
+            };
+
+            console.log(`Loaded settings: xslt3=${settings.useXslt3Service}, normalize=${settings.normalizeHeaders}, auto=${settings.autoTransform}`);
+            return settings;
+        } catch (error) {
+            console.error('Error loading settings from localStorage:', error);
+            return {
+                useXslt3Service: true,
+                normalizeHeaders: true,
+                autoTransform: false,
+                hasStoredSettings: false
+            };
+        }
+    },
+
+    clearSettings: function() {
+        try {
+            localStorage.removeItem('dev_useXslt3Service');
+            localStorage.removeItem('dev_normalizeHeaders');
+            localStorage.removeItem('dev_autoTransform');
+            console.log('Cleared saved settings');
+        } catch (error) {
+            console.error('Error clearing settings from localStorage:', error);
+        }
     }
 };
