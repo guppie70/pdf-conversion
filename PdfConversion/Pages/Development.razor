@@ -173,7 +173,7 @@
                     }
                     else
                     {
-                        <pre id="output-source" class="code-viewer">@OutputContent</pre>
+                        <pre id="output-source" class="code-viewer" @key="@_outputContentKey">@OutputContent</pre>
                     }
                     @if (TransformationStats != null)
                     {
@@ -266,6 +266,7 @@
 
     // Preview Controls
     private int ZoomLevel = 100;
+    private int _outputContentKey = 0;
 
     // Computed Properties
     private bool CanTransform => !string.IsNullOrEmpty(SelectedProjectId)
@@ -524,6 +525,7 @@
             {
                 OutputContent = result.OutputContent;
                 TransformationStats = result;
+                _outputContentKey++; // Force Blazor to recreate the <pre> element
                 Logger.LogInformation("Transformation successful in {Time}ms. OutputContent length: {Length}", result.ProcessingTimeMs, OutputContent?.Length ?? 0);
                 ToastNotification.ShowSuccess($"Transformation completed in {result.ProcessingTimeMs}ms");
 
@@ -533,6 +535,25 @@
                     {
                         ToastNotification.ShowWarning(warning);
                     }
+                }
+
+                // If we're in Source view with formatting enabled, re-apply formatting after render
+                if (ShowSource && ShowFormattedXml)
+                {
+                    // Schedule formatting after Blazor renders the new content
+                    _ = InvokeAsync(async () =>
+                    {
+                        await Task.Delay(100); // Give Blazor time to render
+                        try
+                        {
+                            await JSRuntime.InvokeVoidAsync("xmlFormatter.formatElement", "output-source");
+                            Logger.LogInformation("XML formatting applied after transformation");
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.LogError(ex, "Error formatting XML after transformation");
+                        }
+                    });
                 }
             }
             else
