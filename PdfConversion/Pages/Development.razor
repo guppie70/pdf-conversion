@@ -326,7 +326,6 @@
         ToolbarState.OnFileChanged = async (fileName) => await OnFileChanged(new ChangeEventArgs { Value = fileName });
         ToolbarState.OnTransform = TransformAsync;
         ToolbarState.OnSave = SaveXsltAsync;
-        ToolbarState.OnReset = ResetAsync;
         ToolbarState.OnToggleSettings = ToggleSettings;
 
         await LoadProjectsAsync();
@@ -573,19 +572,6 @@
             UpdateToolbarState();
             StateHasChanged();
         }
-    }
-
-    private async Task ResetAsync()
-    {
-        SelectedProjectId = null;
-        SelectedFileName = null;
-        ProjectFiles = null;
-        XmlContent = null;
-        OutputContent = null;
-        TransformationStats = null;
-
-        await LoadXsltAsync();
-        UpdateToolbarState();
     }
 
     private void ToggleSettings()

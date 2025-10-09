@@ -27,7 +27,6 @@ public class DevelopmentToolbarState
     public Func<string, Task>? OnFileChanged { get; set; }
     public Func<Task>? OnTransform { get; set; }
     public Func<Task>? OnSave { get; set; }
-    public Func<Task>? OnReset { get; set; }
     public Action? OnToggleSettings { get; set; }
 
     // Event to notify when state changes

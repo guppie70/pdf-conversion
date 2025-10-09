@@ -65,9 +65,6 @@
                             <i class="bi bi-save"></i>
                         }
                     </button>
-                    <button class="btn btn-sm btn-secondary" @onclick="OnReset" disabled="@ToolbarState.IsLoading" title="Reset" data-bs-toggle="tooltip">
-                        <i class="bi bi-arrow-counterclockwise"></i>
-                    </button>
                     <button class="btn btn-sm btn-outline-light" @onclick="OnToggleSettings" title="Settings" data-bs-toggle="tooltip">
                         <i class="bi bi-gear-fill"></i>
                     </button>
@@ -150,14 +147,6 @@
         if (ToolbarState.OnSave != null)
         {
             await ToolbarState.OnSave();
-        }
-    }
-
-    private async Task OnReset()
-    {
-        if (ToolbarState.OnReset != null)
-        {
-            await ToolbarState.OnReset();
         }
     }
 
