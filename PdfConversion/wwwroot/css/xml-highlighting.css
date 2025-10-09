@@ -1,0 +1,73 @@
+/* XML Syntax Highlighting - Monaco Editor Theme */
+/* Applied by JavaScript (xmlFormatter.js) - Must be global CSS */
+
+/* Light theme (vs-light) colors matching Monaco's XML highlighting */
+.xml-tag {
+    color: #800000; /* Dark red for tag brackets */
+    font-weight: normal;
+}
+
+.xml-tag-name {
+    color: #800000; /* Dark red for tag names */
+    font-weight: 600;
+}
+
+.xml-attr-name {
+    color: #ff0000; /* Red for attribute names */
+    font-weight: normal;
+}
+
+.xml-attr-value {
+    color: #0451a5; /* Monaco blue for attribute values */
+    font-weight: normal;
+}
+
+.xml-comment {
+    color: #008000; /* Green for comments */
+    font-style: italic;
+}
+
+.xml-cdata {
+    color: #808080; /* Gray for CDATA */
+}
+
+.xml-pi {
+    color: #800000; /* Dark red for processing instructions */
+}
+
+.xml-doctype {
+    color: #808080; /* Gray for DOCTYPE */
+}
+
+/* Dark theme syntax highlighting - Monaco vs-dark colors */
+[data-theme="dark"] .xml-tag {
+    color: #808080; /* Gray for tag brackets */
+}
+
+[data-theme="dark"] .xml-tag-name {
+    color: #4ec9b0; /* Cyan-green for tag names */
+}
+
+[data-theme="dark"] .xml-attr-name {
+    color: #9cdcfe; /* Light cyan for attribute names */
+}
+
+[data-theme="dark"] .xml-attr-value {
+    color: #ce9178; /* Light orange for attribute values */
+}
+
+[data-theme="dark"] .xml-comment {
+    color: #6a9955; /* Muted green for comments */
+}
+
+[data-theme="dark"] .xml-cdata {
+    color: #808080; /* Gray for CDATA */
+}
+
+[data-theme="dark"] .xml-pi {
+    color: #c586c0; /* Light magenta for processing instructions */
+}
+
+[data-theme="dark"] .xml-doctype {
+    color: #808080; /* Gray for DOCTYPE */
+}

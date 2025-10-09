@@ -1,4 +1,5 @@
-/* Toast Notifications */
+/* Toast Notifications - Component Scoped CSS */
+
 .toast-container {
     z-index: 1050;
 }
@@ -52,11 +53,21 @@
 .toast-error {
     background-color: #f8d7da;
     border-left: 4px solid #dc3545;
+    max-width: 600px; /* Wider for detailed error messages */
 }
 
 .toast-error .toast-header {
     background-color: #f8d7da;
     border-bottom: 1px solid #f5c2c7;
+}
+
+/* Error toast body formatting */
+.toast-body-error {
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.8125rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.5;
 }
 
 .toast-warning {
