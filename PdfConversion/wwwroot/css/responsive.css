@@ -38,11 +38,6 @@
         gap: 0.5rem;
     }
 
-    .toolbar-select {
-        min-width: 250px;
-        max-width: 400px;
-    }
-
     /* Settings panel full width on tablet */
     .settings-panel {
         min-width: 280px;
@@ -83,13 +78,6 @@
         width: 100%;
         padding: 0.5rem 0;
         border-top: 1px solid rgba(255, 255, 255, 0.2);
-    }
-
-    .toolbar-select {
-        flex: 1;
-        min-width: 250px;
-        max-width: 400px;
-        font-size: 0.8rem;
     }
 
     .nav-toolbar-actions {
