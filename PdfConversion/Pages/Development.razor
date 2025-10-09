@@ -526,9 +526,8 @@
                 TransformationStats = result;
                 _outputContentKey++; // Force Blazor to recreate the <pre> element
                 Logger.LogInformation("Transformation successful in {Time}ms. OutputContent length: {Length}", result.ProcessingTimeMs, OutputContent?.Length ?? 0);
-                ToastNotification.ShowSuccess($"Transformation completed in {result.ProcessingTimeMs}ms");
 
-                // Trigger visual success feedback
+                // Trigger visual success feedback (green glow on Transform button)
                 await TriggerTransformSuccessEffect();
 
                 if (result.WarningMessages.Any())
