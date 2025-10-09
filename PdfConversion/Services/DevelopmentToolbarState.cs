@@ -17,6 +17,7 @@ public class DevelopmentToolbarState
     public bool IsTransforming { get; set; }
     public bool IsSaving { get; set; }
     public bool ShowSettings { get; set; }
+    public bool ShowTransformationLog { get; set; }
 
     // Computed
     public bool CanTransform { get; set; }
@@ -28,6 +29,7 @@ public class DevelopmentToolbarState
     public Func<Task>? OnTransform { get; set; }
     public Func<Task>? OnSave { get; set; }
     public Action? OnToggleSettings { get; set; }
+    public Action? OnToggleTransformationLog { get; set; }
 
     // Event to notify when state changes
     public event Action? OnChange;

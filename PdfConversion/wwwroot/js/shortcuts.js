@@ -237,3 +237,23 @@ const loadingStyles = `
 if (document.head) {
     document.head.insertAdjacentHTML('beforeend', loadingStyles);
 }
+
+// Visual Feedback Manager
+window.VisualFeedback = {
+    triggerTransformSuccess: function() {
+        // Find the transform button in the toolbar
+        const transformButton = document.querySelector('.nav-toolbar-actions .btn-light');
+        if (!transformButton) {
+            console.warn('Transform button not found');
+            return;
+        }
+
+        // Add the success glow class
+        transformButton.classList.add('transform-success');
+
+        // Remove the class after animation completes
+        setTimeout(() => {
+            transformButton.classList.remove('transform-success');
+        }, 1000);
+    }
+};

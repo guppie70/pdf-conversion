@@ -542,3 +542,20 @@
 .spinner-border {
     animation-duration: 0.75s;
 }
+
+/* Transform button success glow effect */
+@keyframes successGlow {
+    0% {
+        box-shadow: 0 0 0 rgba(25, 135, 84, 0);
+    }
+    50% {
+        box-shadow: 0 0 20px rgba(25, 135, 84, 0.6), 0 0 40px rgba(25, 135, 84, 0.3);
+    }
+    100% {
+        box-shadow: 0 0 0 rgba(25, 135, 84, 0);
+    }
+}
+
+.transform-success {
+    animation: successGlow 1s ease-in-out;
+}

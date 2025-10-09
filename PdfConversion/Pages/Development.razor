@@ -220,8 +220,6 @@
     </div>
 </div>
 
-<LogViewer />
-
 @code {
     // LocalStorage models
     private class SavedSelection
@@ -336,6 +334,7 @@
         ToolbarState.OnTransform = TransformAsync;
         ToolbarState.OnSave = SaveXsltAsync;
         ToolbarState.OnToggleSettings = ToggleSettings;
+        // Note: OnToggleTransformationLog is handled in MainLayout
 
         await LoadProjectsAsync();
         await LoadXsltAsync();
@@ -528,6 +527,9 @@
                 _outputContentKey++; // Force Blazor to recreate the <pre> element
                 Logger.LogInformation("Transformation successful in {Time}ms. OutputContent length: {Length}", result.ProcessingTimeMs, OutputContent?.Length ?? 0);
                 ToastNotification.ShowSuccess($"Transformation completed in {result.ProcessingTimeMs}ms");
+
+                // Trigger visual success feedback
+                await TriggerTransformSuccessEffect();
 
                 if (result.WarningMessages.Any())
                 {
@@ -862,6 +864,18 @@
         // This would trigger help panel in MainLayout
         // For now, just show a toast
         ToastNotification.ShowInfo("Press ? to show help panel");
+    }
+
+    private async Task TriggerTransformSuccessEffect()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("VisualFeedback.triggerTransformSuccess");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to trigger transform success effect");
+        }
     }
 
     public async ValueTask DisposeAsync()

@@ -68,6 +68,9 @@
                     <button class="btn btn-sm btn-outline-light" @onclick="OnToggleSettings" title="Settings" data-bs-toggle="tooltip">
                         <i class="bi bi-gear-fill"></i>
                     </button>
+                    <button class="btn btn-sm btn-outline-light" @onclick="ToggleTransformationLog" title="View Transformation Logs" data-bs-toggle="tooltip">
+                        <i class="bi bi-journal-text"></i>
+                    </button>
                     <button class="btn btn-sm btn-outline-light" @onclick="ToggleHelp" title="Help (?)" data-bs-toggle="tooltip">
                         <i class="bi bi-question-circle"></i>
                     </button>
@@ -90,11 +93,13 @@
 
     <ToastNotification />
     <HelpPanel IsVisible="@ShowHelp" OnClose="ToggleHelp" />
+    <TransformationLogPanel IsVisible="@ShowTransformationLog" OnClose="ToggleTransformationLog" />
 </div>
 
 @code {
     private bool IsOnDevelopmentPage => Navigation.Uri.Contains("/development", StringComparison.OrdinalIgnoreCase);
     private bool ShowHelp = false;
+    private bool ShowTransformationLog = false;
 
     protected override void OnInitialized()
     {
@@ -158,6 +163,12 @@
     private void ToggleHelp()
     {
         ShowHelp = !ShowHelp;
+        StateHasChanged();
+    }
+
+    private void ToggleTransformationLog()
+    {
+        ShowTransformationLog = !ShowTransformationLog;
         StateHasChanged();
     }
 
