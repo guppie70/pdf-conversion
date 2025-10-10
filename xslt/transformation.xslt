@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+    XSLT Transformation for Adobe PDF XML to Taxxor TDM XHTML
+
+    Namespace Handling:
+    - Default namespace (xmlns="http://www.w3.org/1999/xhtml") is declared on the stylesheet element
+    - All literal result elements (html, head, body, h1, p, table, etc.) automatically inherit this namespace
+    - This prevents xmlns="" attributes from being added to child elements
+    - Source XML elements are in no namespace, so no namespace prefix is needed for matching
+-->
 <xsl:stylesheet version="2.0"
                 xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+                xmlns="http://www.w3.org/1999/xhtml"
                 xmlns:xs="http://www.w3.org/2001/XMLSchema"
                 xmlns:x="adobe:ns:meta/"
                 xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
@@ -13,7 +23,7 @@
 
     <!-- Root template -->
     <xsl:template match="/">
-        <html xmlns="http://www.w3.org/1999/xhtml">
+        <html>
             <head>
                 <meta charset="UTF-8"/>
                 <title>Taxxor TDM Document</title>
@@ -47,7 +57,6 @@
     <!-- Paragraph template -->
     <xsl:template match="P">
         <p>
-            <xsl:copy-of select="@xml:lang"/>
             <xsl:apply-templates/>
         </p>
     </xsl:template>

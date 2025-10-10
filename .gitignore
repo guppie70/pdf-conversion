@@ -7,8 +7,9 @@
 # Exclude data directories (input/output files)
 data/
 
-# Exclude markdown files in root directory
-/*.md
+# Exclude documentation folder
+docs/
+*.md
 
 # macOS system files
 .DS_Store
