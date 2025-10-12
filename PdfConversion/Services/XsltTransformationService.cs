@@ -93,7 +93,11 @@ public class XsltTransformationService : IXsltTransformationService
             if (options.UseXslt3Service && _xslt3Client != null)
             {
                 _logger.LogDebug("Using XSLT3Service for transformation");
-                result = await _xslt3Client.TransformAsync(xmlContent, xsltContent, options.Parameters);
+
+                // Resolve xsl:include directives before sending to XSLT3Service
+                var resolvedXsltContent = await ResolveXsltIncludesAsync(xsltContent);
+
+                result = await _xslt3Client.TransformAsync(xmlContent, resolvedXsltContent, options.Parameters);
 
                 // If XSLT3Service failed, fall back to local transformation
                 if (!result.IsSuccess && result.WarningMessages.Any(w => w.Contains("fallback")))
@@ -453,6 +457,77 @@ public class XsltTransformationService : IXsltTransformationService
         catch
         {
             return 0;
+        }
+    }
+
+    /// <summary>
+    /// Resolves xsl:include directives by reading and merging included files
+    /// </summary>
+    private async Task<string> ResolveXsltIncludesAsync(string xsltContent)
+    {
+        try
+        {
+            var doc = XDocument.Parse(xsltContent);
+            var xslNamespace = XNamespace.Get("http://www.w3.org/1999/XSL/Transform");
+            var includeElements = doc.Descendants(xslNamespace + "include").ToList();
+
+            if (!includeElements.Any())
+            {
+                _logger.LogDebug("No xsl:include directives found");
+                return xsltContent;
+            }
+
+            _logger.LogDebug("Found {Count} xsl:include directive(s)", includeElements.Count);
+
+            foreach (var includeElement in includeElements)
+            {
+                var href = includeElement.Attribute("href")?.Value;
+                if (string.IsNullOrEmpty(href))
+                {
+                    _logger.LogWarning("Found xsl:include without href attribute, skipping");
+                    continue;
+                }
+
+                // Resolve relative path from /app/xslt/
+                var includePath = Path.Combine("/app/xslt", href);
+
+                if (!File.Exists(includePath))
+                {
+                    _logger.LogWarning("Included file not found: {Path}", includePath);
+                    continue;
+                }
+
+                _logger.LogDebug("Reading included file: {Path}", includePath);
+                var includedContent = await File.ReadAllTextAsync(includePath);
+                var includedDoc = XDocument.Parse(includedContent);
+
+                // Extract all child elements of xsl:stylesheet (skip the wrapper)
+                var stylesheetElement = includedDoc.Root;
+                if (stylesheetElement?.Name == xslNamespace + "stylesheet" ||
+                    stylesheetElement?.Name == xslNamespace + "transform")
+                {
+                    var childElements = stylesheetElement.Elements().ToList();
+
+                    // Replace the xsl:include element with the included content
+                    includeElement.ReplaceWith(childElements);
+
+                    _logger.LogDebug("Merged {Count} elements from {File}", childElements.Count, href);
+                }
+                else
+                {
+                    _logger.LogWarning("Included file does not have xsl:stylesheet root: {Path}", includePath);
+                }
+            }
+
+            // Return the merged XSLT as string
+            var result = doc.ToString();
+            _logger.LogDebug("XSLT includes resolved successfully");
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to resolve XSLT includes, using original content");
+            return xsltContent; // Return original on error
         }
     }
 }
