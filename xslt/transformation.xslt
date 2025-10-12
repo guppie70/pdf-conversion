@@ -1,13 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-    XSLT Transformation for Adobe PDF XML to Taxxor TDM XHTML
-
-    Namespace Handling:
-    - Default namespace (xmlns="http://www.w3.org/1999/xhtml") is declared on the stylesheet element
-    - All literal result elements (html, head, body, h1, p, table, etc.) automatically inherit this namespace
-    - This prevents xmlns="" attributes from being added to child elements
-    - Source XML elements are in no namespace, so no namespace prefix is needed for matching
--->
 <xsl:stylesheet version="2.0"
                 xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
                 xmlns="http://www.w3.org/1999/xhtml"
@@ -21,7 +12,48 @@
                 indent="yes"
                 omit-xml-declaration="no"/>
 
-    <!-- Root template -->
+    <xsl:template match="*" mode="#all" priority="-1">
+        <xsl:element name="{local-name()}" namespace="http://www.w3.org/1999/xhtml">
+            <!-- Copy attributes -->
+            <xsl:apply-templates select="@*"/>
+            <!-- Process children -->
+            <xsl:apply-templates select="node()"/>
+        </xsl:element>
+    </xsl:template>
+
+    <!-- Identity template for attributes: copy as-is -->
+    <xsl:template match="@*" mode="#all" priority="-1">
+        <xsl:copy/>
+    </xsl:template>
+
+    <!-- Suppress xml:lang attributes - we don't need language metadata in the output -->
+    <xsl:template match="@xml:lang" mode="#all" priority="0"/>
+
+    <!-- Identity template for text nodes: normalize whitespace -->
+    <xsl:template match="text()" mode="#all" priority="-1">
+        <xsl:choose>
+            <xsl:when test="normalize-space(.) = ''"/>
+            <xsl:otherwise>
+                <xsl:value-of select="normalize-space(.)"/>
+            </xsl:otherwise>
+        </xsl:choose>
+    </xsl:template>
+
+    <!-- Identity template for comments: copy through -->
+    <xsl:template match="comment()" mode="#all" priority="-1">
+        <xsl:copy/>
+    </xsl:template>
+
+    <!-- Identity template for processing instructions: copy through -->
+    <xsl:template match="processing-instruction()" mode="#all" priority="-1">
+        <xsl:copy/>
+    </xsl:template>
+
+    <!-- ============================================================ -->
+    <!-- DOCUMENT STRUCTURE TEMPLATES                                 -->
+    <!-- ============================================================ -->
+
+    <!-- Root template: create XHTML wrapper -->
     <xsl:template match="/">
         <html>
             <head>
@@ -36,33 +68,74 @@
         </html>
     </xsl:template>
 
-    <!-- Document template -->
+    <!-- Document template: process children -->
     <xsl:template match="Document">
         <xsl:apply-templates/>
     </xsl:template>
 
-    <!-- Header templates -->
-    <xsl:template match="H1">
-        <h1><xsl:apply-templates/></h1>
-    </xsl:template>
+    <!-- Suppress Adobe metadata elements -->
+    <xsl:template match="x:xmpmeta | rdf:RDF" priority="10"/>
 
-    <xsl:template match="H2">
-        <h2><xsl:apply-templates/></h2>
-    </xsl:template>
+    <!-- Suppress bookmark tree -->
+    <xsl:template match="bookmark-tree" priority="10"/>
 
-    <xsl:template match="H3">
-        <h3><xsl:apply-templates/></h3>
-    </xsl:template>
-
-    <!-- Paragraph template -->
-    <xsl:template match="P">
-        <p>
+    <!-- Suppress artifact elements only if empty (no attributes, no content) -->
+    <xsl:template match="Artifact" priority="10">
+        <xsl:if test="@* or normalize-space(.) != ''">
             <xsl:apply-templates/>
-        </p>
+        </xsl:if>
     </xsl:template>
 
-    <!-- Table template with Taxxor structure -->
-    <xsl:template match="Table">
+    <!-- Suppress processing instructions (xpacket) -->
+    <xsl:template match="processing-instruction('xpacket')" priority="10"/>
+
+    <!-- ============================================================ -->
+    <!-- HEADER TRANSFORMATION TEMPLATES                              -->
+    <!-- ============================================================ -->
+
+    <xsl:template match="H1" priority="10">
+        <h1>
+            <xsl:apply-templates select="@*"/>
+            <xsl:apply-templates/>
+        </h1>
+    </xsl:template>
+
+    <xsl:template match="H2" priority="10">
+        <h2>
+            <xsl:apply-templates select="@*"/>
+            <xsl:apply-templates/>
+        </h2>
+    </xsl:template>
+
+    <xsl:template match="H3" priority="10">
+        <h3>
+            <xsl:apply-templates select="@*"/>
+            <xsl:apply-templates/>
+        </h3>
+    </xsl:template>
+
+    <!-- ============================================================ -->
+    <!-- PARAGRAPH TRANSFORMATION TEMPLATES                           -->
+    <!-- ============================================================ -->
+
+    <xsl:template match="P" priority="10">
+        <!-- Suppress empty or whitespace-only paragraphs to avoid extra newlines -->
+        <xsl:if test="normalize-space(.) != ''">
+            <p>
+                <xsl:apply-templates select="@*"/>
+                <xsl:apply-templates/>
+            </p>
+        </xsl:if>
+    </xsl:template>
+
+    <!-- ============================================================ -->
+    <!-- TABLE TRANSFORMATION TEMPLATES                               -->
+    <!-- ============================================================ -->
+    <!-- Transform Adobe PDF tables to Taxxor TDM table structure     -->
+    <!-- with required wrapper divs and metadata attributes           -->
+    <!-- ============================================================ -->
+
+    <xsl:template match="Table" priority="10">
         <xsl:variable name="tableId" select="generate-id()"/>
         <div id="tablewrapper_{$tableId}"
              class="table-wrapper structured-data-table"
@@ -94,65 +167,107 @@
         </div>
     </xsl:template>
 
-    <!-- Table row templates -->
-    <xsl:template match="TR" mode="header">
+    <!-- Table row templates in header mode -->
+    <xsl:template match="TR" mode="header" priority="10">
         <tr>
+            <xsl:apply-templates select="@*"/>
             <xsl:apply-templates select="TH"/>
         </tr>
     </xsl:template>
 
-    <xsl:template match="TR" mode="body">
+    <!-- Table row templates in body mode -->
+    <xsl:template match="TR" mode="body" priority="10">
         <tr>
+            <xsl:apply-templates select="@*"/>
             <xsl:apply-templates select="TD"/>
         </tr>
     </xsl:template>
 
-    <!-- Table cell templates -->
-    <xsl:template match="TH">
-        <th><xsl:apply-templates/></th>
+    <!-- Table header cell template -->
+    <xsl:template match="TH" priority="10">
+        <th>
+            <xsl:apply-templates select="@*"/>
+            <xsl:apply-templates/>
+        </th>
     </xsl:template>
 
-    <xsl:template match="TD">
-        <td><xsl:apply-templates/></td>
+    <!-- Table data cell template -->
+    <xsl:template match="TD" priority="10">
+        <td>
+            <xsl:apply-templates select="@*"/>
+            <xsl:apply-templates/>
+        </td>
     </xsl:template>
-
-    <!-- List templates -->
-    <xsl:template match="L">
-        <xsl:choose>
-            <xsl:when test="@ListType='Ordered'">
-                <ol><xsl:apply-templates/></ol>
-            </xsl:when>
-            <xsl:otherwise>
-                <ul><xsl:apply-templates/></ul>
-            </xsl:otherwise>
-        </xsl:choose>
-    </xsl:template>
-
-    <xsl:template match="LI">
-        <li><xsl:apply-templates/></li>
-    </xsl:template>
-
-    <!-- Remove unnecessary elements -->
-    <xsl:template match="Artifact | bookmark-tree | x:xmpmeta | rdf:RDF"/>
 
     <!-- Remove span elements from table cells (preserve content) -->
-    <xsl:template match="TD/span | TH/span">
+    <!-- This prevents numeric data from being wrapped in span elements -->
+    <xsl:template match="TD/span | TH/span" priority="10">
         <xsl:apply-templates/>
     </xsl:template>
 
-    <!-- Default text node handling -->
-    <xsl:template match="text()">
+    <!-- ============================================================ -->
+    <!-- LIST TRANSFORMATION TEMPLATES                                -->
+    <!-- ============================================================ -->
+
+    <xsl:template match="L[count(LI) = 1 and matches(normalize-space(LI/LBody), '^\d+\.\s+')]" priority="20">
+        <xsl:variable name="text" select="normalize-space(LI/LBody)"/>
+        <xsl:variable name="number" select="replace($text, '^(\d+\.)\s+.*', '$1')"/>
+        <xsl:variable name="heading" select="replace($text, '^\d+\.\s+(.*)', '$1')"/>
+        <h2 data-number="{$number}">
+            <xsl:value-of select="$heading"/>
+        </h2>
+    </xsl:template>
+
+    <!-- General list template for regular lists -->
+    <xsl:template match="L" priority="10">
         <xsl:choose>
-            <xsl:when test="normalize-space(.) = ''"/>
+            <xsl:when test="@ListType='Ordered'">
+                <ol>
+                    <xsl:apply-templates select="@* except @ListType"/>
+                    <xsl:apply-templates/>
+                </ol>
+            </xsl:when>
             <xsl:otherwise>
-                <xsl:value-of select="normalize-space(.)"/>
+                <ul>
+                    <xsl:apply-templates select="@* except @ListType"/>
+                    <xsl:apply-templates/>
+                </ul>
             </xsl:otherwise>
         </xsl:choose>
     </xsl:template>
 
-    <!-- Pass through elements not matched by other templates -->
-    <xsl:template match="*">
+    <xsl:template match="LI" priority="10">
+        <li>
+            <xsl:apply-templates select="@*"/>
+            <xsl:apply-templates/>
+        </li>
+    </xsl:template>
+
+    <xsl:template match="Sect">
         <xsl:apply-templates/>
     </xsl:template>
+
+    <xsl:template match="TOC">
+        <ul>
+            <xsl:apply-templates/>
+        </ul>
+    </xsl:template>
+    
+    <xsl:template match="TOCI" priority="10">
+        <xsl:if test="normalize-space(.) != ''">
+            <li>
+                <xsl:apply-templates select="@*"/>
+                <xsl:apply-templates/>
+            </li>
+        </xsl:if>
+    </xsl:template>
+
+    <xsl:template match="Reference">
+        <a href="#">
+            <xsl:apply-templates select="@*"/>
+            <xsl:apply-templates/>
+        </a>
+    </xsl:template>
+
 
 </xsl:stylesheet>
