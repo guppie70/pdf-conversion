@@ -641,13 +641,30 @@
             TransformationError = null; // Clear any previous error
             UpdateToolbarState();
 
+            // Always get current XSLT content from Monaco editor to ensure we use the latest version
+            // This handles cases where the file was updated externally but OnEditorContentChanged hasn't fired yet
+            string currentXsltContent = XsltContent!;
+            if (monacoInitialized)
+            {
+                try
+                {
+                    currentXsltContent = await JSRuntime.InvokeAsync<string>("MonacoEditorInterop.getValue");
+                    Logger.LogDebug("Retrieved current XSLT content from Monaco editor (length: {Length})", currentXsltContent?.Length ?? 0);
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "Failed to get current value from Monaco, using cached XsltContent");
+                    // Fall back to cached XsltContent
+                }
+            }
+
             var options = new TransformationOptions
             {
                 UseXslt3Service = UseXslt3Service,
                 NormalizeHeaders = NormalizeHeaders
             };
 
-            var result = await XsltService.TransformAsync(XmlContent!, XsltContent!, options);
+            var result = await XsltService.TransformAsync(XmlContent!, currentXsltContent, options);
 
             if (result.IsSuccess)
             {

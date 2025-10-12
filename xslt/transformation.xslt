@@ -21,7 +21,7 @@
         </xsl:element>
     </xsl:template>
 
-    <!-- Identity template for attributes: copy as-is -->
+    <!-- Identity template for attributes: copy as-is!!! -->
     <xsl:template match="@*" mode="#all" priority="-1">
         <xsl:copy/>
     </xsl:template>
@@ -148,12 +148,16 @@
                    class="tabletype-numbers"
                    data-instanceid="{generate-id()}-table">
                 <xsl:choose>
-                    <!-- If first row contains TH elements, treat as header -->
-                    <xsl:when test="TR[1]/TH">
+                    <!-- Header rows must contain ONLY TH elements (no TD elements) -->
+                    <!-- Mixed rows (containing both TH and TD) are treated as body rows -->
+                    <xsl:when test="TR[1][TH and not(TD)]">
                         <thead>
-                            <xsl:apply-templates select="TR[TH]" mode="header"/>
+                            <!-- Header rows: only TR elements containing TH and no TD -->
+                            <xsl:apply-templates select="TR[TH and not(TD)]" mode="header"/>
                         </thead>
                         <tbody>
+                            <!-- Body rows: only TR elements containing at least one TD -->
+                            <!-- This ensures no row appears in both thead and tbody -->
                             <xsl:apply-templates select="TR[TD]" mode="body"/>
                         </tbody>
                     </xsl:when>
@@ -179,7 +183,7 @@
     <xsl:template match="TR" mode="body" priority="10">
         <tr>
             <xsl:apply-templates select="@*"/>
-            <xsl:apply-templates select="TD"/>
+            <xsl:apply-templates select="TH|TD"/>
         </tr>
     </xsl:template>
 
@@ -209,11 +213,96 @@
     <!-- LIST TRANSFORMATION TEMPLATES                                -->
     <!-- ============================================================ -->
 
+    <!-- Deeply nested lists (5 levels) with single LI containing headings -->
+    <!-- Handles two cases: -->
+    <!-- 1. Simple: Just text in LBody → output as h3 -->
+    <!-- 2. Nested: LBody has text followed by nested L with sub-items → h3 + h4 for each sub-item -->
+    <xsl:template match="L[L[L[L[L[LI]]]]]" priority="30">
+        <xsl:variable name="outerLBody" select="(.//LI)[1]/LBody"/>
+
+        <xsl:choose>
+            <!-- Case 2: LBody contains nested L elements (sub-items) -->
+            <xsl:when test="$outerLBody/L">
+                <!-- Extract text before the nested L (main heading) -->
+                <xsl:variable name="mainText">
+                    <xsl:for-each select="$outerLBody/text()">
+                        <xsl:value-of select="normalize-space(.)"/>
+                        <xsl:if test="position() != last()">
+                            <xsl:text> </xsl:text>
+                        </xsl:if>
+                    </xsl:for-each>
+                </xsl:variable>
+
+                <!-- Output main heading as h3 -->
+                <xsl:if test="normalize-space($mainText) != ''">
+                    <h3>
+                        <xsl:value-of select="normalize-space($mainText)"/>
+                    </h3>
+                </xsl:if>
+
+                <!-- Output each nested sub-item as h4 with detected numberscheme -->
+                <xsl:for-each select="$outerLBody/L/LI/LBody">
+                    <xsl:variable name="subText" select="normalize-space(.)"/>
+                    <xsl:if test="$subText != ''">
+                        <h4>
+                            <!-- Detect and add data-numberscheme attribute based on text pattern -->
+                            <xsl:call-template name="add-numberscheme-attribute">
+                                <xsl:with-param name="text" select="$subText"/>
+                            </xsl:call-template>
+                            <xsl:value-of select="$subText"/>
+                        </h4>
+                    </xsl:if>
+                </xsl:for-each>
+            </xsl:when>
+
+            <!-- Case 1: Simple LBody with just text (original behavior) -->
+            <xsl:otherwise>
+                <xsl:variable name="text" select="normalize-space($outerLBody)"/>
+                <h3>
+                    <xsl:value-of select="$text"/>
+                </h3>
+            </xsl:otherwise>
+        </xsl:choose>
+    </xsl:template>
+
+    <!-- Named template to detect numbering pattern and add data-numberscheme attribute -->
+    <xsl:template name="add-numberscheme-attribute">
+        <xsl:param name="text"/>
+        <xsl:choose>
+            <!-- Pattern: (i), (ii), (iii) - Roman numerals in parentheses -->
+            <xsl:when test="matches($text, '^\([ivxlcdm]+\)\s')">
+                <xsl:attribute name="data-numberscheme">(i),(ii),(iii)</xsl:attribute>
+            </xsl:when>
+            <!-- Pattern: (a), (b), (c) - Lowercase letters in parentheses -->
+            <xsl:when test="matches($text, '^\([a-z]\)\s')">
+                <xsl:attribute name="data-numberscheme">(a),(b),(c)</xsl:attribute>
+            </xsl:when>
+            <!-- Pattern: (A), (B), (C) - Uppercase letters in parentheses -->
+            <xsl:when test="matches($text, '^\([A-Z]\)\s')">
+                <xsl:attribute name="data-numberscheme">(A),(B),(C)</xsl:attribute>
+            </xsl:when>
+            <!-- Pattern: a., b., c. - Lowercase letters with period -->
+            <xsl:when test="matches($text, '^[a-z]\.\s')">
+                <xsl:attribute name="data-numberscheme">a.,b.,c.</xsl:attribute>
+            </xsl:when>
+            <!-- Pattern: A., B., C. - Uppercase letters with period -->
+            <xsl:when test="matches($text, '^[A-Z]\.\s')">
+                <xsl:attribute name="data-numberscheme">A.,B.,C.</xsl:attribute>
+            </xsl:when>
+            <!-- Pattern: 1., 2., 3. - Numbers with period -->
+            <xsl:when test="matches($text, '^\d+\.\s')">
+                <xsl:attribute name="data-numberscheme">1.,2.,3.</xsl:attribute>
+            </xsl:when>
+            <!-- No pattern detected: no attribute added -->
+        </xsl:choose>
+    </xsl:template>
+
+    <!-- Numbered section headings (e.g., "1. Introduction") -->
     <xsl:template match="L[count(LI) = 1 and matches(normalize-space(LI/LBody), '^\d+\.\s+')]" priority="20">
         <xsl:variable name="text" select="normalize-space(LI/LBody)"/>
         <xsl:variable name="number" select="replace($text, '^(\d+\.)\s+.*', '$1')"/>
         <xsl:variable name="heading" select="replace($text, '^\d+\.\s+(.*)', '$1')"/>
-        <h2 data-number="{$number}">
+        <h2 data-number="{$number}" data-numberscheme="1.,2.,3.">
             <xsl:value-of select="$heading"/>
         </h2>
     </xsl:template>
