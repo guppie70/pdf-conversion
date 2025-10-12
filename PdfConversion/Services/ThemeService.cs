@@ -4,7 +4,7 @@ public class ThemeService
 {
     public event Action? OnThemeChanged;
 
-    public string CurrentTheme { get; private set; } = "light";
+    public string CurrentTheme { get; private set; } = "dark";
 
     public void SetTheme(string theme)
     {
