@@ -213,6 +213,24 @@
     <!-- LIST TRANSFORMATION TEMPLATES                                -->
     <!-- ============================================================ -->
 
+    <!-- Deeply nested lists (6 levels) with single LI containing headings -->
+    <!-- Matches: L > L > L > L > L > L > LI -->
+    <!-- Outputs: h4 with auto-detected data-numberscheme attribute -->
+    <xsl:template match="L[L[L[L[L[L[LI]]]]]]" priority="35">
+        <xsl:variable name="lbody" select="(.//LI)[1]/LBody"/>
+        <xsl:variable name="text" select="normalize-space($lbody)"/>
+
+        <xsl:if test="$text != ''">
+            <h4>
+                <!-- Detect and add data-numberscheme attribute based on text pattern -->
+                <xsl:call-template name="add-numberscheme-attribute">
+                    <xsl:with-param name="text" select="$text"/>
+                </xsl:call-template>
+                <xsl:value-of select="$text"/>
+            </h4>
+        </xsl:if>
+    </xsl:template>
+
     <!-- Deeply nested lists (5 levels) with single LI containing headings -->
     <!-- Handles two cases: -->
     <!-- 1. Simple: Just text in LBody → output as h3 -->
