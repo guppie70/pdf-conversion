@@ -119,8 +119,9 @@
     <!-- ============================================================ -->
 
     <xsl:template match="P" priority="10">
-        <!-- Suppress empty or whitespace-only paragraphs to avoid extra newlines -->
-        <xsl:if test="normalize-space(.) != ''">
+        <xsl:variable name="text" select="normalize-space(.)"/>
+        <!-- Suppress empty, whitespace-only, or "(continued)" paragraphs -->
+        <xsl:if test="$text != '' and not(ends-with($text, '(continued)'))">
             <p>
                 <xsl:apply-templates select="@*"/>
                 <xsl:apply-templates/>
@@ -220,7 +221,8 @@
         <xsl:variable name="lbody" select="(.//LI)[1]/LBody"/>
         <xsl:variable name="text" select="normalize-space($lbody)"/>
 
-        <xsl:if test="$text != ''">
+        <!-- Suppress if empty or ends with "(continued)" -->
+        <xsl:if test="$text != '' and not(ends-with($text, '(continued)'))">
             <h4>
                 <!-- Detect and add data-numberscheme attribute based on text pattern -->
                 <xsl:call-template name="add-numberscheme-attribute">
@@ -276,9 +278,12 @@
             <!-- Case 1: Simple LBody with just text (original behavior) -->
             <xsl:otherwise>
                 <xsl:variable name="text" select="normalize-space($outerLBody)"/>
-                <h3>
-                    <xsl:value-of select="$text"/>
-                </h3>
+                <!-- Suppress if empty or ends with "(continued)" -->
+                <xsl:if test="$text != '' and not(ends-with($text, '(continued)'))">
+                    <h3>
+                        <xsl:value-of select="$text"/>
+                    </h3>
+                </xsl:if>
             </xsl:otherwise>
         </xsl:choose>
     </xsl:template>
@@ -318,11 +323,14 @@
     <!-- Numbered section headings (e.g., "1. Introduction") -->
     <xsl:template match="L[count(LI) = 1 and matches(normalize-space(LI/LBody), '^\d+\.\s+')]" priority="20">
         <xsl:variable name="text" select="normalize-space(LI/LBody)"/>
-        <xsl:variable name="number" select="replace($text, '^(\d+\.)\s+.*', '$1')"/>
-        <xsl:variable name="heading" select="replace($text, '^\d+\.\s+(.*)', '$1')"/>
-        <h2 data-number="{$number}" data-numberscheme="1.,2.,3.">
-            <xsl:value-of select="$heading"/>
-        </h2>
+        <!-- Suppress if ends with "(continued)" -->
+        <xsl:if test="not(ends-with($text, '(continued)'))">
+            <xsl:variable name="number" select="replace($text, '^(\d+\.)\s+.*', '$1')"/>
+            <xsl:variable name="heading" select="replace($text, '^\d+\.\s+(.*)', '$1')"/>
+            <h2 data-number="{$number}" data-numberscheme="1.,2.,3.">
+                <xsl:value-of select="$heading"/>
+            </h2>
+        </xsl:if>
     </xsl:template>
 
     <!-- General list template for regular lists -->
