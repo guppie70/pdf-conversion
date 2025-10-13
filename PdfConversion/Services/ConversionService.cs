@@ -34,6 +34,11 @@ public interface IConversionService
     /// Prepares the output folder by cleaning up existing XML files or creating the directory structure
     /// </summary>
     Task PrepareOutputFolderAsync(string projectId);
+
+    /// <summary>
+    /// Matches hierarchy items to headers in the transformed XHTML document
+    /// </summary>
+    Task<List<HeaderMatch>> MatchHeadersAsync(XDocument transformedXhtml, List<HierarchyItem> hierarchyItems);
 }
 
 /// <summary>
@@ -44,16 +49,19 @@ public class ConversionService : IConversionService
     private readonly ILogger<ConversionService> _logger;
     private readonly IXsltTransformationService _xsltService;
     private readonly IProjectManagementService _projectService;
+    private readonly IHeaderMatchingService _headerMatchingService;
     private const string TemplateFilePath = "/app/data/input/template.xml";
 
     public ConversionService(
         ILogger<ConversionService> logger,
         IXsltTransformationService xsltService,
-        IProjectManagementService projectService)
+        IProjectManagementService projectService,
+        IHeaderMatchingService headerMatchingService)
     {
         _logger = logger;
         _xsltService = xsltService;
         _projectService = projectService;
+        _headerMatchingService = headerMatchingService;
     }
 
     public async Task<List<HierarchyItem>> LoadHierarchyAsync(string path)
@@ -598,6 +606,23 @@ public class ConversionService : IConversionService
         {
             _logger.LogError(ex, "Unexpected error preparing output folder for project {ProjectId}", projectId);
             throw new InvalidOperationException($"Error preparing output folder: {ex.Message}", ex);
+        }
+    }
+
+    public async Task<List<HeaderMatch>> MatchHeadersAsync(XDocument transformedXhtml, List<HierarchyItem> hierarchyItems)
+    {
+        try
+        {
+            _logger.LogInformation("Starting header matching for {Count} hierarchy items", hierarchyItems.Count);
+
+            var matches = await _headerMatchingService.FindExactMatchesAsync(transformedXhtml, hierarchyItems);
+
+            return matches;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during header matching");
+            throw;
         }
     }
 }
