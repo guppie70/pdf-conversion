@@ -285,72 +285,21 @@
         AddLogEntry($"Project: {_config.ProjectId}");
         AddLogEntry($"Source: {_config.SourceFile}");
         AddLogEntry($"Hierarchy: {_config.HierarchyFile}");
+        AddLogEntry("");
 
         StateHasChanged();
 
         try
         {
-            // Phase 2: Validation
-            AddLogEntry("Validating configuration...");
-            CurrentItemName = "Validating files...";
-            StateHasChanged();
-
-            var validationResult = await ConversionService.ValidateConversionAsync(
+            var result = await ConversionService.StartConversionAsync(
                 _config.ProjectId!,
                 _config.SourceFile!,
-                _config.HierarchyFile!
-            );
+                _config.HierarchyFile!,
+                AddLogEntry);
 
-            if (!validationResult.IsValid)
-            {
-                AddLogEntry($"✗ Validation failed: {validationResult.ErrorMessage}");
-                IsProcessing = false;
-                ProcessingComplete = false;
-                StateHasChanged();
-                return;
-            }
-
-            AddLogEntry("✓ All validations passed");
-
-            // Load hierarchy to determine total items
-            AddLogEntry("Loading hierarchy file...");
-            var hierarchyPath = Path.Combine("/app/data/input/optiver/projects", _config.ProjectId, "metadata", _config.HierarchyFile);
-            var hierarchyItems = await ConversionService.LoadHierarchyAsync(hierarchyPath);
-            TotalItems = hierarchyItems.Count;
-            AddLogEntry($"✓ Loaded {TotalItems} hierarchy items");
-
-            // Load template
-            AddLogEntry("Loading template file...");
-            var template = await ConversionService.LoadTemplateAsync();
-            AddLogEntry("✓ Template loaded successfully");
-
-            // Transform source XML
-            AddLogEntry("Transforming source XML...");
-            CurrentItemName = "Transforming source XML...";
-            StateHasChanged();
-
-            var transformedXml = await ConversionService.TransformSourceXmlAsync(_config.ProjectId, _config.SourceFile);
-            if (transformedXml == null)
-            {
-                AddLogEntry("✗ Source XML transformation failed");
-                IsProcessing = false;
-                ProcessingComplete = false;
-                StateHasChanged();
-                return;
-            }
-
-            AddLogEntry("✓ Source XML transformed successfully");
-
-            // Phase 2 complete - actual conversion will be implemented in later phases
-            AddLogEntry("");
-            AddLogEntry("=== Phase 2 Complete ===");
-            AddLogEntry($"Configuration validated: ✓");
-            AddLogEntry($"Hierarchy items loaded: {TotalItems}");
-            AddLogEntry($"Template loaded: ✓");
-            AddLogEntry($"Source XML transformed: ✓");
-            AddLogEntry("");
-            AddLogEntry("Ready for conversion (Phase 3+)");
-            AddLogEntry("Conversion logic will be implemented in future phases");
+            TotalItems = result.TotalSections;
+            CurrentItemIndex = result.SuccessfulSections + result.FailedSections;
+            CurrentItemName = "Complete";
 
             IsProcessing = false;
             ProcessingComplete = true;

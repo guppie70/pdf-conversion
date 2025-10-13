@@ -39,6 +39,20 @@ public interface IConversionService
     /// Matches hierarchy items to headers in the transformed XHTML document
     /// </summary>
     Task<List<HeaderMatch>> MatchHeadersAsync(XDocument transformedXhtml, List<HierarchyItem> hierarchyItems);
+
+    /// <summary>
+    /// Starts the complete conversion workflow from PDF to Taxxor sections
+    /// </summary>
+    /// <param name="projectId">The project identifier</param>
+    /// <param name="sourceFile">The source XML file name</param>
+    /// <param name="hierarchyFile">The hierarchy XML file name</param>
+    /// <param name="logCallback">Callback for real-time logging to UI</param>
+    /// <returns>Conversion result with statistics and created files</returns>
+    Task<ConversionResult> StartConversionAsync(
+        string projectId,
+        string sourceFile,
+        string hierarchyFile,
+        Action<string> logCallback);
 }
 
 /// <summary>
@@ -50,18 +64,24 @@ public class ConversionService : IConversionService
     private readonly IXsltTransformationService _xsltService;
     private readonly IProjectManagementService _projectService;
     private readonly IHeaderMatchingService _headerMatchingService;
+    private readonly IContentExtractionService _contentExtractionService;
+    private readonly IHeaderNormalizationService _headerNormalizationService;
     private const string TemplateFilePath = "/app/data/input/template.xml";
 
     public ConversionService(
         ILogger<ConversionService> logger,
         IXsltTransformationService xsltService,
         IProjectManagementService projectService,
-        IHeaderMatchingService headerMatchingService)
+        IHeaderMatchingService headerMatchingService,
+        IContentExtractionService contentExtractionService,
+        IHeaderNormalizationService headerNormalizationService)
     {
         _logger = logger;
         _xsltService = xsltService;
         _projectService = projectService;
         _headerMatchingService = headerMatchingService;
+        _contentExtractionService = contentExtractionService;
+        _headerNormalizationService = headerNormalizationService;
     }
 
     public async Task<List<HierarchyItem>> LoadHierarchyAsync(string path)
@@ -624,5 +644,254 @@ public class ConversionService : IConversionService
             _logger.LogError(ex, "Error during header matching");
             throw;
         }
+    }
+
+    public async Task<ConversionResult> StartConversionAsync(
+        string projectId,
+        string sourceFile,
+        string hierarchyFile,
+        Action<string> logCallback)
+    {
+        var startTime = DateTime.UtcNow;
+        var result = new ConversionResult
+        {
+            CreatedFiles = new List<string>(),
+            Errors = new List<string>()
+        };
+
+        try
+        {
+            // 1. Validate configuration
+            logCallback("Validating configuration...");
+            var validation = await ValidateConversionAsync(projectId, sourceFile, hierarchyFile);
+            if (!validation.IsValid)
+            {
+                result.Success = false;
+                result.Errors.Add($"Validation failed: {validation.ErrorMessage}");
+                logCallback($"✗ Validation failed: {validation.ErrorMessage}");
+                return result;
+            }
+
+            logCallback("✓ All validations passed");
+
+            // 2. Load hierarchy
+            logCallback("Loading hierarchy...");
+            var hierarchyPath = Path.Combine("/app/data/input/optiver/projects", projectId, "metadata", hierarchyFile);
+            var hierarchyItems = await LoadHierarchyAsync(hierarchyPath);
+            result.TotalSections = hierarchyItems.Count;
+            logCallback($"✓ Loaded {hierarchyItems.Count} hierarchy items");
+
+            // 3. Load template
+            logCallback("Loading template...");
+            var template = await LoadTemplateAsync();
+            logCallback("✓ Template loaded successfully");
+
+            // 4. Transform source XML
+            logCallback("Transforming source XML...");
+            var transformedXhtml = await TransformSourceXmlAsync(projectId, sourceFile);
+
+            if (transformedXhtml == null)
+            {
+                result.Success = false;
+                result.Errors.Add("Source XML transformation failed");
+                logCallback("✗ Source XML transformation failed");
+                return result;
+            }
+
+            logCallback("✓ Source XML transformed successfully");
+
+            // 5. Match headers
+            logCallback("Matching headers...");
+            var matches = await MatchHeadersAsync(transformedXhtml, hierarchyItems);
+            logCallback($"✓ Matched {matches.Count} headers");
+
+            // 6. Prepare output folder
+            logCallback("Preparing output folder...");
+            await PrepareOutputFolderAsync(projectId);
+            logCallback("✓ Output folder prepared");
+
+            // 7. Process each match
+            logCallback("");
+            logCallback("Processing sections...");
+
+            for (int i = 0; i < matches.Count; i++)
+            {
+                var match = matches[i];
+                var progress = $"[{i + 1}/{matches.Count}]";
+
+                // Skip duplicates
+                if (match.IsDuplicate)
+                {
+                    logCallback($"{progress} ⚠ Skipping duplicate: {match.HierarchyItem.LinkName}");
+                    result.SkippedSections++;
+                    continue;
+                }
+
+                // Skip unmatched
+                if (match.MatchedHeader == null)
+                {
+                    logCallback($"{progress} ⚠ Skipping unmatched: {match.HierarchyItem.LinkName}");
+                    result.SkippedSections++;
+                    continue;
+                }
+
+                try
+                {
+                    // Extract content
+                    var extractedContent = _contentExtractionService.ExtractContent(
+                        transformedXhtml,
+                        match.MatchedHeader);
+
+                    // Normalize headers
+                    var normalizedContent = _headerNormalizationService.NormalizeHeaders(extractedContent);
+
+                    // Populate template
+                    var sectionXml = PopulateTemplate(template, match.HierarchyItem, normalizedContent);
+
+                    // Write to file
+                    var outputPath = Path.Combine("/app/data/output/optiver/projects", projectId, "data", match.HierarchyItem.DataRef);
+                    await File.WriteAllTextAsync(outputPath, sectionXml.ToString());
+
+                    result.CreatedFiles.Add(match.HierarchyItem.DataRef);
+                    result.SuccessfulSections++;
+                    logCallback($"{progress} ✓ Created: {match.HierarchyItem.DataRef}");
+                }
+                catch (Exception ex)
+                {
+                    result.FailedSections++;
+                    var errorMsg = $"{match.HierarchyItem.LinkName}: {ex.Message}";
+                    result.Errors.Add(errorMsg);
+                    logCallback($"{progress} ✗ Failed: {errorMsg}");
+                    _logger.LogError(ex, "Error processing section {LinkName}", match.HierarchyItem.LinkName);
+                }
+            }
+
+            result.Success = result.FailedSections == 0;
+            result.Duration = DateTime.UtcNow - startTime;
+
+            // Final summary
+            logCallback("");
+            logCallback("=== Conversion Complete ===");
+            logCallback($"Duration: {result.Duration.TotalSeconds:F1}s");
+            logCallback($"Successful: {result.SuccessfulSections}");
+            logCallback($"Failed: {result.FailedSections}");
+            logCallback($"Skipped: {result.SkippedSections}");
+            logCallback($"Total: {result.TotalSections}");
+
+            if (result.Errors.Any())
+            {
+                logCallback("");
+                logCallback("Errors:");
+                foreach (var error in result.Errors)
+                {
+                    logCallback($"  - {error}");
+                }
+            }
+
+            _logger.LogInformation("Conversion completed: {Result}", result.ToString());
+            return result;
+        }
+        catch (Exception ex)
+        {
+            result.Success = false;
+            result.Errors.Add(ex.Message);
+            result.Duration = DateTime.UtcNow - startTime;
+            logCallback($"✗ Conversion failed: {ex.Message}");
+            _logger.LogError(ex, "Conversion failed for project {ProjectId}", projectId);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Populates the template XML with hierarchy item metadata and extracted content
+    /// </summary>
+    private XDocument PopulateTemplate(
+        XDocument template,
+        HierarchyItem hierarchyItem,
+        XDocument extractedContent)
+    {
+        // Clone template to avoid modifying original
+        var populated = new XDocument(template);
+
+        var ns = populated.Root?.GetDefaultNamespace() ?? XNamespace.None;
+        var systemElement = populated.Root?.Element(ns + "system");
+
+        if (systemElement != null)
+        {
+            // Update id attribute
+            var idElement = systemElement.Element(ns + "id");
+            if (idElement != null)
+                idElement.Value = hierarchyItem.Id;
+
+            // Update level attribute
+            var levelElement = systemElement.Element(ns + "level");
+            if (levelElement != null)
+                levelElement.Value = hierarchyItem.Level.ToString();
+
+            // Update webpage_path
+            var webpagePathElement = systemElement.Element(ns + "webpage_path");
+            if (webpagePathElement != null)
+                webpagePathElement.Value = hierarchyItem.WebPagePath ?? "";
+
+            // Update timestamps
+            var currentTime = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
+
+            var dateCreatedElement = systemElement.Element(ns + "date_created");
+            if (dateCreatedElement != null)
+                dateCreatedElement.Value = currentTime;
+
+            var dateModifiedElement = systemElement.Element(ns + "date_modified");
+            if (dateModifiedElement != null)
+                dateModifiedElement.Value = currentTime;
+
+            // Update user info
+            var createdByElement = systemElement.Element(ns + "created_by");
+            if (createdByElement != null)
+                createdByElement.Value = "system@taxxor.com";
+
+            var modifiedByElement = systemElement.Element(ns + "modified_by");
+            if (modifiedByElement != null)
+                modifiedByElement.Value = "system@taxxor.com";
+        }
+
+        // Insert content into the template
+        var contentElement = populated.Root?.Element(ns + "content");
+        if (contentElement != null)
+        {
+            // Find the section element in the article
+            var articleElement = contentElement.Element(ns + "article");
+            var sectionElement = articleElement?.Descendants(ns + "section").FirstOrDefault();
+
+            if (sectionElement != null)
+            {
+                // Clear existing content placeholder
+                sectionElement.RemoveAll();
+
+                // Extract body content from the extracted XHTML
+                var xhtmlNs = XNamespace.Get("http://www.w3.org/1999/xhtml");
+                var bodyContent = extractedContent.Descendants(xhtmlNs + "body")
+                    .FirstOrDefault()?
+                    .Elements();
+
+                if (bodyContent != null && bodyContent.Any())
+                {
+                    // Add content to section, preserving XHTML elements
+                    foreach (var element in bodyContent)
+                    {
+                        sectionElement.Add(new XElement(element));
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("No body content found in extracted content for {LinkName}", hierarchyItem.LinkName);
+                }
+            }
+            else
+            {
+                _logger.LogWarning("No section element found in template for {LinkName}", hierarchyItem.LinkName);
+            }
+        }
+
+        return populated;
     }
 }
