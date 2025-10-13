@@ -6,13 +6,9 @@
                 xmlns:lst="http://taxxor.com/xslt/list-functions"
                 exclude-result-prefixes="xs lst">
 
-    <!-- ============================================================ -->
-    <!-- LIST TRANSFORMATION TEMPLATES (DEFAULT MODE)                 -->
-    <!-- ============================================================ -->
+    <!-- List transformation templates (default mode) -->
 
-    <!-- ============================================================ -->
-    <!-- LIST PREFIX STRIPPING FUNCTION                               -->
-    <!-- ============================================================ -->
+    <!-- List prefix stripping function -->
 
     <!-- Strip common list item prefixes (numbers, bullets, dashes, etc.) -->
     <xsl:function name="lst:strip-list-prefix" as="xs:string">
@@ -20,21 +16,10 @@
 
         <xsl:variable name="normalized" select="normalize-space($text)"/>
 
-        <!-- Pattern matches:
-             - Numbers with period: "1.", "12.", "123."
-             - Numbers with parenthesis: "1)", "(1)"
-             - Letters with period: "a.", "A.", "i.", "I.", "iv.", "IX."
-             - Letters with parenthesis: "a)", "(a)", "A)", "(A)"
-             - Bullets: "•", "◦", "▪", "▫", "∙", "⚫", "○"
-             - Dashes: "-", "–", "—", "ꟷ" (hyphen, en-dash, em-dash, Latin epigraphic sideways I)
-             - Asterisks: "*"
-             - Plus signs: "+"
-             - Greater than: ">"
-             Followed by whitespace (at least one space required after prefix) -->
+        <!-- Pattern: numbers, letters, bullets, dashes, asterisks + whitespace -->
         <xsl:variable name="prefix-pattern"
                       select="'^(\d+\.|[a-zA-Z]\.|[ivxIVX]+\.|\d+\)|\([0-9]+\)|[a-zA-Z]\)|\([a-zA-Z]\)|[•◦▪▫∙⚫○\-–—ꟷ\*\+>])\s+'"/>
 
-        <!-- Only strip prefix if pattern matches (avoids zero-length match error) -->
         <xsl:choose>
             <xsl:when test="matches($normalized, $prefix-pattern)">
                 <xsl:value-of select="normalize-space(replace($normalized, $prefix-pattern, ''))"/>
@@ -48,11 +33,9 @@
     <!-- General list template for regular lists -->
     <xsl:template match="L" priority="10">
         <xsl:choose>
-            <!-- Flatten wrapper: if L contains only nested L with no direct LI children, skip wrapper -->
             <xsl:when test="L and not(LI)">
                 <xsl:apply-templates/>
             </xsl:when>
-            <!-- Normal list: has direct LI children, create ul/ol wrapper -->
             <xsl:when test="@ListType='Ordered'">
                 <ol>
                     <xsl:apply-templates select="@* except @ListType"/>
@@ -75,7 +58,7 @@
         </li>
     </xsl:template>
 
-    <!-- LBody: Output content directly without wrapping element, strip list prefixes from text -->
+    <!-- LBody: Output content directly, strip list prefixes from text -->
     <xsl:template match="LBody" priority="10">
         <xsl:apply-templates select="@*"/>
         <xsl:apply-templates mode="strip-prefix"/>

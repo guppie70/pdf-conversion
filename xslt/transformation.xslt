@@ -20,24 +20,9 @@
     <xsl:include href="modules/lists.xslt"/>
     <xsl:include href="pass2/postprocess.xslt"/>
 
-    <!-- ============================================================ -->
-    <!-- MULTI-PASS TRANSFORMATION STRATEGY                           -->
-    <!-- ============================================================ -->
-    <!-- This stylesheet uses a two-pass approach:                    -->
-    <!-- Pass 1: Transform Adobe XML to intermediate XHTML (DEFAULT)  -->
-    <!-- Pass 2: Post-process cleanup (pass2/postprocess.xslt)        -->
-    <!--                                                              -->
-    <!-- Mode Strategy:                                               -->
-    <!-- - Pass 1 uses DEFAULT MODE (no mode attribute needed)        -->
-    <!-- - Pass 2 uses EXPLICIT mode="pass2"                          -->
-    <!--                                                              -->
-    <!-- Pass 2 logic is in pass2/postprocess.xslt                    -->
-    <!-- ============================================================ -->
+    <!-- Two-pass transformation: Pass 1 (Adobe XML → XHTML, default mode) + Pass 2 (cleanup, mode="pass2" in pass2/postprocess.xslt) -->
 
-    <!-- ============================================================ -->
-    <!-- IDENTITY TRANSFORM BASE TEMPLATES                            -->
-    <!-- ============================================================ -->
-    <!-- These templates work in both passes using mode="#all"        -->
+    <!-- Identity transform base templates (mode="#all" - works in both passes) -->
 
     <xsl:template match="*" mode="#all" priority="-1">
         <xsl:element name="{local-name()}" namespace="http://www.w3.org/1999/xhtml">
@@ -69,21 +54,17 @@
         <xsl:copy/>
     </xsl:template>
 
-    <!-- ============================================================ -->
-    <!-- DOCUMENT STRUCTURE TEMPLATES - TWO-PASS PROCESSING           -->
-    <!-- ============================================================ -->
+    <!-- Document structure templates - two-pass processing -->
 
     <xsl:template match="/">
-        <!-- Pass 1: Transform Adobe XML to intermediate structure (DEFAULT MODE) -->
         <xsl:variable name="pass1-result">
             <html>
                 <head>
                     <meta charset="UTF-8"/>
                     <title>Taxxor TDM Document</title>
 
-                    <!-- Debug visualization CSS for data-numberscheme attributes -->
                     <style type="text/css">
-                        /* Display data-numberscheme attribute values after headers for debugging */
+                        /* Debug CSS: Display data-numberscheme values after headers */
                         h1[data-numberscheme]::after,
                         h2[data-numberscheme]::after,
                         h3[data-numberscheme]::after,
@@ -97,7 +78,7 @@
                             opacity: 0.8;
                         }
 
-                        /* Optional: Show data-number attribute as well */
+                        /* Show data-number attribute */
                         h1[data-number]::before,
                         h2[data-number]::before,
                         h3[data-number]::before,
@@ -120,13 +101,10 @@
             </html>
         </xsl:variable>
 
-        <!-- Pass 2: Post-process cleanup (see modules/postprocess.xslt) -->
         <xsl:apply-templates select="$pass1-result" mode="pass2"/>
     </xsl:template>
 
-    <!-- ============================================================ -->
-    <!-- PASS 1: ADOBE XML TO INTERMEDIATE XHTML (DEFAULT MODE)       -->
-    <!-- ============================================================ -->
+    <!-- Pass 1: Adobe XML to intermediate XHTML (default mode) -->
 
     <xsl:template match="Document">
         <xsl:apply-templates/>
@@ -136,9 +114,7 @@
         <xsl:apply-templates/>
     </xsl:template>
 
-    <!-- ============================================================ -->
-    <!-- PASS 1: SUPPRESSION TEMPLATES                                -->
-    <!-- ============================================================ -->
+    <!-- Pass 1: Suppression templates -->
 
     <xsl:template match="x:xmpmeta | rdf:RDF" priority="10"/>
 
@@ -152,9 +128,7 @@
 
     <xsl:template match="processing-instruction('xpacket')" priority="10"/>
 
-    <!-- ============================================================ -->
-    <!-- PASS 1: PARAGRAPH TRANSFORMATION TEMPLATES                   -->
-    <!-- ============================================================ -->
+    <!-- Pass 1: Paragraph transformation templates -->
 
     <xsl:template match="P" priority="10">
         <xsl:variable name="text" select="normalize-space(.)"/>
@@ -166,9 +140,7 @@
         </xsl:if>
     </xsl:template>
 
-    <!-- ============================================================ -->
-    <!-- PASS 1: LINK TRANSFORMATION TEMPLATES                        -->
-    <!-- ============================================================ -->
+    <!-- Pass 1: Link transformation templates -->
 
     <xsl:template match="Reference">
         <a href="#">
