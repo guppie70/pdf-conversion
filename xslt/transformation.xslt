@@ -91,6 +91,31 @@
                             margin-right: 0.3em;
                             opacity: 0.7;
                         }
+
+                        /* Highlight asymmetrical table rows */
+                        tr[data-asymmetric="true"] {
+                            border-top: 1px solid #ff9800;
+                            border-bottom: 1px solid #ff9800;
+                            border-left: 4px solid #ff9800;
+                        }
+
+                        tr[data-asymmetric="true"] td,
+                        tr[data-asymmetric="true"] th {
+                            
+                        }
+
+                        /* Display cell count information after asymmetrical rows */
+                        tr[data-asymmetric="true"]::after {
+                            content: "⚠ Asymmetric row: " attr(data-cell-count) " cells (expected " attr(data-expected-count) ")";
+                            display: block;
+                            padding: 4px 8px;
+                            background-color: #ff9800;
+                            color: white;
+                            font-size: 0.85em;
+                            font-weight: bold;
+                            text-align: center;
+                            margin: 2px 0;
+                        }
                     </style>
                 </head>
                 <body>

@@ -52,4 +52,30 @@
                   mode="pass2"
                   priority="15"/>
 
+    <!-- Detect and mark asymmetrical table rows -->
+    <!-- Asymmetrical = row has fewer cells than the maximum number of cells in the table -->
+    <xsl:template match="*[local-name()='tr']" mode="pass2" priority="10">
+        <xsl:variable name="current-cell-count" select="count(*[local-name()='td' or local-name()='th'])"/>
+
+        <!-- Find the maximum number of cells in any row of this table -->
+        <xsl:variable name="max-cell-count">
+            <xsl:for-each select="ancestor::*[local-name()='table'][1]//*[local-name()='tr']">
+                <xsl:sort select="count(*[local-name()='td' or local-name()='th'])" data-type="number" order="descending"/>
+                <xsl:if test="position() = 1">
+                    <xsl:value-of select="count(*[local-name()='td' or local-name()='th'])"/>
+                </xsl:if>
+            </xsl:for-each>
+        </xsl:variable>
+
+        <xsl:copy>
+            <!-- Mark as asymmetric if this row has fewer cells than the max -->
+            <xsl:if test="$current-cell-count &lt; $max-cell-count">
+                <xsl:attribute name="data-asymmetric">true</xsl:attribute>
+                <xsl:attribute name="data-cell-count"><xsl:value-of select="$current-cell-count"/></xsl:attribute>
+                <xsl:attribute name="data-expected-count"><xsl:value-of select="$max-cell-count"/></xsl:attribute>
+            </xsl:if>
+            <xsl:apply-templates select="@* | node()" mode="pass2"/>
+        </xsl:copy>
+    </xsl:template>
+
 </xsl:stylesheet>
