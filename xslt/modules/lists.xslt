@@ -48,6 +48,11 @@
     <!-- General list template for regular lists -->
     <xsl:template match="L" priority="10">
         <xsl:choose>
+            <!-- Flatten wrapper: if L contains only nested L with no direct LI children, skip wrapper -->
+            <xsl:when test="L and not(LI)">
+                <xsl:apply-templates/>
+            </xsl:when>
+            <!-- Normal list: has direct LI children, create ul/ol wrapper -->
             <xsl:when test="@ListType='Ordered'">
                 <ol>
                     <xsl:apply-templates select="@* except @ListType"/>
