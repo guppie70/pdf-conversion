@@ -19,11 +19,17 @@
     <!-- - Single-pass matching cannot reliably catch all patterns    -->
     <!-- - Post-processing on structured output is more reliable      -->
     <!--                                                              -->
-    <!-- Patterns matched:                                            -->
-    <!-- 1. Paragraphs ending with "(continued)"                      -->
-    <!-- 2. Paragraphs containing only "(continued)"                  -->
-    <!-- 3. Case-insensitive matching                                 -->
-    <!-- 4. Trailing/leading whitespace variations                    -->
+    <!-- Elements filtered:                                           -->
+    <!-- 1. Paragraphs (<p>) ending with "(continued)"                -->
+    <!-- 2. List items (<li>) ending with "(continued)"               -->
+    <!-- 3. Elements containing only "(continued)"                    -->
+    <!-- 4. Case-insensitive matching                                 -->
+    <!-- 5. Trailing/leading whitespace variations                    -->
+    <!--                                                              -->
+    <!-- Common patterns matched:                                     -->
+    <!-- - <p>(f)Employee benefits (continued)</p>                    -->
+    <!-- - <li><a>(f)Employee benefits (continued)</a></li>           -->
+    <!-- - <p>Some text (continued)</p>                               -->
     <!-- ============================================================ -->
 
     <!-- Identity transform for pass2 (copy everything by default) -->
@@ -56,6 +62,30 @@
     <!-- Special handling for paragraphs containing ONLY "(continued)" -->
     <!-- Priority 15 ensures this template fires before the general one above -->
     <xsl:template match="*[local-name()='p'][normalize-space(.) = '(continued)']"
+                  mode="pass2"
+                  priority="15"/>
+
+    <!-- Suppress list items ending with "(continued)" in any form -->
+    <!-- Handles TOC items like: <li><a>(f)Employee benefits (continued)</a></li> -->
+    <!-- Uses same regex pattern as paragraphs above -->
+    <xsl:template match="*[local-name()='li' or (local-name()='a' and @href='#')]" mode="pass2">
+        <xsl:variable name="full-text" select="normalize-space(string(.))"/>
+
+        <!-- Check if text matches "(continued)" pattern using regex -->
+        <xsl:variable name="has-continued"
+                      select="matches($full-text, '\(continued\)\s*$', 'i')"/>
+
+        <!-- Only output the list item if it doesn't end with "(continued)" -->
+        <xsl:if test="not($has-continued)">
+            <xsl:copy>
+                <xsl:apply-templates select="node() | @*" mode="pass2"/>
+            </xsl:copy>
+        </xsl:if>
+    </xsl:template>
+
+    <!-- Special handling for list items containing ONLY "(continued)" -->
+    <!-- Priority 15 ensures this template fires before the general one above -->
+    <xsl:template match="*[local-name()='li'][normalize-space(.) = '(continued)']"
                   mode="pass2"
                   priority="15"/>
 
