@@ -47,9 +47,11 @@
        <!-- Deeply nested lists (6 levels) with single LI containing headings -->
     <!-- Matches: L > L > L > L > L > L > LI -->
     <!-- Outputs: h4 with auto-detected data-numberscheme and data-number attributes -->
+    <!-- Strips numbering prefix from text content while preserving it in data-number attribute -->
     <xsl:template match="L[L[L[L[L[L[LI]]]]]]" priority="35">
         <xsl:variable name="lbody" select="(.//LI)[1]/LBody"/>
         <xsl:variable name="text" select="normalize-space($lbody)"/>
+        <xsl:variable name="text-without-prefix" select="hdr:get-text-without-prefix($text)"/>
 
         <!-- Suppress if empty or ends with "(continued)" -->
         <xsl:if test="$text != '' and not(ends-with($text, '(continued)'))">
@@ -57,7 +59,7 @@
                 <xsl:call-template name="add-numbering-attributes">
                     <xsl:with-param name="text" select="$text"/>
                 </xsl:call-template>
-                <xsl:value-of select="$text"/>
+                <xsl:value-of select="$text-without-prefix"/>
             </h4>
         </xsl:if>
     </xsl:template>
@@ -84,23 +86,26 @@
 
                 <!-- Output main heading as h3 -->
                 <xsl:if test="normalize-space($mainText) != ''">
+                    <xsl:variable name="mainTextClean" select="normalize-space($mainText)"/>
+                    <xsl:variable name="mainTextWithoutPrefix" select="hdr:get-text-without-prefix($mainTextClean)"/>
                     <h3>
                         <xsl:call-template name="add-numbering-attributes">
-                            <xsl:with-param name="text" select="normalize-space($mainText)"/>
+                            <xsl:with-param name="text" select="$mainTextClean"/>
                         </xsl:call-template>
-                        <xsl:value-of select="normalize-space($mainText)"/>
+                        <xsl:value-of select="$mainTextWithoutPrefix"/>
                     </h3>
                 </xsl:if>
 
                 <!-- Output each nested sub-item as h4 with detected numberscheme and data-number -->
                 <xsl:for-each select="$outerLBody/L/LI/LBody">
                     <xsl:variable name="subText" select="normalize-space(.)"/>
+                    <xsl:variable name="subTextWithoutPrefix" select="hdr:get-text-without-prefix($subText)"/>
                     <xsl:if test="$subText != ''">
                         <h4>
                             <xsl:call-template name="add-numbering-attributes">
                                 <xsl:with-param name="text" select="$subText"/>
                             </xsl:call-template>
-                            <xsl:value-of select="$subText"/>
+                            <xsl:value-of select="$subTextWithoutPrefix"/>
                         </h4>
                     </xsl:if>
                 </xsl:for-each>
@@ -109,6 +114,7 @@
             <!-- Case 1: Simple LBody with just text (original behavior) -->
             <xsl:otherwise>
                 <xsl:variable name="text" select="normalize-space($outerLBody)"/>
+                <xsl:variable name="text-without-prefix" select="hdr:get-text-without-prefix($text)"/>
                 <!-- Suppress if empty or ends with "(continued)" -->
                 <xsl:if test="$text != '' and not(ends-with($text, '(continued)'))">
                     <xsl:variable name="detected-prefix" select="hdr:get-number-prefix($text)"/>
@@ -126,7 +132,7 @@
                                 <xsl:attribute name="data-number"></xsl:attribute>
                             </xsl:otherwise>
                         </xsl:choose>
-                        <xsl:value-of select="$text"/>
+                        <xsl:value-of select="$text-without-prefix"/>
                     </h3>
                 </xsl:if>
             </xsl:otherwise>
@@ -248,18 +254,20 @@
 
     <!-- P elements with numbering prefixes (e.g., "(i) Recognition", "(a) Definition") -->
     <!-- Converts to h4 with detected data-numberscheme and data-number attributes -->
+    <!-- Strips the numbering prefix from text content while preserving it in data-number attribute -->
     <!-- Must have higher priority than default P template to intercept matching elements -->
     <xsl:template match="P[normalize-space(.) != '' and
                            not(ends-with(normalize-space(.), '(continued)')) and
                            hdr:get-number-prefix(normalize-space(.)) != '']"
                   priority="15">
         <xsl:variable name="text" select="normalize-space(.)"/>
+        <xsl:variable name="text-without-prefix" select="hdr:get-text-without-prefix($text)"/>
         <h4>
             <xsl:apply-templates select="@*"/>
             <xsl:call-template name="add-numbering-attributes">
                 <xsl:with-param name="text" select="$text"/>
             </xsl:call-template>
-            <xsl:apply-templates/>
+            <xsl:value-of select="$text-without-prefix"/>
         </h4>
     </xsl:template>
 

@@ -4,9 +4,10 @@
                 xmlns="http://www.w3.org/1999/xhtml"
                 xmlns:xs="http://www.w3.org/2001/XMLSchema"
                 xmlns:hdr="http://taxxor.com/xslt/header-functions"
+                xmlns:lst="http://taxxor.com/xslt/list-functions"
                 xmlns:x="adobe:ns:meta/"
                 xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-                exclude-result-prefixes="xs hdr x rdf">
+                exclude-result-prefixes="xs hdr lst x rdf">
 
     <xsl:output method="xhtml"
                 encoding="UTF-8"
