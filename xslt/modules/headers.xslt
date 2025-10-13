@@ -223,6 +223,20 @@
 
     <!-- Paragraph-to-header conversion: <P> with numbering prefixes → <h4> -->
 
+    <!-- P with data-forceheader attribute → forced header level with (a),(b),(c) numbering scheme (priority=20) -->
+    <xsl:template match="P[@data-forceheader and normalize-space(.) != '']"
+                  priority="20">
+        <xsl:variable name="text" select="normalize-space(.)"/>
+        <xsl:variable name="header-level" select="@data-forceheader"/>
+
+        <xsl:element name="{$header-level}">
+            <xsl:apply-templates select="@* except @data-forceheader"/>
+            <xsl:attribute name="data-numberscheme">(a),(b),(c)</xsl:attribute>
+            <xsl:attribute name="data-number"></xsl:attribute>
+            <xsl:value-of select="$text"/>
+        </xsl:element>
+    </xsl:template>
+
     <!-- P with numbering prefixes → h4 with detected numberscheme (priority=15 to intercept default P template) -->
     <xsl:template match="P[normalize-space(.) != '' and
                            not(ends-with(normalize-space(.), '(continued)')) and
