@@ -12,7 +12,8 @@
 @inject ILogger<Development> Logger
 @inject DevelopmentToolbarState ToolbarState
 @inject ThemeService ThemeService
-@inject IXsltFileWatcherService FileWatcher
+@inject IXsltFileWatcherService XsltFileWatcher
+@inject IXmlFileWatcherService XmlFileWatcher
 
 <PageTitle>Development Mode</PageTitle>
 
@@ -356,8 +357,9 @@
         ToolbarState.OnToggleSettings = ToggleSettings;
         // Note: OnToggleTransformationLog is handled in MainLayout
 
-        // Register file watcher callback (replaces any existing callback to prevent double subscription)
-        FileWatcher.SetFileChangedCallback(OnXsltFileChangedExternally);
+        // Register file watcher callbacks (replaces any existing callback to prevent double subscription)
+        XsltFileWatcher.SetFileChangedCallback(OnXsltFileChangedExternally);
+        XmlFileWatcher.SetFileChangedCallback(OnXmlFileChangedExternally);
 
         // Subscribe to theme changes
         ThemeService.OnThemeChanged += OnThemeChanged;
@@ -472,12 +474,12 @@
                     // Start watching for file changes
                     try
                     {
-                        FileWatcher.StartWatching(xsltPath);
+                        XsltFileWatcher.StartWatching(xsltPath);
                         Logger.LogInformation("Started watching XSLT file for external changes");
                     }
                     catch (Exception watchEx)
                     {
-                        Logger.LogError(watchEx, "Failed to start file watcher");
+                        Logger.LogError(watchEx, "Failed to start XSLT file watcher");
                         // Non-critical, continue without watcher
                     }
                 }
@@ -551,8 +553,22 @@
             {
                 IsLoadingXml = true;
                 StateHasChanged();
+
+                var xmlFilePath = Path.Combine("/app/data/input/optiver/projects", SelectedProjectId, SelectedFileName);
                 XmlContent = await ProjectService.ReadInputFileAsync(SelectedProjectId, SelectedFileName);
                 Logger.LogInformation("Loaded file {FileName} from project {ProjectId}", SelectedFileName, SelectedProjectId);
+
+                // Start watching the XML file for external changes
+                try
+                {
+                    XmlFileWatcher.StartWatching(xmlFilePath);
+                    Logger.LogInformation("Started watching XML file for external changes: {Path}", xmlFilePath);
+                }
+                catch (Exception watchEx)
+                {
+                    Logger.LogError(watchEx, "Failed to start XML file watcher");
+                    // Non-critical, continue without watcher
+                }
 
                 // Auto-transform if enabled
                 if (AutoTransform && CanTransform)
@@ -643,12 +659,12 @@
                 // Update file watcher to watch the new file
                 try
                 {
-                    FileWatcher.StartWatching(xsltPath);
+                    XsltFileWatcher.StartWatching(xsltPath);
                     Logger.LogInformation("Started watching XSLT file for external changes");
                 }
                 catch (Exception watchEx)
                 {
-                    Logger.LogError(watchEx, "Failed to start file watcher");
+                    Logger.LogError(watchEx, "Failed to start XSLT file watcher");
                 }
 
                 // Save selection to localStorage
@@ -762,7 +778,7 @@
                 // Auto-transform if enabled
                 if (AutoTransform && CanTransform && !IsTransforming)
                 {
-                    Logger.LogInformation("Auto-transform triggered by external file change");
+                    Logger.LogInformation("Auto-transform triggered by external XSLT file change");
                     await TransformAsync();
                 }
             }
@@ -775,6 +791,45 @@
             {
                 // Clear flag (Monaco won't fire change event due to isSettingValueProgrammatically)
                 isUpdatingFromExternalFile = false;
+            }
+        });
+    }
+
+    private async void OnXmlFileChangedExternally(object? sender, XmlFileChangedEventArgs e)
+    {
+        // This is called from file watcher thread, marshal to UI thread
+        await InvokeAsync(async () =>
+        {
+            try
+            {
+                Logger.LogInformation("XML file updated externally at {Path}", e.FilePath);
+
+                // Update XML content
+                XmlContent = e.Content;
+
+                // Update Source XML viewer if initialized
+                if (_sourceXmlViewerInitialized)
+                {
+                    await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.setValue", "sourceXml", XmlContent);
+                    Logger.LogInformation("Updated Source XML viewer with external file changes");
+                }
+
+                StateHasChanged();
+
+                // Show notification to user
+                ToastNotification.ShowInfo("Source XML reloaded from disk");
+
+                // Auto-transform if enabled
+                if (AutoTransform && CanTransform && !IsTransforming)
+                {
+                    Logger.LogInformation("Auto-transform triggered by external XML file change");
+                    await TransformAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error handling external XML file change");
+                ToastNotification.ShowError($"Failed to reload XML: {ex.Message}");
             }
         });
     }
@@ -1246,8 +1301,9 @@
 
     public async ValueTask DisposeAsync()
     {
-        // Clear file watcher callback
-        FileWatcher.SetFileChangedCallback(null);
+        // Clear file watcher callbacks
+        XsltFileWatcher.SetFileChangedCallback(null);
+        XmlFileWatcher.SetFileChangedCallback(null);
 
         // Dispose Source XML viewer
         if (_sourceXmlViewerInitialized)

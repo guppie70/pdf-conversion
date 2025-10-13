@@ -62,6 +62,7 @@ builder.Services.AddScoped<DevelopmentToolbarState>();
 builder.Services.AddSingleton<ITransformationLogService, TransformationLogService>();
 builder.Services.AddSingleton<ThemeService>();
 builder.Services.AddSingleton<IXsltFileWatcherService, XsltFileWatcherService>();
+builder.Services.AddSingleton<IXmlFileWatcherService, XmlFileWatcherService>();
 
 // Register performance optimization services
 builder.Services.AddSingleton<IDistributedCacheService, DistributedCacheService>();
