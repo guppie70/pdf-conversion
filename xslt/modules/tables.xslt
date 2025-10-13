@@ -65,18 +65,48 @@
     </xsl:template>
 
     <!-- Table header cell template -->
+    <!-- Optimizes simple cells: unwraps single <P> element to avoid unnecessary paragraph wrappers -->
     <xsl:template match="TH" priority="10">
         <th>
             <xsl:apply-templates select="@*"/>
-            <xsl:apply-templates/>
+            <xsl:choose>
+                <!-- Single non-empty P element (ignoring Artifact): render P's content directly -->
+                <xsl:when test="count(P[normalize-space(.) != '']) = 1 and
+                                not(*[not(self::P or self::Artifact)])">
+                    <xsl:variable name="singleP" select="P[normalize-space(.) != '']"/>
+                    <!-- Preserve xml:lang and other attributes from P on the th element -->
+                    <xsl:apply-templates select="$singleP/@xml:lang"/>
+                    <!-- Render P's content without p wrapper -->
+                    <xsl:apply-templates select="$singleP/node()"/>
+                </xsl:when>
+                <!-- Multiple P elements or mixed content: normal processing -->
+                <xsl:otherwise>
+                    <xsl:apply-templates/>
+                </xsl:otherwise>
+            </xsl:choose>
         </th>
     </xsl:template>
 
     <!-- Table data cell template -->
+    <!-- Optimizes simple cells: unwraps single <P> element to avoid unnecessary paragraph wrappers -->
     <xsl:template match="TD" priority="10">
         <td>
             <xsl:apply-templates select="@*"/>
-            <xsl:apply-templates/>
+            <xsl:choose>
+                <!-- Single non-empty P element (ignoring Artifact): render P's content directly -->
+                <xsl:when test="count(P[normalize-space(.) != '']) = 1 and
+                                not(*[not(self::P or self::Artifact)])">
+                    <xsl:variable name="singleP" select="P[normalize-space(.) != '']"/>
+                    <!-- Preserve xml:lang and other attributes from P on the td element -->
+                    <xsl:apply-templates select="$singleP/@xml:lang"/>
+                    <!-- Render P's content without p wrapper -->
+                    <xsl:apply-templates select="$singleP/node()"/>
+                </xsl:when>
+                <!-- Multiple P elements or mixed content: normal processing -->
+                <xsl:otherwise>
+                    <xsl:apply-templates/>
+                </xsl:otherwise>
+            </xsl:choose>
         </td>
     </xsl:template>
 
