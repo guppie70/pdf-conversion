@@ -18,10 +18,26 @@
     <xsl:include href="modules/headers.xslt"/>
     <xsl:include href="modules/tables.xslt"/>
     <xsl:include href="modules/lists.xslt"/>
+    <xsl:include href="pass2/postprocess.xslt"/>
+
+    <!-- ============================================================ -->
+    <!-- MULTI-PASS TRANSFORMATION STRATEGY                           -->
+    <!-- ============================================================ -->
+    <!-- This stylesheet uses a two-pass approach:                    -->
+    <!-- Pass 1: Transform Adobe XML to intermediate XHTML (DEFAULT)  -->
+    <!-- Pass 2: Post-process cleanup (pass2/postprocess.xslt)        -->
+    <!--                                                              -->
+    <!-- Mode Strategy:                                               -->
+    <!-- - Pass 1 uses DEFAULT MODE (no mode attribute needed)        -->
+    <!-- - Pass 2 uses EXPLICIT mode="pass2"                          -->
+    <!--                                                              -->
+    <!-- Pass 2 logic is in pass2/postprocess.xslt                    -->
+    <!-- ============================================================ -->
 
     <!-- ============================================================ -->
     <!-- IDENTITY TRANSFORM BASE TEMPLATES                            -->
     <!-- ============================================================ -->
+    <!-- These templates work in both passes using mode="#all"        -->
 
     <xsl:template match="*" mode="#all" priority="-1">
         <xsl:element name="{local-name()}" namespace="http://www.w3.org/1999/xhtml">
@@ -54,53 +70,63 @@
     </xsl:template>
 
     <!-- ============================================================ -->
-    <!-- DOCUMENT STRUCTURE TEMPLATES                                 -->
+    <!-- DOCUMENT STRUCTURE TEMPLATES - TWO-PASS PROCESSING           -->
     <!-- ============================================================ -->
 
     <xsl:template match="/">
-        <html>
-            <head>
-                <meta charset="UTF-8"/>
-                <title>Taxxor TDM Document</title>
+        <!-- Pass 1: Transform Adobe XML to intermediate structure (DEFAULT MODE) -->
+        <xsl:variable name="pass1-result">
+            <html>
+                <head>
+                    <meta charset="UTF-8"/>
+                    <title>Taxxor TDM Document</title>
 
-                <!-- Debug visualization CSS for data-numberscheme attributes -->
-                <style type="text/css">
-                    /* Display data-numberscheme attribute values after headers for debugging */
-                    h1[data-numberscheme]::after,
-                    h2[data-numberscheme]::after,
-                    h3[data-numberscheme]::after,
-                    h4[data-numberscheme]::after {
-                        content: " [scheme: " attr(data-numberscheme) "]";
-                        color: #888;
-                        font-size: 0.75em;
-                        font-weight: normal;
-                        font-style: italic;
-                        margin-left: 0.5em;
-                        opacity: 0.8;
-                    }
+                    <!-- Debug visualization CSS for data-numberscheme attributes -->
+                    <style type="text/css">
+                        /* Display data-numberscheme attribute values after headers for debugging */
+                        h1[data-numberscheme]::after,
+                        h2[data-numberscheme]::after,
+                        h3[data-numberscheme]::after,
+                        h4[data-numberscheme]::after {
+                            content: " [scheme: " attr(data-numberscheme) "]";
+                            color: #888;
+                            font-size: 0.75em;
+                            font-weight: normal;
+                            font-style: italic;
+                            margin-left: 0.5em;
+                            opacity: 0.8;
+                        }
 
-                    /* Optional: Show data-number attribute as well */
-                    h1[data-number]::before,
-                    h2[data-number]::before,
-                    h3[data-number]::before,
-                    h4[data-number]::before {
-                        content: "[" attr(data-number) "] ";
-                        color: #999;
-                        font-size: 0.75em;
-                        font-weight: normal;
-                        font-style: italic;
-                        margin-right: 0.3em;
-                        opacity: 0.7;
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="document-content">
-                    <xsl:apply-templates select="//Document"/>
-                </div>
-            </body>
-        </html>
+                        /* Optional: Show data-number attribute as well */
+                        h1[data-number]::before,
+                        h2[data-number]::before,
+                        h3[data-number]::before,
+                        h4[data-number]::before {
+                            content: "[" attr(data-number) "] ";
+                            color: #999;
+                            font-size: 0.75em;
+                            font-weight: normal;
+                            font-style: italic;
+                            margin-right: 0.3em;
+                            opacity: 0.7;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="document-content">
+                        <xsl:apply-templates select="//Document"/>
+                    </div>
+                </body>
+            </html>
+        </xsl:variable>
+
+        <!-- Pass 2: Post-process cleanup (see modules/postprocess.xslt) -->
+        <xsl:apply-templates select="$pass1-result" mode="pass2"/>
     </xsl:template>
+
+    <!-- ============================================================ -->
+    <!-- PASS 1: ADOBE XML TO INTERMEDIATE XHTML (DEFAULT MODE)       -->
+    <!-- ============================================================ -->
 
     <xsl:template match="Document">
         <xsl:apply-templates/>
@@ -111,7 +137,7 @@
     </xsl:template>
 
     <!-- ============================================================ -->
-    <!-- SUPPRESSION TEMPLATES                                        -->
+    <!-- PASS 1: SUPPRESSION TEMPLATES                                -->
     <!-- ============================================================ -->
 
     <xsl:template match="x:xmpmeta | rdf:RDF" priority="10"/>
@@ -127,12 +153,12 @@
     <xsl:template match="processing-instruction('xpacket')" priority="10"/>
 
     <!-- ============================================================ -->
-    <!-- PARAGRAPH TRANSFORMATION TEMPLATES                           -->
+    <!-- PASS 1: PARAGRAPH TRANSFORMATION TEMPLATES                   -->
     <!-- ============================================================ -->
 
     <xsl:template match="P" priority="10">
         <xsl:variable name="text" select="normalize-space(.)"/>
-        <xsl:if test="$text != '' and not(ends-with($text, '(continued)'))">
+        <xsl:if test="$text != ''">
             <p>
                 <xsl:apply-templates select="@*"/>
                 <xsl:apply-templates/>
@@ -141,7 +167,7 @@
     </xsl:template>
 
     <!-- ============================================================ -->
-    <!-- LINK TRANSFORMATION TEMPLATES                                -->
+    <!-- PASS 1: LINK TRANSFORMATION TEMPLATES                        -->
     <!-- ============================================================ -->
 
     <xsl:template match="Reference">

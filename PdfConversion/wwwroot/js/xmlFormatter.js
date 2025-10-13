@@ -168,6 +168,9 @@ window.xmlFormatter = {
 
     /**
      * Apply syntax highlighting to an element's content
+     * NOTE: Not currently used. Monaco Editor provides syntax highlighting.
+     * Kept for backwards compatibility or future use cases.
+     *
      * @param {string} elementId - ID of the element containing XML text
      * @param {boolean} animate - Whether to animate the transition (default: false)
      */

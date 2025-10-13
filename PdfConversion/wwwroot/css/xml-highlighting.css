@@ -1,5 +1,13 @@
-/* XML Syntax Highlighting - Monaco Editor Theme */
-/* Applied by JavaScript (xmlFormatter.js) - Must be global CSS */
+/* XML Syntax Highlighting - Legacy */
+/*
+ * NOTE: These styles are NOT currently used in production.
+ * Monaco Editor provides built-in XML syntax highlighting.
+ *
+ * These styles were used by xmlFormatter.js's highlightXml() function
+ * for the old <pre> code viewers (removed in Phase 4).
+ *
+ * Kept for reference/future use, but can be safely deleted if needed.
+ */
 
 /* Light theme (vs-light) colors matching Monaco's XML highlighting */
 .xml-tag {

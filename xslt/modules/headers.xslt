@@ -7,7 +7,7 @@
                 exclude-result-prefixes="xs hdr">
 
     <!-- ============================================================ -->
-    <!-- HEADER TRANSFORMATION TEMPLATES                              -->
+    <!-- HEADER TRANSFORMATION TEMPLATES (DEFAULT MODE)               -->
     <!-- ============================================================ -->
 
     <xsl:template match="H1" priority="10">
