@@ -34,6 +34,21 @@ public class HeaderMatch
     public double ConfidenceScore { get; set; }
 
     /// <summary>
+    /// Whether this match is part of a duplicate group (multiple headers matched same hierarchy item)
+    /// </summary>
+    public bool IsDuplicate { get; set; }
+
+    /// <summary>
+    /// Total number of matches for this hierarchy item (if duplicate)
+    /// </summary>
+    public int DuplicateCount { get; set; }
+
+    /// <summary>
+    /// Position in duplicate group (0-based index)
+    /// </summary>
+    public int DuplicateIndex { get; set; }
+
+    /// <summary>
     /// Returns a formatted string for logging and debugging
     /// </summary>
     public override string ToString()
@@ -44,7 +59,10 @@ public class HeaderMatch
                 ? $"Match ({ConfidenceScore:P0})"
                 : "No Match";
 
+        var duplicateInfo = IsDuplicate ? $" [Duplicate {DuplicateIndex + 1}/{DuplicateCount}]" : "";
+
         return $"{HierarchyItem.LinkName} -> {matchStatus}" +
-               (MatchedText != null ? $" ({MatchedText})" : "");
+               (MatchedText != null ? $" ({MatchedText})" : "") +
+               duplicateInfo;
     }
 }

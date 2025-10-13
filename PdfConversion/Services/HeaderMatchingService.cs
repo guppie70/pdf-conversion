@@ -29,13 +29,13 @@ public class HeaderMatchingService : IHeaderMatchingService
             var headers = ExtractHeaders(transformedXhtml);
             _logger.LogInformation("Found {Count} headers in transformed XHTML", headers.Count);
 
-            // Perform exact matching
+            // Perform exact matching - find ALL matches (including duplicates)
             var matches = new List<HeaderMatch>();
 
             foreach (var item in hierarchyItems)
             {
-                var match = await FindMatchForItemAsync(item, headers);
-                matches.Add(match);
+                var itemMatches = await FindAllMatchesForItemAsync(item, headers);
+                matches.AddRange(itemMatches);
             }
 
             // Perform fuzzy matching for unmatched items
@@ -48,19 +48,25 @@ public class HeaderMatchingService : IHeaderMatchingService
                     _logger.LogInformation("Attempting fuzzy matching for {Count} unmatched items (threshold: {Threshold:P0})",
                         unmatchedItems.Count, minConfidenceThreshold);
 
-                    var fuzzyMatches = await FindFuzzyMatchesAsync(transformedXhtml, unmatchedItems, minConfidenceThreshold);
+                    var fuzzyMatchGroups = await FindFuzzyMatchesAsync(transformedXhtml, unmatchedItems, minConfidenceThreshold);
 
-                    // Replace unmatched items with fuzzy matches
-                    foreach (var fuzzyMatch in fuzzyMatches)
+                    // Remove unmatched items and add fuzzy matches
+                    foreach (var fuzzyMatchGroup in fuzzyMatchGroups)
                     {
-                        var index = matches.FindIndex(m => m.HierarchyItem.Id == fuzzyMatch.HierarchyItem.Id);
-                        if (index >= 0)
+                        if (fuzzyMatchGroup.Any())
                         {
-                            matches[index] = fuzzyMatch;
+                            // Remove the unmatched placeholder
+                            var hierarchyItemId = fuzzyMatchGroup.First().HierarchyItem.Id;
+                            matches.RemoveAll(m => m.HierarchyItem.Id == hierarchyItemId && m.MatchedHeader == null);
+                            // Add the fuzzy match(es)
+                            matches.AddRange(fuzzyMatchGroup);
                         }
                     }
                 }
             }
+
+            // Detect duplicate matches
+            matches = DetectDuplicateMatches(matches);
 
             // Log statistics
             LogMatchStatistics(matches);
@@ -86,40 +92,48 @@ public class HeaderMatchingService : IHeaderMatchingService
         return headers;
     }
 
-    private Task<HeaderMatch> FindMatchForItemAsync(HierarchyItem item, List<XElement> headers)
+    private Task<List<HeaderMatch>> FindAllMatchesForItemAsync(HierarchyItem item, List<XElement> headers)
     {
         var normalizedSearchText = NormalizeText(item.LinkName);
 
-        // Try to find exact match
-        var matchedHeader = headers.FirstOrDefault(h =>
-            NormalizeText(h.Value) == normalizedSearchText);
+        // Find ALL exact matches (not just the first one)
+        var matchedHeaders = headers.Where(h =>
+            NormalizeText(h.Value) == normalizedSearchText).ToList();
 
-        if (matchedHeader != null)
+        if (matchedHeaders.Any())
         {
-            _logger.LogDebug("Exact match: '{SearchText}' -> '{MatchedText}'",
-                item.LinkName, matchedHeader.Value);
-
-            return Task.FromResult(new HeaderMatch
+            var matches = matchedHeaders.Select(matchedHeader =>
             {
-                HierarchyItem = item,
-                MatchedHeader = matchedHeader,
-                MatchedText = matchedHeader.Value,
-                IsExactMatch = true,
-                ConfidenceScore = 1.0
-            });
+                _logger.LogDebug("Exact match: '{SearchText}' -> '{MatchedText}'",
+                    item.LinkName, matchedHeader.Value);
+
+                return new HeaderMatch
+                {
+                    HierarchyItem = item,
+                    MatchedHeader = matchedHeader,
+                    MatchedText = matchedHeader.Value,
+                    IsExactMatch = true,
+                    ConfidenceScore = 1.0
+                };
+            }).ToList();
+
+            return Task.FromResult(matches);
         }
         else
         {
             // No exact match found - will be handled by fuzzy matching in Phase 5
             _logger.LogDebug("No exact match for '{SearchText}'", item.LinkName);
 
-            return Task.FromResult(new HeaderMatch
+            return Task.FromResult(new List<HeaderMatch>
             {
-                HierarchyItem = item,
-                MatchedHeader = null,
-                MatchedText = null,
-                IsExactMatch = false,
-                ConfidenceScore = 0.0
+                new HeaderMatch
+                {
+                    HierarchyItem = item,
+                    MatchedHeader = null,
+                    MatchedText = null,
+                    IsExactMatch = false,
+                    ConfidenceScore = 0.0
+                }
             });
         }
     }
@@ -144,12 +158,12 @@ public class HeaderMatchingService : IHeaderMatchingService
         return text;
     }
 
-    private async Task<List<HeaderMatch>> FindFuzzyMatchesAsync(
+    private async Task<List<List<HeaderMatch>>> FindFuzzyMatchesAsync(
         XDocument transformedXhtml,
         List<HeaderMatch> unmatchedItems,
         double minConfidenceThreshold = 0.65)
     {
-        var fuzzyMatches = new List<HeaderMatch>();
+        var fuzzyMatchGroups = new List<List<HeaderMatch>>();
 
         // Extract all headers from XHTML
         var headers = transformedXhtml.Descendants()
@@ -160,8 +174,9 @@ public class HeaderMatchingService : IHeaderMatchingService
         foreach (var unmatchedItem in unmatchedItems.Where(m => !m.IsExactMatch))
         {
             var searchText = NormalizeText(unmatchedItem.HierarchyItem.LinkName);
-            HeaderMatch? bestMatch = null;
-            double bestScore = 0.0;
+
+            // Find all headers that match above threshold (for duplicates)
+            var matches = new List<HeaderMatch>();
 
             foreach (var header in headers)
             {
@@ -170,30 +185,37 @@ public class HeaderMatchingService : IHeaderMatchingService
                 var maxLength = Math.Max(searchText.Length, headerText.Length);
                 var similarity = maxLength > 0 ? 1.0 - ((double)distance / maxLength) : 0.0;
 
-                if (similarity > bestScore && similarity >= minConfidenceThreshold)
+                if (similarity >= minConfidenceThreshold)
                 {
-                    bestScore = similarity;
-                    bestMatch = new HeaderMatch
+                    matches.Add(new HeaderMatch
                     {
                         HierarchyItem = unmatchedItem.HierarchyItem,
                         MatchedHeader = header,
                         MatchedText = header.Value,
                         IsExactMatch = false,
                         ConfidenceScore = similarity
-                    };
+                    });
                 }
             }
 
-            if (bestMatch != null)
+            if (matches.Any())
             {
-                fuzzyMatches.Add(bestMatch);
-                _logger.LogInformation(
-                    "Fuzzy match ({ConfidenceScore:P0}): '{SearchText}' -> '{MatchedText}'",
-                    bestMatch.ConfidenceScore, unmatchedItem.HierarchyItem.LinkName, bestMatch.MatchedText);
+                // Keep only the best match(es) - all with the highest score
+                var bestScore = matches.Max(m => m.ConfidenceScore);
+                var bestMatches = matches.Where(m => m.ConfidenceScore == bestScore).ToList();
+
+                fuzzyMatchGroups.Add(bestMatches);
+
+                foreach (var match in bestMatches)
+                {
+                    _logger.LogInformation(
+                        "Fuzzy match ({ConfidenceScore:P0}): '{SearchText}' -> '{MatchedText}'",
+                        match.ConfidenceScore, unmatchedItem.HierarchyItem.LinkName, match.MatchedText);
+                }
             }
         }
 
-        return await Task.FromResult(fuzzyMatches);
+        return await Task.FromResult(fuzzyMatchGroups);
     }
 
     private int CalculateLevenshteinDistance(string source, string target)
@@ -230,12 +252,57 @@ public class HeaderMatchingService : IHeaderMatchingService
         return distance[sourceLength, targetLength];
     }
 
+    public List<HeaderMatch> DetectDuplicateMatches(List<HeaderMatch> matches)
+    {
+        // Group by hierarchy item ID (only matched items)
+        var groupedMatches = matches
+            .Where(m => m.MatchedHeader != null)
+            .GroupBy(m => m.HierarchyItem.Id)
+            .ToList();
+
+        foreach (var group in groupedMatches)
+        {
+            var matchesInGroup = group.ToList();
+            var isDuplicate = matchesInGroup.Count > 1;
+
+            if (isDuplicate)
+            {
+                _logger.LogWarning(
+                    "Duplicate match detected for '{LinkName}': {Count} headers match",
+                    group.First().HierarchyItem.LinkName,
+                    matchesInGroup.Count);
+
+                for (int i = 0; i < matchesInGroup.Count; i++)
+                {
+                    matchesInGroup[i].IsDuplicate = true;
+                    matchesInGroup[i].DuplicateCount = matchesInGroup.Count;
+                    matchesInGroup[i].DuplicateIndex = i;
+
+                    _logger.LogDebug(
+                        "  [{Index}] Header: '{MatchedText}' (confidence: {ConfidenceScore:P0})",
+                        i,
+                        matchesInGroup[i].MatchedText,
+                        matchesInGroup[i].ConfidenceScore);
+                }
+            }
+        }
+
+        var duplicateMatchCount = matches.Count(m => m.IsDuplicate);
+        if (duplicateMatchCount > 0)
+        {
+            _logger.LogWarning("Total duplicate matches: {DuplicateCount}", duplicateMatchCount);
+        }
+
+        return matches;
+    }
+
     private void LogMatchStatistics(List<HeaderMatch> matches)
     {
         var totalItems = matches.Count;
         var exactMatches = matches.Count(m => m.IsExactMatch);
         var fuzzyMatches = matches.Count(m => !m.IsExactMatch && m.MatchedHeader != null);
         var unmatched = matches.Count(m => !m.IsExactMatch && m.MatchedHeader == null);
+        var duplicates = matches.Count(m => m.IsDuplicate);
 
         _logger.LogInformation("Header matching complete:");
         _logger.LogInformation("  Total hierarchy items: {Total}", totalItems);
@@ -245,6 +312,12 @@ public class HeaderMatchingService : IHeaderMatchingService
             fuzzyMatches, totalItems > 0 ? (double)fuzzyMatches / totalItems : 0);
         _logger.LogInformation("  Unmatched items: {Unmatched} ({Percentage:P0})",
             unmatched, totalItems > 0 ? (double)unmatched / totalItems : 0);
+
+        if (duplicates > 0)
+        {
+            _logger.LogInformation("  Duplicate matches: {Duplicates} ({Percentage:P0})",
+                duplicates, totalItems > 0 ? (double)duplicates / totalItems : 0);
+        }
 
         // Log unmatched items at warning level
         var unmatchedItems = matches
