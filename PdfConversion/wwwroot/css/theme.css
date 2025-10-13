@@ -60,11 +60,6 @@ body {
     color: var(--code-text);
 }
 
-.code-viewer {
-    background: var(--code-bg);
-    color: var(--code-text);
-}
-
 .preview-rendered {
     background: var(--panel-bg);
     color: var(--text-primary);

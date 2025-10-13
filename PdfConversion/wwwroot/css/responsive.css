@@ -127,8 +127,7 @@
     }
 
     /* Code editors smaller text */
-    .code-editor,
-    .code-viewer {
+    .code-editor {
         font-size: 0.75rem;
         padding: 1rem;
     }
@@ -236,8 +235,7 @@
         padding: 0.5rem 0.75rem;
     }
 
-    .code-editor,
-    .code-viewer {
+    .code-editor {
         font-size: 0.7rem;
         padding: 0.75rem;
     }
