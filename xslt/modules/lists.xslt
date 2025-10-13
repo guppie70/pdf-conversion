@@ -26,13 +26,13 @@
              - Letters with period: "a.", "A.", "i.", "I.", "iv.", "IX."
              - Letters with parenthesis: "a)", "(a)", "A)", "(A)"
              - Bullets: "•", "◦", "▪", "▫", "∙", "⚫", "○"
-             - Dashes: "-", "–", "—" (hyphen, en-dash, em-dash)
+             - Dashes: "-", "–", "—", "ꟷ" (hyphen, en-dash, em-dash, Latin epigraphic sideways I)
              - Asterisks: "*"
              - Plus signs: "+"
              - Greater than: ">"
              Followed by whitespace (at least one space required after prefix) -->
         <xsl:variable name="prefix-pattern"
-                      select="'^(\d+\.|[a-zA-Z]\.|[ivxIVX]+\.|\d+\)|\([0-9]+\)|[a-zA-Z]\)|\([a-zA-Z]\)|[•◦▪▫∙⚫○\-–—\*\+>])\s+'"/>
+                      select="'^(\d+\.|[a-zA-Z]\.|[ivxIVX]+\.|\d+\)|\([0-9]+\)|[a-zA-Z]\)|\([a-zA-Z]\)|[•◦▪▫∙⚫○\-–—ꟷ\*\+>])\s+'"/>
 
         <!-- Only strip prefix if pattern matches (avoids zero-length match error) -->
         <xsl:choose>
