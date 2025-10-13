@@ -58,6 +58,7 @@ if (!string.IsNullOrEmpty(redisConnection))
 builder.Services.AddScoped<IProjectManagementService, ProjectManagementService>();
 builder.Services.AddScoped<IXsltTransformationService, XsltTransformationService>();
 builder.Services.AddScoped<IFileService, FileService>();
+builder.Services.AddScoped<IConversionService, ConversionService>();
 builder.Services.AddScoped<DevelopmentToolbarState>();
 builder.Services.AddSingleton<ITransformationLogService, TransformationLogService>();
 builder.Services.AddSingleton<ThemeService>();

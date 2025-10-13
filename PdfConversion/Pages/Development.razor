@@ -1092,7 +1092,7 @@
             {
                 var fileName = $"{SelectedProjectId ?? "output"}_{DateTime.Now:yyyyMMdd_HHmmss}.xhtml";
                 var bytes = System.Text.Encoding.UTF8.GetBytes(OutputContent);
-                var base64 = Convert.ToBase64String(bytes);
+                var base64 = System.Convert.ToBase64String(bytes);
 
                 await JSRuntime.InvokeVoidAsync("downloadFile", fileName, "application/xhtml+xml", base64);
                 ToastNotification.ShowSuccess($"Downloaded {fileName}");

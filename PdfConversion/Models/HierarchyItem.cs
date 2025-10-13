@@ -1,0 +1,45 @@
+namespace PdfConversion.Models;
+
+/// <summary>
+/// Represents a single item from the hierarchy XML structure
+/// Used to define sections and their metadata for the conversion process
+/// </summary>
+public class HierarchyItem
+{
+    /// <summary>
+    /// Unique identifier from @id attribute
+    /// Example: "directors-report", "market-risk"
+    /// </summary>
+    public string Id { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Hierarchical level from @level attribute
+    /// Used for determining header hierarchy in output
+    /// Example: 0 (root), 1 (main section), 2 (subsection)
+    /// </summary>
+    public int Level { get; set; }
+
+    /// <summary>
+    /// Output filename from @data-ref attribute
+    /// Example: "directors-report.xml"
+    /// </summary>
+    public string DataRef { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Display name from linkname element
+    /// Used for matching against headers in source document
+    /// Example: "Directors report", "Market risk"
+    /// </summary>
+    public string LinkName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Web page path from path element
+    /// Example: "/", "/directors-report"
+    /// </summary>
+    public string WebPagePath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Returns a formatted string for logging and debugging
+    /// </summary>
+    public override string ToString() => $"{LinkName} (Level {Level}, ID: {Id})";
+}

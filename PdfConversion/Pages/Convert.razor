@@ -1,0 +1,403 @@
+@page "/convert"
+@using System
+@using System.IO
+@using PdfConversion.Services
+@using PdfConversion.Models
+@inject IProjectManagementService ProjectService
+@inject IConversionService ConversionService
+@inject ILogger<Pages.Convert> Logger
+
+<PageTitle>Convert: PDF to Taxxor Sections</PageTitle>
+
+<div class="convert-container">
+    <div class="convert-header">
+        <h3>Convert: PDF to Taxxor Sections</h3>
+        <p class="text-muted">Convert transformed PDF documents into individual Taxxor section XML files</p>
+    </div>
+
+    <!-- Configuration Panel -->
+    <div class="convert-panel">
+        <div class="panel-header">
+            <h5>Configuration</h5>
+        </div>
+        <div class="panel-body">
+            <div class="row g-3">
+                <!-- Project Selection -->
+                <div class="col-md-4">
+                    <label for="projectSelect" class="form-label">Project</label>
+                    <select id="projectSelect"
+                            class="form-select"
+                            @onchange="OnProjectChanged"
+                            value="@_config.ProjectId"
+                            disabled="@IsProcessing">
+                        <option value="">-- Select Project --</option>
+                        @if (Projects != null)
+                        {
+                            @foreach (var project in Projects)
+                            {
+                                <option value="@project.ProjectId">@project.Name</option>
+                            }
+                        }
+                    </select>
+                </div>
+
+                <!-- Source File Selection -->
+                <div class="col-md-4">
+                    <label for="sourceFileSelect" class="form-label">Source File</label>
+                    <select id="sourceFileSelect"
+                            class="form-select"
+                            @onchange="OnSourceFileChanged"
+                            value="@_config.SourceFile"
+                            disabled="@(!IsProjectSelected || IsProcessing)">
+                        <option value="">-- Select Source File --</option>
+                        @if (SourceFiles != null)
+                        {
+                            @foreach (var file in SourceFiles)
+                            {
+                                <option value="@file">@file</option>
+                            }
+                        }
+                    </select>
+                </div>
+
+                <!-- Hierarchy File Selection -->
+                <div class="col-md-4">
+                    <label for="hierarchyFileSelect" class="form-label">Hierarchy File</label>
+                    <select id="hierarchyFileSelect"
+                            class="form-select"
+                            @onchange="OnHierarchyFileChanged"
+                            value="@_config.HierarchyFile"
+                            disabled="@(!IsProjectSelected || IsProcessing)">
+                        <option value="">-- Select Hierarchy File --</option>
+                        @if (HierarchyFiles != null)
+                        {
+                            @foreach (var file in HierarchyFiles)
+                            {
+                                <option value="@file">@file</option>
+                            }
+                        }
+                    </select>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="row mt-3">
+                <div class="col-12">
+                    <button class="btn btn-primary"
+                            @onclick="StartConversion"
+                            disabled="@(!_config.IsValid || IsProcessing)">
+                        <i class="bi bi-play-circle"></i> Start Conversion
+                    </button>
+                    <button class="btn btn-danger ms-2"
+                            @onclick="StopConversion"
+                            disabled="@(!IsProcessing)">
+                        <i class="bi bi-stop-circle"></i> Stop
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Progress Panel -->
+    @if (IsProcessing || ProcessingComplete)
+    {
+        <div class="convert-panel mt-3">
+            <div class="panel-header">
+                <h5>Progress</h5>
+            </div>
+            <div class="panel-body">
+                <div class="progress-info">
+                    <span>Processing: @CurrentItemIndex / @TotalItems sections (@ProgressPercentage%)</span>
+                </div>
+                <div class="progress mt-2" style="height: 30px;">
+                    <div class="progress-bar progress-bar-striped @(IsProcessing ? "progress-bar-animated" : "")"
+                         role="progressbar"
+                         style="width: @ProgressPercentage%"
+                         aria-valuenow="@ProgressPercentage"
+                         aria-valuemin="0"
+                         aria-valuemax="100">
+                        @ProgressPercentage%
+                    </div>
+                </div>
+                @if (!string.IsNullOrEmpty(CurrentItemName))
+                {
+                    <div class="mt-2 text-muted">
+                        <strong>Status:</strong> Processing "@CurrentItemName"...
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- Log Panel -->
+    <div class="convert-panel mt-3">
+        <div class="panel-header">
+            <h5>Log</h5>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="ClearLog">
+                <i class="bi bi-trash"></i> Clear
+            </button>
+        </div>
+        <div class="panel-body">
+            <div class="log-viewer" @ref="_logViewerElement">
+                @if (LogEntries.Any())
+                {
+                    @foreach (var entry in LogEntries)
+                    {
+                        <div class="log-entry">
+                            <span class="log-time">[@entry.Time.ToString("HH:mm:ss")]</span>
+                            <span class="log-message">@entry.Message</span>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="text-muted text-center p-4">
+                        No log entries yet. Select configuration and start conversion.
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    // Configuration
+    private readonly ConversionConfiguration _config = new();
+
+    // State
+    private List<Project>? Projects;
+    private List<string>? SourceFiles;
+    private List<string>? HierarchyFiles;
+    private bool IsProcessing = false;
+    private bool ProcessingComplete = false;
+
+    // Progress tracking
+    private int CurrentItemIndex = 0;
+    private int TotalItems = 0;
+    private string? CurrentItemName;
+    private int ProgressPercentage => TotalItems > 0 ? (CurrentItemIndex * 100 / TotalItems) : 0;
+
+    // Log
+    private readonly List<LogEntry> LogEntries = new();
+    private ElementReference _logViewerElement;
+
+    // Computed properties
+    private bool IsProjectSelected => !string.IsNullOrEmpty(_config.ProjectId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProjectsAsync();
+    }
+
+    private async Task LoadProjectsAsync()
+    {
+        try
+        {
+            Projects = (await ProjectService.GetProjectsAsync()).ToList();
+            Logger.LogInformation("Loaded {Count} projects", Projects.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading projects");
+            AddLogEntry($"Error loading projects: {ex.Message}");
+        }
+    }
+
+    private async Task OnProjectChanged(ChangeEventArgs e)
+    {
+        try
+        {
+            _config.ProjectId = e.Value?.ToString();
+            _config.SourceFile = null;
+            _config.HierarchyFile = null;
+            SourceFiles = null;
+            HierarchyFiles = null;
+
+            if (!string.IsNullOrEmpty(_config.ProjectId))
+            {
+                // Load source files (XML files in project root)
+                var allFiles = (await ProjectService.GetProjectFilesAsync(_config.ProjectId)).ToList();
+                SourceFiles = allFiles.Where(f => f.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)).ToList();
+
+                // Load hierarchy files (XML files in metadata subfolder)
+                var metadataPath = Path.Combine("/app/data/input/optiver/projects", _config.ProjectId, "metadata");
+                if (Directory.Exists(metadataPath))
+                {
+                    HierarchyFiles = Directory.GetFiles(metadataPath, "*.xml")
+                        .Select(Path.GetFileName)
+                        .Where(f => !string.IsNullOrEmpty(f))
+                        .Cast<string>()
+                        .ToList();
+                }
+                else
+                {
+                    HierarchyFiles = new List<string>();
+                }
+
+                Logger.LogInformation("Loaded {SourceCount} source files and {HierarchyCount} hierarchy files for project {ProjectId}",
+                    SourceFiles.Count, HierarchyFiles.Count, _config.ProjectId);
+
+                AddLogEntry($"Project selected: {_config.ProjectId}");
+            }
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading project files");
+            AddLogEntry($"Error loading project files: {ex.Message}");
+        }
+    }
+
+    private Task OnSourceFileChanged(ChangeEventArgs e)
+    {
+        _config.SourceFile = e.Value?.ToString();
+        if (!string.IsNullOrEmpty(_config.SourceFile))
+        {
+            AddLogEntry($"Source file selected: {_config.SourceFile}");
+        }
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private Task OnHierarchyFileChanged(ChangeEventArgs e)
+    {
+        _config.HierarchyFile = e.Value?.ToString();
+        if (!string.IsNullOrEmpty(_config.HierarchyFile))
+        {
+            AddLogEntry($"Hierarchy file selected: {_config.HierarchyFile}");
+        }
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private async Task StartConversion()
+    {
+        if (!_config.IsValid) return;
+
+        IsProcessing = true;
+        ProcessingComplete = false;
+        CurrentItemIndex = 0;
+        TotalItems = 0;
+        CurrentItemName = "Initializing...";
+
+        AddLogEntry("Starting conversion...");
+        AddLogEntry($"Project: {_config.ProjectId}");
+        AddLogEntry($"Source: {_config.SourceFile}");
+        AddLogEntry($"Hierarchy: {_config.HierarchyFile}");
+
+        StateHasChanged();
+
+        try
+        {
+            // Phase 2: Validation
+            AddLogEntry("Validating configuration...");
+            CurrentItemName = "Validating files...";
+            StateHasChanged();
+
+            var validationResult = await ConversionService.ValidateConversionAsync(
+                _config.ProjectId!,
+                _config.SourceFile!,
+                _config.HierarchyFile!
+            );
+
+            if (!validationResult.IsValid)
+            {
+                AddLogEntry($"✗ Validation failed: {validationResult.ErrorMessage}");
+                IsProcessing = false;
+                ProcessingComplete = false;
+                StateHasChanged();
+                return;
+            }
+
+            AddLogEntry("✓ All validations passed");
+
+            // Load hierarchy to determine total items
+            AddLogEntry("Loading hierarchy file...");
+            var hierarchyPath = Path.Combine("/app/data/input/optiver/projects", _config.ProjectId, "metadata", _config.HierarchyFile);
+            var hierarchyItems = await ConversionService.LoadHierarchyAsync(hierarchyPath);
+            TotalItems = hierarchyItems.Count;
+            AddLogEntry($"✓ Loaded {TotalItems} hierarchy items");
+
+            // Load template
+            AddLogEntry("Loading template file...");
+            var template = await ConversionService.LoadTemplateAsync();
+            AddLogEntry("✓ Template loaded successfully");
+
+            // Transform source XML
+            AddLogEntry("Transforming source XML...");
+            CurrentItemName = "Transforming source XML...";
+            StateHasChanged();
+
+            var transformedXml = await ConversionService.TransformSourceXmlAsync(_config.ProjectId, _config.SourceFile);
+            if (transformedXml == null)
+            {
+                AddLogEntry("✗ Source XML transformation failed");
+                IsProcessing = false;
+                ProcessingComplete = false;
+                StateHasChanged();
+                return;
+            }
+
+            AddLogEntry("✓ Source XML transformed successfully");
+
+            // Phase 2 complete - actual conversion will be implemented in later phases
+            AddLogEntry("");
+            AddLogEntry("=== Phase 2 Complete ===");
+            AddLogEntry($"Configuration validated: ✓");
+            AddLogEntry($"Hierarchy items loaded: {TotalItems}");
+            AddLogEntry($"Template loaded: ✓");
+            AddLogEntry($"Source XML transformed: ✓");
+            AddLogEntry("");
+            AddLogEntry("Ready for conversion (Phase 3+)");
+            AddLogEntry("Conversion logic will be implemented in future phases");
+
+            IsProcessing = false;
+            ProcessingComplete = true;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during conversion");
+            AddLogEntry($"✗ Error: {ex.Message}");
+            IsProcessing = false;
+            ProcessingComplete = false;
+            StateHasChanged();
+        }
+    }
+
+    private Task StopConversion()
+    {
+        if (!IsProcessing) return Task.CompletedTask;
+
+        AddLogEntry("Stopping conversion...");
+        IsProcessing = false;
+        StateHasChanged();
+
+        return Task.CompletedTask;
+    }
+
+    private void AddLogEntry(string message)
+    {
+        LogEntries.Add(new LogEntry
+        {
+            Time = DateTime.Now,
+            Message = message
+        });
+
+        // Auto-scroll to bottom (will be implemented with JS interop if needed)
+        StateHasChanged();
+    }
+
+    private void ClearLog()
+    {
+        LogEntries.Clear();
+        StateHasChanged();
+    }
+
+    private class LogEntry
+    {
+        public DateTime Time { get; set; }
+        public string Message { get; set; } = string.Empty;
+    }
+}
