@@ -20,6 +20,20 @@
     <xsl:include href="modules/lists.xslt"/>
 
     <!-- ============================================================ -->
+    <!-- MULTI-PASS TRANSFORMATION STRATEGY                           -->
+    <!-- ============================================================ -->
+    <!-- This stylesheet uses a two-pass approach:                    -->
+    <!-- Pass 1: Transform Adobe XML to intermediate XHTML            -->
+    <!-- Pass 2: Post-process to remove "(continued)" elements        -->
+    <!--                                                              -->
+    <!-- Why multi-pass?                                              -->
+    <!-- - "(continued)" appears in mixed content with Reference      -->
+    <!-- - Text normalization happens during template processing      -->
+    <!-- - Single-pass matching cannot reliably catch all patterns    -->
+    <!-- - Post-processing on structured output is more reliable      -->
+    <!-- ============================================================ -->
+
+    <!-- ============================================================ -->
     <!-- IDENTITY TRANSFORM BASE TEMPLATES                            -->
     <!-- ============================================================ -->
 
@@ -54,101 +68,153 @@
     </xsl:template>
 
     <!-- ============================================================ -->
-    <!-- DOCUMENT STRUCTURE TEMPLATES                                 -->
+    <!-- DOCUMENT STRUCTURE TEMPLATES - TWO-PASS PROCESSING           -->
     <!-- ============================================================ -->
 
     <xsl:template match="/">
-        <html>
-            <head>
-                <meta charset="UTF-8"/>
-                <title>Taxxor TDM Document</title>
+        <!-- Pass 1: Transform Adobe XML to intermediate structure -->
+        <xsl:variable name="pass1-result">
+            <html>
+                <head>
+                    <meta charset="UTF-8"/>
+                    <title>Taxxor TDM Document</title>
 
-                <!-- Debug visualization CSS for data-numberscheme attributes -->
-                <style type="text/css">
-                    /* Display data-numberscheme attribute values after headers for debugging */
-                    h1[data-numberscheme]::after,
-                    h2[data-numberscheme]::after,
-                    h3[data-numberscheme]::after,
-                    h4[data-numberscheme]::after {
-                        content: " [scheme: " attr(data-numberscheme) "]";
-                        color: #888;
-                        font-size: 0.75em;
-                        font-weight: normal;
-                        font-style: italic;
-                        margin-left: 0.5em;
-                        opacity: 0.8;
-                    }
+                    <!-- Debug visualization CSS for data-numberscheme attributes -->
+                    <style type="text/css">
+                        /* Display data-numberscheme attribute values after headers for debugging */
+                        h1[data-numberscheme]::after,
+                        h2[data-numberscheme]::after,
+                        h3[data-numberscheme]::after,
+                        h4[data-numberscheme]::after {
+                            content: " [scheme: " attr(data-numberscheme) "]";
+                            color: #888;
+                            font-size: 0.75em;
+                            font-weight: normal;
+                            font-style: italic;
+                            margin-left: 0.5em;
+                            opacity: 0.8;
+                        }
 
-                    /* Optional: Show data-number attribute as well */
-                    h1[data-number]::before,
-                    h2[data-number]::before,
-                    h3[data-number]::before,
-                    h4[data-number]::before {
-                        content: "[" attr(data-number) "] ";
-                        color: #999;
-                        font-size: 0.75em;
-                        font-weight: normal;
-                        font-style: italic;
-                        margin-right: 0.3em;
-                        opacity: 0.7;
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="document-content">
-                    <xsl:apply-templates select="//Document"/>
-                </div>
-            </body>
-        </html>
-    </xsl:template>
+                        /* Optional: Show data-number attribute as well */
+                        h1[data-number]::before,
+                        h2[data-number]::before,
+                        h3[data-number]::before,
+                        h4[data-number]::before {
+                            content: "[" attr(data-number) "] ";
+                            color: #999;
+                            font-size: 0.75em;
+                            font-weight: normal;
+                            font-style: italic;
+                            margin-right: 0.3em;
+                            opacity: 0.7;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="document-content">
+                        <xsl:apply-templates select="//Document" mode="pass1"/>
+                    </div>
+                </body>
+            </html>
+        </xsl:variable>
 
-    <xsl:template match="Document">
-        <xsl:apply-templates/>
-    </xsl:template>
-
-    <xsl:template match="Sect">
-        <xsl:apply-templates/>
+        <!-- Pass 2: Post-process to remove "(continued)" elements -->
+        <xsl:apply-templates select="$pass1-result" mode="pass2"/>
     </xsl:template>
 
     <!-- ============================================================ -->
-    <!-- SUPPRESSION TEMPLATES                                        -->
+    <!-- PASS 1: ADOBE XML TO INTERMEDIATE XHTML                      -->
     <!-- ============================================================ -->
 
-    <xsl:template match="x:xmpmeta | rdf:RDF" priority="10"/>
+    <xsl:template match="Document" mode="pass1">
+        <xsl:apply-templates mode="pass1"/>
+    </xsl:template>
 
-    <xsl:template match="bookmark-tree" priority="10"/>
+    <xsl:template match="Sect" mode="pass1">
+        <xsl:apply-templates mode="pass1"/>
+    </xsl:template>
 
-    <xsl:template match="Artifact" priority="10">
+    <!-- ============================================================ -->
+    <!-- PASS 1: SUPPRESSION TEMPLATES                                -->
+    <!-- ============================================================ -->
+
+    <xsl:template match="x:xmpmeta | rdf:RDF" mode="pass1" priority="10"/>
+
+    <xsl:template match="bookmark-tree" mode="pass1" priority="10"/>
+
+    <xsl:template match="Artifact" mode="pass1" priority="10">
         <xsl:if test="@* or normalize-space(.) != ''">
-            <xsl:apply-templates/>
+            <xsl:apply-templates mode="pass1"/>
         </xsl:if>
     </xsl:template>
 
-    <xsl:template match="processing-instruction('xpacket')" priority="10"/>
+    <xsl:template match="processing-instruction('xpacket')" mode="pass1" priority="10"/>
 
     <!-- ============================================================ -->
-    <!-- PARAGRAPH TRANSFORMATION TEMPLATES                           -->
+    <!-- PASS 1: PARAGRAPH TRANSFORMATION TEMPLATES                   -->
     <!-- ============================================================ -->
 
-    <xsl:template match="P" priority="10">
+    <xsl:template match="P" mode="pass1" priority="10">
         <xsl:variable name="text" select="normalize-space(.)"/>
-        <xsl:if test="$text != '' and not(ends-with($text, '(continued)'))">
+        <xsl:if test="$text != ''">
             <p>
                 <xsl:apply-templates select="@*"/>
-                <xsl:apply-templates/>
+                <xsl:apply-templates mode="pass1"/>
             </p>
         </xsl:if>
     </xsl:template>
 
     <!-- ============================================================ -->
-    <!-- LINK TRANSFORMATION TEMPLATES                                -->
+    <!-- PASS 1: LINK TRANSFORMATION TEMPLATES                        -->
     <!-- ============================================================ -->
 
-    <xsl:template match="Reference">
+    <xsl:template match="Reference" mode="pass1">
         <a href="#">
             <xsl:apply-templates select="@*"/>
-            <xsl:apply-templates/>
+            <xsl:apply-templates mode="pass1"/>
         </a>
     </xsl:template>
+
+    <!-- ============================================================ -->
+    <!-- PASS 2: POST-PROCESSING TO REMOVE "(continued)" ELEMENTS     -->
+    <!-- ============================================================ -->
+    <!-- This pass removes any paragraph that:                        -->
+    <!-- 1. Contains the text "(continued)" (case-insensitive)        -->
+    <!-- 2. Has trailing/leading whitespace around "(continued)"      -->
+    <!-- 3. Has "(continued)" in mixed content with links/elements    -->
+    <!--                                                              -->
+    <!-- Regex pattern matches:                                       -->
+    <!-- - Optional whitespace before "(continued)"                   -->
+    <!-- - Case variations: (continued), (Continued), (CONTINUED)     -->
+    <!-- - Optional whitespace/punctuation after                      -->
+    <!-- ============================================================ -->
+
+    <!-- Identity transform for pass2 (copy everything by default) -->
+    <xsl:template match="node() | @*" mode="pass2">
+        <xsl:copy>
+            <xsl:apply-templates select="node() | @*" mode="pass2"/>
+        </xsl:copy>
+    </xsl:template>
+
+    <!-- Suppress paragraphs ending with "(continued)" in any form -->
+    <xsl:template match="*[local-name()='p']" mode="pass2">
+        <xsl:variable name="full-text" select="normalize-space(string(.))"/>
+
+        <!-- Check if text matches "(continued)" pattern using regex -->
+        <xsl:variable name="has-continued"
+                      select="matches($full-text, '\(continued\)\s*$', 'i')"/>
+
+        <!-- Only output the paragraph if it doesn't end with "(continued)" -->
+        <xsl:if test="not($has-continued)">
+            <xsl:copy>
+                <xsl:apply-templates select="node() | @*" mode="pass2"/>
+            </xsl:copy>
+        </xsl:if>
+    </xsl:template>
+
+    <!-- Special handling for paragraphs containing ONLY "(continued)" -->
+    <xsl:template match="*[local-name()='p'][normalize-space(.) = '(continued)']"
+                  mode="pass2"
+                  priority="15"/>
 
 </xsl:stylesheet>

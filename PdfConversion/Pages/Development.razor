@@ -68,7 +68,7 @@
                 <LoadingSkeleton IsLoading="@IsLoadingXml" Type="SkeletonType.CodeEditor" Lines="25">
                     @if (!string.IsNullOrEmpty(XmlContent))
                     {
-                        <pre id="source-xml" class="code-viewer">@XmlContent</pre>
+                        <div id="source-xml-viewer" style="width: 100%; height: 100%;"></div>
                     }
                     else
                     {
@@ -374,12 +374,20 @@
     {
         try
         {
+            var theme = ThemeService.GetMonacoTheme();
+
             // Update Monaco editor theme if initialized
             if (monacoInitialized)
             {
-                var theme = ThemeService.GetMonacoTheme();
                 await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.setTheme", theme);
                 Logger.LogInformation("Updated Monaco editor theme to {Theme}", theme);
+            }
+
+            // Update Source XML viewer theme if initialized
+            if (_sourceXmlViewerInitialized)
+            {
+                await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.setTheme", "sourceXml", theme);
+                Logger.LogInformation("Updated Source XML viewer theme to {Theme}", theme);
             }
         }
         catch (Exception ex)
@@ -544,20 +552,41 @@
             UpdateToolbarState();
             StateHasChanged();
 
-            // Apply syntax highlighting to source XML
+            // Initialize or update Monaco viewer
             if (!string.IsNullOrEmpty(XmlContent))
             {
                 _ = InvokeAsync(async () =>
                 {
-                    await Task.Yield(); // Minimal delay for Blazor render cycle
+                    await Task.Delay(200); // Give Blazor time to render the container
                     try
                     {
-                        await JSRuntime.InvokeVoidAsync("xmlFormatter.highlightElement", "source-xml");
-                        Logger.LogInformation("Applied syntax highlighting to source XML");
+                        if (_sourceXmlViewerInitialized)
+                        {
+                            // Update existing viewer
+                            await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.setValue",
+                                "sourceXml",
+                                XmlContent ?? "");
+                            Logger.LogInformation("Updated Source XML viewer content");
+                        }
+                        else
+                        {
+                            // Initialize viewer for the first time
+                            var sourceXmlTheme = ThemeService.GetMonacoTheme();
+                            await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.createViewer",
+                                "source-xml-viewer",
+                                "sourceXml",
+                                new {
+                                    value = XmlContent ?? "",
+                                    language = "xml",
+                                    theme = sourceXmlTheme
+                                });
+                            _sourceXmlViewerInitialized = true;
+                            Logger.LogInformation("Source XML viewer initialized after file load");
+                        }
                     }
                     catch (Exception ex)
                     {
-                        Logger.LogError(ex, "Error applying syntax highlighting to source XML");
+                        Logger.LogError(ex, "Error initializing/updating Source XML viewer");
                     }
                 });
             }
@@ -894,6 +923,7 @@
     private DotNetObjectReference<Development>? dotNetRef;
     private bool monacoInitialized = false;
     private bool keyboardShortcutsInitialized = false;
+    private bool _sourceXmlViewerInitialized = false;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -944,7 +974,7 @@
                 }
             }
 
-            // Initialize Monaco Editor
+            // Initialize Monaco Editor for XSLT
             if (!string.IsNullOrEmpty(XsltContent) && !monacoInitialized)
             {
                 try
@@ -962,6 +992,29 @@
                 {
                     Logger.LogError(ex, "Failed to initialize Monaco Editor");
                     ToastNotification.ShowError("Failed to initialize code editor. Using fallback mode.");
+                }
+            }
+
+            // Initialize Source XML viewer
+            if (!string.IsNullOrEmpty(XmlContent) && !_sourceXmlViewerInitialized)
+            {
+                try
+                {
+                    var sourceXmlTheme = ThemeService.GetMonacoTheme();
+                    await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.createViewer",
+                        "source-xml-viewer",
+                        "sourceXml",
+                        new {
+                            value = XmlContent ?? "",
+                            language = "xml",
+                            theme = sourceXmlTheme
+                        });
+                    _sourceXmlViewerInitialized = true;
+                    Logger.LogInformation("Source XML viewer initialized successfully");
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "Failed to initialize Source XML viewer");
                 }
             }
 
@@ -1055,6 +1108,21 @@
         // Clear file watcher callback
         FileWatcher.SetFileChangedCallback(null);
 
+        // Dispose Source XML viewer
+        if (_sourceXmlViewerInitialized)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.dispose", "sourceXml");
+                Logger.LogInformation("Disposed Source XML viewer");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error disposing Source XML viewer");
+            }
+        }
+
+        // Dispose Monaco Editor
         if (monacoInitialized)
         {
             try
