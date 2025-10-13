@@ -178,16 +178,12 @@
                 }
                 else if (!string.IsNullOrEmpty(OutputContent))
                 {
-                    @if (ShowRendered)
-                    {
-                        <div class="preview-rendered" style="font-size: @(ZoomLevel)%;">
-                            @((MarkupString)OutputContent)
-                        </div>
-                    }
-                    else
-                    {
-                        <div id="output-xml-viewer" style="width: 100%; height: 100%;"></div>
-                    }
+                    <!-- Keep both views in DOM, use CSS to show/hide -->
+                    <!-- This prevents Monaco editor from losing its DOM element -->
+                    <div class="preview-rendered" style="font-size: @(ZoomLevel)%; display: @(ShowRendered ? "block" : "none");">
+                        @((MarkupString)OutputContent)
+                    </div>
+                    <div id="output-xml-viewer" style="width: 100%; height: 100%; display: @(ShowRendered ? "none" : "block");"></div>
                     @if (TransformationStats != null)
                     {
                         <div class="preview-stats">
@@ -293,39 +289,31 @@
         // ShowRendered is already updated by @bind-value
         Logger.LogInformation("Rendered toggle changed: ShowRendered = {ShowRendered}", ShowRendered);
 
-        // If Source view is now active (Rendered OFF), initialize/update Monaco viewer
-        if (!ShowRendered && !string.IsNullOrEmpty(OutputContent))
+        // If Source view is now active (Rendered OFF), ensure Monaco viewer is initialized
+        // Note: The viewer container stays in DOM (just hidden/shown with CSS), so we only
+        // need to initialize once. No need to dispose/recreate on every toggle.
+        if (!ShowRendered && !string.IsNullOrEmpty(OutputContent) && !_outputXmlViewerInitialized)
         {
-            // Minimal delay for Blazor render cycle
+            // Give Blazor time to render and make the container visible
             await Task.Delay(100);
 
             try
             {
-                if (!_outputXmlViewerInitialized)
-                {
-                    var outputTheme = ThemeService.GetMonacoTheme();
-                    await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.createViewer",
-                        "output-xml-viewer",
-                        "outputXml",
-                        new {
-                            value = OutputContent ?? "",
-                            language = "xml",
-                            theme = outputTheme
-                        });
-                    _outputXmlViewerInitialized = true;
-                    Logger.LogInformation("Output XML viewer initialized when toggling to source view");
-                }
-                else
-                {
-                    await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.setValue",
-                        "outputXml",
-                        OutputContent ?? "");
-                    Logger.LogInformation("Updated Output XML viewer when toggling to source view");
-                }
+                var outputTheme = ThemeService.GetMonacoTheme();
+                await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.createViewer",
+                    "output-xml-viewer",
+                    "outputXml",
+                    new {
+                        value = OutputContent ?? "",
+                        language = "xml",
+                        theme = outputTheme
+                    });
+                _outputXmlViewerInitialized = true;
+                Logger.LogInformation("Output XML viewer initialized when toggling to source view");
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Error initializing/updating Output XML viewer when toggling to source view");
+                Logger.LogError(ex, "Error initializing Output XML viewer when toggling to source view");
                 ToastNotification.ShowError("Failed to initialize viewer. Please try again.");
             }
         }
