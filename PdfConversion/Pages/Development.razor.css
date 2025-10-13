@@ -623,3 +623,28 @@
 .transform-success {
     animation: successGlow 1s ease-in-out;
 }
+
+/* XSLT File Selector */
+.xslt-file-select {
+    max-width: 300px;
+    font-size: 0.8rem;
+    padding: 0.35rem 0.75rem;
+    height: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 0.25rem;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.15s ease-in-out;
+}
+
+.xslt-file-select:hover {
+    border-color: #0d6efd;
+    background-color: var(--bg-secondary);
+}
+
+.xslt-file-select:focus {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.15rem rgba(13, 110, 253, 0.15);
+    outline: none;
+}

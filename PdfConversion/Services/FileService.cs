@@ -13,6 +13,7 @@ public interface IFileService
     Task<byte[]> GetTransformationLogsAsync();
     bool ValidateXmlFile(Stream fileStream);
     bool ValidateXsltFile(Stream fileStream);
+    IEnumerable<string> GetXsltFiles();
 }
 
 public class FileService : IFileService
@@ -206,6 +207,33 @@ public class FileService : IFileService
         catch
         {
             return false;
+        }
+    }
+
+    public IEnumerable<string> GetXsltFiles()
+    {
+        try
+        {
+            var xsltBasePath = "/app/xslt";
+            if (!Directory.Exists(xsltBasePath))
+            {
+                _logger.LogWarning("XSLT directory not found at {Path}", xsltBasePath);
+                return Enumerable.Empty<string>();
+            }
+
+            // Get all .xslt files recursively and return relative paths
+            var files = Directory.GetFiles(xsltBasePath, "*.xslt", SearchOption.AllDirectories)
+                .Select(f => Path.GetRelativePath(xsltBasePath, f))
+                .OrderBy(f => f)
+                .ToList();
+
+            _logger.LogInformation("Found {Count} XSLT files", files.Count);
+            return files;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving XSLT files");
+            return Enumerable.Empty<string>();
         }
     }
 }
