@@ -20,6 +20,11 @@ public interface IXsltTransformationService
     Task<TransformationResult> TransformAsync(string xmlContent, string xsltContent, TransformationOptions? options = null);
 
     /// <summary>
+    /// Transforms XML content using XSLT with support for editing module files
+    /// </summary>
+    Task<TransformationResult> TransformWithEditedModuleAsync(string xmlContent, string xsltContent, string? editedModuleFile, string? editedModuleContent, TransformationOptions? options = null);
+
+    /// <summary>
     /// Validates XSLT syntax
     /// </summary>
     Task<ValidationResult> ValidateXsltAsync(string xsltContent);
@@ -95,7 +100,7 @@ public class XsltTransformationService : IXsltTransformationService
                 _logger.LogDebug("Using XSLT3Service for transformation");
 
                 // Resolve xsl:include directives before sending to XSLT3Service
-                var resolvedXsltContent = await ResolveXsltIncludesAsync(xsltContent);
+                var resolvedXsltContent = await ResolveXsltIncludesAsync(xsltContent, null, null);
 
                 result = await _xslt3Client.TransformAsync(xmlContent, resolvedXsltContent, options.Parameters);
 
@@ -318,6 +323,100 @@ public class XsltTransformationService : IXsltTransformationService
         }
     }
 
+    public async Task<TransformationResult> TransformWithEditedModuleAsync(string xmlContent, string xsltContent, string? editedModuleFile, string? editedModuleContent, TransformationOptions? options = null)
+    {
+        options ??= new TransformationOptions();
+        var stopwatch = Stopwatch.StartNew();
+        var result = new TransformationResult();
+        var projectId = options.Parameters.GetValueOrDefault("project-id");
+
+        // Track operation performance
+        using var perfTracker = _performanceMonitoring?.TrackOperation("XsltTransformation", projectId);
+
+        try
+        {
+            _logger.LogDebug("Starting XSLT transformation with edited module (UseXslt3Service: {UseXslt3Service})", options.UseXslt3Service);
+
+            if (!string.IsNullOrEmpty(editedModuleFile))
+            {
+                _logger.LogInformation("Transformation will use Monaco editor content for {File}", editedModuleFile);
+            }
+
+            // Use XSLT3Service if requested and available
+            if (options.UseXslt3Service && _xslt3Client != null)
+            {
+                _logger.LogDebug("Using XSLT3Service for transformation");
+
+                // Resolve xsl:include directives, using Monaco content for edited module
+                var resolvedXsltContent = await ResolveXsltIncludesAsync(xsltContent, editedModuleFile, editedModuleContent);
+
+                result = await _xslt3Client.TransformAsync(xmlContent, resolvedXsltContent, options.Parameters);
+
+                // If XSLT3Service failed, fall back to local transformation
+                if (!result.IsSuccess && result.WarningMessages.Any(w => w.Contains("fallback")))
+                {
+                    _logger.LogWarning("XSLT3Service failed, falling back to local XSLT 1.0 processor");
+                    // Continue with local transformation below
+                }
+                else
+                {
+                    // XSLT3Service succeeded or failed without fallback option
+                    if (result.IsSuccess && options.NormalizeHeaders)
+                    {
+                        var (normalized, headersNormalized) = await NormalizeHeadersInternalAsync(result.OutputContent);
+                        result.OutputContent = normalized;
+                        result.HeadersNormalized = headersNormalized;
+                    }
+                    result.ProcessingTimeMs = stopwatch.ElapsedMilliseconds;
+
+                    // Log transformation (success or error)
+                    _transformationLogService?.LogTransformation(new TransformationLog
+                    {
+                        ProjectId = projectId ?? "unknown",
+                        FileName = options.Parameters.GetValueOrDefault("file-name"),
+                        StartTime = DateTime.Now.AddMilliseconds(-result.ProcessingTimeMs),
+                        EndTime = DateTime.Now,
+                        Status = result.IsSuccess ? "Success" : "Error",
+                        Details = result.IsSuccess
+                            ? $"Processed successfully with edited module. Tables: {result.TablesProcessed}, Headers normalized: {result.HeadersNormalized}"
+                            : result.ErrorMessage ?? "Unknown error",
+                        ProcessingTimeMs = result.ProcessingTimeMs,
+                        HeadersNormalized = result.HeadersNormalized,
+                        TablesProcessed = result.TablesProcessed
+                    });
+
+                    // Record performance metrics
+                    _performanceMonitoring?.RecordTransformation(result.IsSuccess, result.ProcessingTimeMs, projectId);
+
+                    return result;
+                }
+            }
+            else if (options.UseXslt3Service && _xslt3Client == null)
+            {
+                _logger.LogWarning("XSLT3Service requested but client not available, using local XSLT 1.0");
+                result.WarningMessages.Add("XSLT3Service not available, using XSLT 1.0 fallback");
+            }
+
+            // Local XSLT 1.0 fallback (does not support includes with edited content well)
+            _logger.LogWarning("Local XSLT 1.0 transformation cannot use edited module content reliably");
+            result.WarningMessages.Add("Edited module content requires XSLT3Service for reliable transformation");
+
+            // Fall back to standard transformation
+            return await TransformAsync(xmlContent, xsltContent, options);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during transformation with edited module");
+            result.IsSuccess = false;
+            result.ErrorMessage = $"Transformation failed: {ex.Message}";
+            result.ProcessingTimeMs = stopwatch.ElapsedMilliseconds;
+
+            _performanceMonitoring?.RecordTransformation(false, result.ProcessingTimeMs, projectId);
+
+            return result;
+        }
+    }
+
     public async Task<ValidationResult> ValidateXsltAsync(string xsltContent)
     {
         try
@@ -463,7 +562,10 @@ public class XsltTransformationService : IXsltTransformationService
     /// <summary>
     /// Resolves xsl:include directives by reading and merging included files
     /// </summary>
-    private async Task<string> ResolveXsltIncludesAsync(string xsltContent)
+    /// <param name="xsltContent">The XSLT content to resolve</param>
+    /// <param name="editedModuleFile">Optional: relative path of module file being edited (e.g., "modules/headers.xslt")</param>
+    /// <param name="editedModuleContent">Optional: content of the edited module from Monaco editor</param>
+    private async Task<string> ResolveXsltIncludesAsync(string xsltContent, string? editedModuleFile = null, string? editedModuleContent = null)
     {
         try
         {
@@ -488,17 +590,32 @@ public class XsltTransformationService : IXsltTransformationService
                     continue;
                 }
 
-                // Resolve relative path from /app/xslt/
-                var includePath = Path.Combine("/app/xslt", href);
+                // Check if this is the edited module file
+                var isEditedModule = !string.IsNullOrEmpty(editedModuleFile) &&
+                                     href.Equals(editedModuleFile, StringComparison.OrdinalIgnoreCase);
 
-                if (!File.Exists(includePath))
+                string includedContent;
+
+                if (isEditedModule && !string.IsNullOrEmpty(editedModuleContent))
                 {
-                    _logger.LogWarning("Included file not found: {Path}", includePath);
-                    continue;
+                    _logger.LogInformation("Using Monaco editor content for {File}", href);
+                    includedContent = editedModuleContent;
+                }
+                else
+                {
+                    // Resolve relative path from /app/xslt/
+                    var includePath = Path.Combine("/app/xslt", href);
+
+                    if (!File.Exists(includePath))
+                    {
+                        _logger.LogWarning("Included file not found: {Path}", includePath);
+                        continue;
+                    }
+
+                    _logger.LogDebug("Reading included file: {Path}", includePath);
+                    includedContent = await File.ReadAllTextAsync(includePath);
                 }
 
-                _logger.LogDebug("Reading included file: {Path}", includePath);
-                var includedContent = await File.ReadAllTextAsync(includePath);
                 var includedDoc = XDocument.Parse(includedContent);
 
                 // Extract all child elements of xsl:stylesheet (skip the wrapper)
@@ -515,7 +632,7 @@ public class XsltTransformationService : IXsltTransformationService
                 }
                 else
                 {
-                    _logger.LogWarning("Included file does not have xsl:stylesheet root: {Path}", includePath);
+                    _logger.LogWarning("Included file does not have xsl:stylesheet root: {File}", href);
                 }
             }
 

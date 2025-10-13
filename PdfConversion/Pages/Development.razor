@@ -789,9 +789,7 @@
             TransformationError = null; // Clear any previous error
             UpdateToolbarState();
 
-            // ALWAYS use transformation.xslt for transformations (the root file that includes all modules)
-            // The selected XSLT file in Monaco is just for viewing/editing convenience
-            // Module files (modules/*.xslt, pass2/*.xslt) are NOT standalone and won't work for transformation
+            // ALWAYS use transformation.xslt as the main XSLT file for transformations
             var transformationXsltPath = "/app/xslt/transformation.xslt";
             string transformationXsltContent;
 
@@ -813,7 +811,29 @@
                 NormalizeHeaders = NormalizeHeaders
             };
 
-            var result = await XsltService.TransformAsync(XmlContent!, transformationXsltContent, options);
+            // Check if we're editing a module file (not transformation.xslt)
+            var isEditingModule = !string.IsNullOrEmpty(SelectedXsltFile) &&
+                                  !SelectedXsltFile.Equals("transformation.xslt", StringComparison.OrdinalIgnoreCase);
+
+            TransformationResult result;
+
+            if (isEditingModule && !string.IsNullOrEmpty(XsltContent))
+            {
+                // Use the new method that supports edited module content from Monaco
+                Logger.LogInformation("Transforming with edited module file: {File}", SelectedXsltFile);
+                result = await XsltService.TransformWithEditedModuleAsync(
+                    XmlContent!,
+                    transformationXsltContent,
+                    SelectedXsltFile,
+                    XsltContent,
+                    options);
+            }
+            else
+            {
+                // Standard transformation (either transformation.xslt is selected, or no module editing)
+                Logger.LogInformation("Standard transformation using transformation.xslt");
+                result = await XsltService.TransformAsync(XmlContent!, transformationXsltContent, options);
+            }
 
             if (result.IsSuccess)
             {
