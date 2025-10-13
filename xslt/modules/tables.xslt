@@ -6,7 +6,7 @@
                 exclude-result-prefixes="xs">
 
     <!-- ============================================================ -->
-    <!-- TABLE TRANSFORMATION TEMPLATES                               -->
+    <!-- TABLE TRANSFORMATION TEMPLATES (DEFAULT MODE)                -->
     <!-- ============================================================ -->
     <!-- Transform Adobe PDF tables to Taxxor TDM table structure     -->
     <!-- with required wrapper divs and metadata attributes           -->
@@ -30,17 +30,17 @@
                     <xsl:when test="TR[1][TH and not(TD)]">
                         <thead>
                             <!-- Header rows: only TR elements containing TH and no TD -->
-                            <xsl:apply-templates select="TR[TH and not(TD)]" mode="header"/>
+                            <xsl:apply-templates select="TR[TH and not(TD)]" mode="table-header"/>
                         </thead>
                         <tbody>
                             <!-- Body rows: only TR elements containing at least one TD -->
                             <!-- This ensures no row appears in both thead and tbody -->
-                            <xsl:apply-templates select="TR[TD]" mode="body"/>
+                            <xsl:apply-templates select="TR[TD]" mode="table-body"/>
                         </tbody>
                     </xsl:when>
                     <xsl:otherwise>
                         <tbody>
-                            <xsl:apply-templates select="TR" mode="body"/>
+                            <xsl:apply-templates select="TR" mode="table-body"/>
                         </tbody>
                     </xsl:otherwise>
                 </xsl:choose>
@@ -48,25 +48,25 @@
         </div>
     </xsl:template>
 
-    <!-- Table row templates in header mode -->
-    <xsl:template match="TR" mode="header" priority="10">
+    <!-- Table row templates in table-header mode -->
+    <xsl:template match="TR" mode="table-header" priority="10">
         <tr>
             <xsl:apply-templates select="@*"/>
-            <xsl:apply-templates select="TH"/>
+            <xsl:apply-templates select="TH" mode="table-header"/>
         </tr>
     </xsl:template>
 
-    <!-- Table row templates in body mode -->
-    <xsl:template match="TR" mode="body" priority="10">
+    <!-- Table row templates in table-body mode -->
+    <xsl:template match="TR" mode="table-body" priority="10">
         <tr>
             <xsl:apply-templates select="@*"/>
-            <xsl:apply-templates select="TH|TD"/>
+            <xsl:apply-templates select="TH|TD" mode="table-body"/>
         </tr>
     </xsl:template>
 
     <!-- Table header cell template -->
     <!-- Optimizes simple cells: unwraps single <P> element to avoid unnecessary paragraph wrappers -->
-    <xsl:template match="TH" priority="10">
+    <xsl:template match="TH" mode="table-header" priority="10">
         <th>
             <xsl:apply-templates select="@*"/>
             <xsl:choose>
@@ -89,7 +89,7 @@
 
     <!-- Table data cell template -->
     <!-- Optimizes simple cells: unwraps single <P> element to avoid unnecessary paragraph wrappers -->
-    <xsl:template match="TD" priority="10">
+    <xsl:template match="TD" mode="table-body" priority="10">
         <td>
             <xsl:apply-templates select="@*"/>
             <xsl:choose>
@@ -108,6 +108,28 @@
                 </xsl:otherwise>
             </xsl:choose>
         </td>
+    </xsl:template>
+
+    <!-- Table header cell template in table-body mode (row headers) -->
+    <xsl:template match="TH" mode="table-body" priority="10">
+        <th>
+            <xsl:apply-templates select="@*"/>
+            <xsl:choose>
+                <!-- Single non-empty P element (ignoring Artifact): render P's content directly -->
+                <xsl:when test="count(P[normalize-space(.) != '']) = 1 and
+                                not(*[not(self::P or self::Artifact)])">
+                    <xsl:variable name="singleP" select="P[normalize-space(.) != '']"/>
+                    <!-- Preserve xml:lang and other attributes from P on the th element -->
+                    <xsl:apply-templates select="$singleP/@xml:lang"/>
+                    <!-- Render P's content without p wrapper -->
+                    <xsl:apply-templates select="$singleP/node()"/>
+                </xsl:when>
+                <!-- Multiple P elements or mixed content: normal processing -->
+                <xsl:otherwise>
+                    <xsl:apply-templates/>
+                </xsl:otherwise>
+            </xsl:choose>
+        </th>
     </xsl:template>
 
     <!-- Remove span elements from table cells (preserve content) -->

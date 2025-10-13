@@ -18,24 +18,26 @@
     <xsl:include href="modules/headers.xslt"/>
     <xsl:include href="modules/tables.xslt"/>
     <xsl:include href="modules/lists.xslt"/>
+    <xsl:include href="pass2/postprocess.xslt"/>
 
     <!-- ============================================================ -->
     <!-- MULTI-PASS TRANSFORMATION STRATEGY                           -->
     <!-- ============================================================ -->
     <!-- This stylesheet uses a two-pass approach:                    -->
-    <!-- Pass 1: Transform Adobe XML to intermediate XHTML            -->
-    <!-- Pass 2: Post-process to remove "(continued)" elements        -->
+    <!-- Pass 1: Transform Adobe XML to intermediate XHTML (DEFAULT)  -->
+    <!-- Pass 2: Post-process cleanup (pass2/postprocess.xslt)        -->
     <!--                                                              -->
-    <!-- Why multi-pass?                                              -->
-    <!-- - "(continued)" appears in mixed content with Reference      -->
-    <!-- - Text normalization happens during template processing      -->
-    <!-- - Single-pass matching cannot reliably catch all patterns    -->
-    <!-- - Post-processing on structured output is more reliable      -->
+    <!-- Mode Strategy:                                               -->
+    <!-- - Pass 1 uses DEFAULT MODE (no mode attribute needed)        -->
+    <!-- - Pass 2 uses EXPLICIT mode="pass2"                          -->
+    <!--                                                              -->
+    <!-- Pass 2 logic is in pass2/postprocess.xslt                    -->
     <!-- ============================================================ -->
 
     <!-- ============================================================ -->
     <!-- IDENTITY TRANSFORM BASE TEMPLATES                            -->
     <!-- ============================================================ -->
+    <!-- These templates work in both passes using mode="#all"        -->
 
     <xsl:template match="*" mode="#all" priority="-1">
         <xsl:element name="{local-name()}" namespace="http://www.w3.org/1999/xhtml">
@@ -72,7 +74,7 @@
     <!-- ============================================================ -->
 
     <xsl:template match="/">
-        <!-- Pass 1: Transform Adobe XML to intermediate structure -->
+        <!-- Pass 1: Transform Adobe XML to intermediate structure (DEFAULT MODE) -->
         <xsl:variable name="pass1-result">
             <html>
                 <head>
@@ -112,54 +114,54 @@
                 </head>
                 <body>
                     <div class="document-content">
-                        <xsl:apply-templates select="//Document" mode="pass1"/>
+                        <xsl:apply-templates select="//Document"/>
                     </div>
                 </body>
             </html>
         </xsl:variable>
 
-        <!-- Pass 2: Post-process to remove "(continued)" elements -->
+        <!-- Pass 2: Post-process cleanup (see modules/postprocess.xslt) -->
         <xsl:apply-templates select="$pass1-result" mode="pass2"/>
     </xsl:template>
 
     <!-- ============================================================ -->
-    <!-- PASS 1: ADOBE XML TO INTERMEDIATE XHTML                      -->
+    <!-- PASS 1: ADOBE XML TO INTERMEDIATE XHTML (DEFAULT MODE)       -->
     <!-- ============================================================ -->
 
-    <xsl:template match="Document" mode="pass1">
-        <xsl:apply-templates mode="pass1"/>
+    <xsl:template match="Document">
+        <xsl:apply-templates/>
     </xsl:template>
 
-    <xsl:template match="Sect" mode="pass1">
-        <xsl:apply-templates mode="pass1"/>
+    <xsl:template match="Sect">
+        <xsl:apply-templates/>
     </xsl:template>
 
     <!-- ============================================================ -->
     <!-- PASS 1: SUPPRESSION TEMPLATES                                -->
     <!-- ============================================================ -->
 
-    <xsl:template match="x:xmpmeta | rdf:RDF" mode="pass1" priority="10"/>
+    <xsl:template match="x:xmpmeta | rdf:RDF" priority="10"/>
 
-    <xsl:template match="bookmark-tree" mode="pass1" priority="10"/>
+    <xsl:template match="bookmark-tree" priority="10"/>
 
-    <xsl:template match="Artifact" mode="pass1" priority="10">
+    <xsl:template match="Artifact" priority="10">
         <xsl:if test="@* or normalize-space(.) != ''">
-            <xsl:apply-templates mode="pass1"/>
+            <xsl:apply-templates/>
         </xsl:if>
     </xsl:template>
 
-    <xsl:template match="processing-instruction('xpacket')" mode="pass1" priority="10"/>
+    <xsl:template match="processing-instruction('xpacket')" priority="10"/>
 
     <!-- ============================================================ -->
     <!-- PASS 1: PARAGRAPH TRANSFORMATION TEMPLATES                   -->
     <!-- ============================================================ -->
 
-    <xsl:template match="P" mode="pass1" priority="10">
+    <xsl:template match="P" priority="10">
         <xsl:variable name="text" select="normalize-space(.)"/>
         <xsl:if test="$text != ''">
             <p>
                 <xsl:apply-templates select="@*"/>
-                <xsl:apply-templates mode="pass1"/>
+                <xsl:apply-templates/>
             </p>
         </xsl:if>
     </xsl:template>
@@ -168,53 +170,11 @@
     <!-- PASS 1: LINK TRANSFORMATION TEMPLATES                        -->
     <!-- ============================================================ -->
 
-    <xsl:template match="Reference" mode="pass1">
+    <xsl:template match="Reference">
         <a href="#">
             <xsl:apply-templates select="@*"/>
-            <xsl:apply-templates mode="pass1"/>
+            <xsl:apply-templates/>
         </a>
     </xsl:template>
-
-    <!-- ============================================================ -->
-    <!-- PASS 2: POST-PROCESSING TO REMOVE "(continued)" ELEMENTS     -->
-    <!-- ============================================================ -->
-    <!-- This pass removes any paragraph that:                        -->
-    <!-- 1. Contains the text "(continued)" (case-insensitive)        -->
-    <!-- 2. Has trailing/leading whitespace around "(continued)"      -->
-    <!-- 3. Has "(continued)" in mixed content with links/elements    -->
-    <!--                                                              -->
-    <!-- Regex pattern matches:                                       -->
-    <!-- - Optional whitespace before "(continued)"                   -->
-    <!-- - Case variations: (continued), (Continued), (CONTINUED)     -->
-    <!-- - Optional whitespace/punctuation after                      -->
-    <!-- ============================================================ -->
-
-    <!-- Identity transform for pass2 (copy everything by default) -->
-    <xsl:template match="node() | @*" mode="pass2">
-        <xsl:copy>
-            <xsl:apply-templates select="node() | @*" mode="pass2"/>
-        </xsl:copy>
-    </xsl:template>
-
-    <!-- Suppress paragraphs ending with "(continued)" in any form -->
-    <xsl:template match="*[local-name()='p']" mode="pass2">
-        <xsl:variable name="full-text" select="normalize-space(string(.))"/>
-
-        <!-- Check if text matches "(continued)" pattern using regex -->
-        <xsl:variable name="has-continued"
-                      select="matches($full-text, '\(continued\)\s*$', 'i')"/>
-
-        <!-- Only output the paragraph if it doesn't end with "(continued)" -->
-        <xsl:if test="not($has-continued)">
-            <xsl:copy>
-                <xsl:apply-templates select="node() | @*" mode="pass2"/>
-            </xsl:copy>
-        </xsl:if>
-    </xsl:template>
-
-    <!-- Special handling for paragraphs containing ONLY "(continued)" -->
-    <xsl:template match="*[local-name()='p'][normalize-space(.) = '(continued)']"
-                  mode="pass2"
-                  priority="15"/>
 
 </xsl:stylesheet>

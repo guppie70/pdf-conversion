@@ -640,12 +640,6 @@
                 XsltContent = await File.ReadAllTextAsync(xsltPath);
                 Logger.LogInformation("Loaded XSLT file from {Path}", xsltPath);
 
-                // Update Monaco editor content if initialized
-                if (monacoInitialized)
-                {
-                    await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.setValue", XsltContent);
-                }
-
                 // Update file watcher to watch the new file
                 try
                 {
@@ -676,6 +670,51 @@
             isUpdatingFromExternalFile = false;
             IsLoadingXslt = false;
             StateHasChanged();
+
+            // Re-initialize Monaco editor after skeleton disappears
+            // The LoadingSkeleton component may have destroyed the Monaco DOM
+            if (monacoInitialized && !string.IsNullOrEmpty(XsltContent))
+            {
+                _ = InvokeAsync(async () =>
+                {
+                    await Task.Delay(200); // Give Blazor time to render the container
+
+                    try
+                    {
+                        // Check if Monaco editor needs re-initialization
+                        var needsReinit = await JSRuntime.InvokeAsync<bool>("eval",
+                            "document.querySelector('#monaco-editor-container').innerHTML === ''");
+
+                        if (needsReinit)
+                        {
+                            Logger.LogWarning("Monaco editor container is empty, re-initializing");
+                            monacoInitialized = false;
+
+                            var theme = ThemeService.GetMonacoTheme();
+                            await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.initialize",
+                                "monaco-editor-container",
+                                XsltContent,
+                                dotNetRef,
+                                theme);
+                            monacoInitialized = true;
+                            Logger.LogInformation("Monaco editor re-initialized after file change");
+                        }
+                        else
+                        {
+                            // Monaco editor exists, just update content
+                            await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.setValue", XsltContent);
+                            await Task.Delay(50);
+                            await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.resize");
+                            Logger.LogInformation("Updated Monaco editor with new XSLT file content");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError(ex, "Error updating/re-initializing Monaco editor");
+                        ToastNotification.ShowError("Failed to update editor. Please refresh the page.");
+                    }
+                });
+            }
         }
     }
 
@@ -750,21 +789,22 @@
             TransformationError = null; // Clear any previous error
             UpdateToolbarState();
 
-            // Always get current XSLT content from Monaco editor to ensure we use the latest version
-            // This handles cases where the file was updated externally but OnEditorContentChanged hasn't fired yet
-            string currentXsltContent = XsltContent!;
-            if (monacoInitialized)
+            // ALWAYS use transformation.xslt for transformations (the root file that includes all modules)
+            // The selected XSLT file in Monaco is just for viewing/editing convenience
+            // Module files (modules/*.xslt, pass2/*.xslt) are NOT standalone and won't work for transformation
+            var transformationXsltPath = "/app/xslt/transformation.xslt";
+            string transformationXsltContent;
+
+            if (File.Exists(transformationXsltPath))
             {
-                try
-                {
-                    currentXsltContent = await JSRuntime.InvokeAsync<string>("MonacoEditorInterop.getValue");
-                    Logger.LogDebug("Retrieved current XSLT content from Monaco editor (length: {Length})", currentXsltContent?.Length ?? 0);
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogWarning(ex, "Failed to get current value from Monaco, using cached XsltContent");
-                    // Fall back to cached XsltContent
-                }
+                transformationXsltContent = await File.ReadAllTextAsync(transformationXsltPath);
+                Logger.LogInformation("Loaded transformation.xslt for transformation (length: {Length})", transformationXsltContent?.Length ?? 0);
+            }
+            else
+            {
+                Logger.LogError("transformation.xslt not found at {Path}", transformationXsltPath);
+                TransformationError = "transformation.xslt not found. Cannot perform transformation.";
+                return;
             }
 
             var options = new TransformationOptions
@@ -773,7 +813,7 @@
                 NormalizeHeaders = NormalizeHeaders
             };
 
-            var result = await XsltService.TransformAsync(XmlContent!, currentXsltContent, options);
+            var result = await XsltService.TransformAsync(XmlContent!, transformationXsltContent, options);
 
             if (result.IsSuccess)
             {
