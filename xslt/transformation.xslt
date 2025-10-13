@@ -3,9 +3,10 @@
                 xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
                 xmlns="http://www.w3.org/1999/xhtml"
                 xmlns:xs="http://www.w3.org/2001/XMLSchema"
+                xmlns:hdr="http://taxxor.com/xslt/header-functions"
                 xmlns:x="adobe:ns:meta/"
                 xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-                exclude-result-prefixes="xs x rdf">
+                exclude-result-prefixes="xs hdr x rdf">
 
     <xsl:output method="xhtml"
                 encoding="UTF-8"
@@ -60,6 +61,37 @@
             <head>
                 <meta charset="UTF-8"/>
                 <title>Taxxor TDM Document</title>
+
+                <!-- Debug visualization CSS for data-numberscheme attributes -->
+                <style type="text/css">
+                    /* Display data-numberscheme attribute values after headers for debugging */
+                    h1[data-numberscheme]::after,
+                    h2[data-numberscheme]::after,
+                    h3[data-numberscheme]::after,
+                    h4[data-numberscheme]::after {
+                        content: " [scheme: " attr(data-numberscheme) "]";
+                        color: #888;
+                        font-size: 0.75em;
+                        font-weight: normal;
+                        font-style: italic;
+                        margin-left: 0.5em;
+                        opacity: 0.8;
+                    }
+
+                    /* Optional: Show data-number attribute as well */
+                    h1[data-number]::before,
+                    h2[data-number]::before,
+                    h3[data-number]::before,
+                    h4[data-number]::before {
+                        content: "[" attr(data-number) "] ";
+                        color: #999;
+                        font-size: 0.75em;
+                        font-weight: normal;
+                        font-style: italic;
+                        margin-right: 0.3em;
+                        opacity: 0.7;
+                    }
+                </style>
             </head>
             <body>
                 <div class="document-content">

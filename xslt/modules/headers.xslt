@@ -3,31 +3,265 @@
                 xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
                 xmlns="http://www.w3.org/1999/xhtml"
                 xmlns:xs="http://www.w3.org/2001/XMLSchema"
-                exclude-result-prefixes="xs">
+                xmlns:hdr="http://taxxor.com/xslt/header-functions"
+                exclude-result-prefixes="xs hdr">
 
     <!-- ============================================================ -->
     <!-- HEADER TRANSFORMATION TEMPLATES                              -->
     <!-- ============================================================ -->
 
     <xsl:template match="H1" priority="10">
+        <xsl:variable name="text" select="normalize-space(.)"/>
         <h1>
             <xsl:apply-templates select="@*"/>
+            <xsl:call-template name="add-numbering-attributes">
+                <xsl:with-param name="text" select="$text"/>
+            </xsl:call-template>
             <xsl:apply-templates/>
         </h1>
     </xsl:template>
 
     <xsl:template match="H2" priority="10">
+        <xsl:variable name="text" select="normalize-space(.)"/>
         <h2>
             <xsl:apply-templates select="@*"/>
+            <xsl:call-template name="add-numbering-attributes">
+                <xsl:with-param name="text" select="$text"/>
+            </xsl:call-template>
             <xsl:apply-templates/>
         </h2>
     </xsl:template>
 
     <xsl:template match="H3" priority="10">
+        <xsl:variable name="text" select="normalize-space(.)"/>
         <h3>
             <xsl:apply-templates select="@*"/>
+            <xsl:call-template name="add-numbering-attributes">
+                <xsl:with-param name="text" select="$text"/>
+            </xsl:call-template>
             <xsl:apply-templates/>
         </h3>
     </xsl:template>
+
+
+       <!-- Deeply nested lists (6 levels) with single LI containing headings -->
+    <!-- Matches: L > L > L > L > L > L > LI -->
+    <!-- Outputs: h4 with auto-detected data-numberscheme and data-number attributes -->
+    <xsl:template match="L[L[L[L[L[L[LI]]]]]]" priority="35">
+        <xsl:variable name="lbody" select="(.//LI)[1]/LBody"/>
+        <xsl:variable name="text" select="normalize-space($lbody)"/>
+
+        <!-- Suppress if empty or ends with "(continued)" -->
+        <xsl:if test="$text != '' and not(ends-with($text, '(continued)'))">
+            <h4>
+                <xsl:call-template name="add-numbering-attributes">
+                    <xsl:with-param name="text" select="$text"/>
+                </xsl:call-template>
+                <xsl:value-of select="$text"/>
+            </h4>
+        </xsl:if>
+    </xsl:template>
+
+    <!-- Deeply nested lists (5 levels) with single LI containing headings -->
+    <!-- Handles two cases: -->
+    <!-- 1. Simple: Just text in LBody → output as h3 -->
+    <!-- 2. Nested: LBody has text followed by nested L with sub-items → h3 + h4 for each sub-item -->
+    <xsl:template match="L[L[L[L[L[LI]]]]]" priority="30">
+        <xsl:variable name="outerLBody" select="(.//LI)[1]/LBody"/>
+
+        <xsl:choose>
+            <!-- Case 2: LBody contains nested L elements (sub-items) -->
+            <xsl:when test="$outerLBody/L">
+                <!-- Extract text before the nested L (main heading) -->
+                <xsl:variable name="mainText">
+                    <xsl:for-each select="$outerLBody/text()">
+                        <xsl:value-of select="normalize-space(.)"/>
+                        <xsl:if test="position() != last()">
+                            <xsl:text> </xsl:text>
+                        </xsl:if>
+                    </xsl:for-each>
+                </xsl:variable>
+
+                <!-- Output main heading as h3 -->
+                <xsl:if test="normalize-space($mainText) != ''">
+                    <h3>
+                        <xsl:call-template name="add-numbering-attributes">
+                            <xsl:with-param name="text" select="normalize-space($mainText)"/>
+                        </xsl:call-template>
+                        <xsl:value-of select="normalize-space($mainText)"/>
+                    </h3>
+                </xsl:if>
+
+                <!-- Output each nested sub-item as h4 with detected numberscheme and data-number -->
+                <xsl:for-each select="$outerLBody/L/LI/LBody">
+                    <xsl:variable name="subText" select="normalize-space(.)"/>
+                    <xsl:if test="$subText != ''">
+                        <h4>
+                            <xsl:call-template name="add-numbering-attributes">
+                                <xsl:with-param name="text" select="$subText"/>
+                            </xsl:call-template>
+                            <xsl:value-of select="$subText"/>
+                        </h4>
+                    </xsl:if>
+                </xsl:for-each>
+            </xsl:when>
+
+            <!-- Case 1: Simple LBody with just text (original behavior) -->
+            <xsl:otherwise>
+                <xsl:variable name="text" select="normalize-space($outerLBody)"/>
+                <!-- Suppress if empty or ends with "(continued)" -->
+                <xsl:if test="$text != '' and not(ends-with($text, '(continued)'))">
+                    <xsl:variable name="detected-prefix" select="hdr:get-number-prefix($text)"/>
+                    <h3>
+                        <xsl:choose>
+                            <!-- If numbering prefix detected, use standard detection -->
+                            <xsl:when test="$detected-prefix != ''">
+                                <xsl:call-template name="add-numbering-attributes">
+                                    <xsl:with-param name="text" select="$text"/>
+                                </xsl:call-template>
+                            </xsl:when>
+                            <!-- If no prefix detected, default to (a),(b),(c) scheme -->
+                            <xsl:otherwise>
+                                <xsl:attribute name="data-numberscheme">(a),(b),(c)</xsl:attribute>
+                                <xsl:attribute name="data-number"></xsl:attribute>
+                            </xsl:otherwise>
+                        </xsl:choose>
+                        <xsl:value-of select="$text"/>
+                    </h3>
+                </xsl:if>
+            </xsl:otherwise>
+        </xsl:choose>
+    </xsl:template>
+
+    <!-- ============================================================ -->
+    <!-- NUMBERING SCHEME DETECTION FUNCTIONS                         -->
+    <!-- Centralized logic for detecting and applying numbering       -->
+    <!-- schemes to headers based on text prefix patterns             -->
+    <!-- ============================================================ -->
+
+    <!-- Function: Extract number prefix from text -->
+    <!-- Returns the numbering prefix (e.g., "1.", "(a)", "ii.") or empty string if none found -->
+    <xsl:function name="hdr:get-number-prefix" as="xs:string">
+        <xsl:param name="text" as="xs:string"/>
+        <xsl:choose>
+            <xsl:when test="matches($text, '^\([ivxlcdm]+\)\s')">
+                <xsl:value-of select="replace($text, '^(\([ivxlcdm]+\))\s.*', '$1')"/>
+            </xsl:when>
+            <xsl:when test="matches($text, '^\([a-z]\)\s')">
+                <xsl:value-of select="replace($text, '^(\([a-z]\))\s.*', '$1')"/>
+            </xsl:when>
+            <xsl:when test="matches($text, '^\([A-Z]\)\s')">
+                <xsl:value-of select="replace($text, '^(\([A-Z]\))\s.*', '$1')"/>
+            </xsl:when>
+            <xsl:when test="matches($text, '^[a-z]\.\s')">
+                <xsl:value-of select="replace($text, '^([a-z]\.)\s.*', '$1')"/>
+            </xsl:when>
+            <xsl:when test="matches($text, '^[A-Z]\.\s')">
+                <xsl:value-of select="replace($text, '^([A-Z]\.)\s.*', '$1')"/>
+            </xsl:when>
+            <xsl:when test="matches($text, '^\d+\.\s')">
+                <xsl:value-of select="replace($text, '^(\d+\.)\s.*', '$1')"/>
+            </xsl:when>
+            <xsl:otherwise>
+                <xsl:value-of select="''"/>
+            </xsl:otherwise>
+        </xsl:choose>
+    </xsl:function>
+
+    <!-- Function: Get numbering scheme pattern for a given text -->
+    <!-- Returns the data-numberscheme value (e.g., "1.,2.,3.") or empty string if none found -->
+    <xsl:function name="hdr:get-numberscheme" as="xs:string">
+        <xsl:param name="text" as="xs:string"/>
+        <xsl:choose>
+            <xsl:when test="matches($text, '^\([ivxlcdm]+\)\s')">
+                <xsl:value-of select="'(i),(ii),(iii)'"/>
+            </xsl:when>
+            <xsl:when test="matches($text, '^\([a-z]\)\s')">
+                <xsl:value-of select="'(a),(b),(c)'"/>
+            </xsl:when>
+            <xsl:when test="matches($text, '^\([A-Z]\)\s')">
+                <xsl:value-of select="'(A),(B),(C)'"/>
+            </xsl:when>
+            <xsl:when test="matches($text, '^[a-z]\.\s')">
+                <xsl:value-of select="'a.,b.,c.'"/>
+            </xsl:when>
+            <xsl:when test="matches($text, '^[A-Z]\.\s')">
+                <xsl:value-of select="'A.,B.,C.'"/>
+            </xsl:when>
+            <xsl:when test="matches($text, '^\d+\.\s')">
+                <xsl:value-of select="'1.,2.,3.'"/>
+            </xsl:when>
+            <xsl:otherwise>
+                <xsl:value-of select="''"/>
+            </xsl:otherwise>
+        </xsl:choose>
+    </xsl:function>
+
+    <!-- Function: Get text without number prefix -->
+    <!-- Returns the text content after removing the numbering prefix -->
+    <xsl:function name="hdr:get-text-without-prefix" as="xs:string">
+        <xsl:param name="text" as="xs:string"/>
+        <xsl:variable name="prefix" select="hdr:get-number-prefix($text)"/>
+        <xsl:choose>
+            <xsl:when test="$prefix != ''">
+                <xsl:value-of select="normalize-space(substring-after($text, $prefix))"/>
+            </xsl:when>
+            <xsl:otherwise>
+                <xsl:value-of select="$text"/>
+            </xsl:otherwise>
+        </xsl:choose>
+    </xsl:function>
+
+    <!-- Named template: Add data-numberscheme and data-number attributes -->
+    <!-- Detects numbering pattern and adds both attributes if pattern found -->
+    <xsl:template name="add-numbering-attributes">
+        <xsl:param name="text"/>
+        <xsl:variable name="scheme" select="hdr:get-numberscheme($text)"/>
+        <xsl:variable name="number" select="hdr:get-number-prefix($text)"/>
+        <xsl:if test="$scheme != ''">
+            <xsl:attribute name="data-numberscheme" select="$scheme"/>
+        </xsl:if>
+        <xsl:if test="$number != ''">
+            <xsl:attribute name="data-number" select="$number"/>
+        </xsl:if>
+    </xsl:template>
+
+    <!-- Numbered section headings (e.g., "1. Introduction") -->
+    <xsl:template match="L[count(LI) = 1 and matches(normalize-space(LI/LBody), '^\d+\.\s+')]" priority="20">
+        <xsl:variable name="text" select="normalize-space(LI/LBody)"/>
+        <!-- Suppress if ends with "(continued)" -->
+        <xsl:if test="not(ends-with($text, '(continued)'))">
+            <xsl:variable name="heading" select="hdr:get-text-without-prefix($text)"/>
+            <h2>
+                <xsl:call-template name="add-numbering-attributes">
+                    <xsl:with-param name="text" select="$text"/>
+                </xsl:call-template>
+                <xsl:value-of select="$heading"/>
+            </h2>
+        </xsl:if>
+    </xsl:template>
+
+    <!-- ============================================================ -->
+    <!-- PARAGRAPH-TO-HEADER CONVERSION TEMPLATES                     -->
+    <!-- Convert <P> elements with numbering prefixes to <h4>         -->
+    <!-- ============================================================ -->
+
+    <!-- P elements with numbering prefixes (e.g., "(i) Recognition", "(a) Definition") -->
+    <!-- Converts to h4 with detected data-numberscheme and data-number attributes -->
+    <!-- Must have higher priority than default P template to intercept matching elements -->
+    <xsl:template match="P[normalize-space(.) != '' and
+                           not(ends-with(normalize-space(.), '(continued)')) and
+                           hdr:get-number-prefix(normalize-space(.)) != '']"
+                  priority="15">
+        <xsl:variable name="text" select="normalize-space(.)"/>
+        <h4>
+            <xsl:apply-templates select="@*"/>
+            <xsl:call-template name="add-numbering-attributes">
+                <xsl:with-param name="text" select="$text"/>
+            </xsl:call-template>
+            <xsl:apply-templates/>
+        </h4>
+    </xsl:template>
+
 
 </xsl:stylesheet>
