@@ -186,7 +186,7 @@
                     }
                     else
                     {
-                        <pre id="output-source" class="code-viewer" @key="@_outputContentKey">@OutputContent</pre>
+                        <div id="output-xml-viewer" style="width: 100%; height: 100%;"></div>
                     }
                     @if (TransformationStats != null)
                     {
@@ -294,21 +294,40 @@
         // ShowRendered is already updated by @bind-value
         Logger.LogInformation("Rendered toggle changed: ShowRendered = {ShowRendered}", ShowRendered);
 
-        // If Source view is now active (Rendered OFF) and Format is checked, apply syntax highlighting
-        if (!ShowRendered && ShowFormattedXml)
+        // If Source view is now active (Rendered OFF), initialize/update Monaco viewer
+        if (!ShowRendered && !string.IsNullOrEmpty(OutputContent))
         {
             // Minimal delay for Blazor render cycle
-            await Task.Yield();
+            await Task.Delay(100);
 
             try
             {
-                // Use animation to hide element during highlighting
-                await JSRuntime.InvokeVoidAsync("xmlFormatter.highlightElement", "output-source", true);
+                if (!_outputXmlViewerInitialized)
+                {
+                    var outputTheme = ThemeService.GetMonacoTheme();
+                    await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.createViewer",
+                        "output-xml-viewer",
+                        "outputXml",
+                        new {
+                            value = OutputContent ?? "",
+                            language = "xml",
+                            theme = outputTheme
+                        });
+                    _outputXmlViewerInitialized = true;
+                    Logger.LogInformation("Output XML viewer initialized when toggling to source view");
+                }
+                else
+                {
+                    await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.setValue",
+                        "outputXml",
+                        OutputContent ?? "");
+                    Logger.LogInformation("Updated Output XML viewer when toggling to source view");
+                }
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Error applying syntax highlighting when toggling to source view");
-                ToastNotification.ShowError("Failed to apply syntax highlighting. Please try again.");
+                Logger.LogError(ex, "Error initializing/updating Output XML viewer when toggling to source view");
+                ToastNotification.ShowError("Failed to initialize viewer. Please try again.");
             }
         }
 
@@ -320,31 +339,8 @@
         // ShowFormattedXml is already updated by @bind-value
         Logger.LogInformation("Format checkbox changed: ShowFormattedXml = {ShowFormatted}", ShowFormattedXml);
 
-        try
-        {
-            // Save scroll position before changing format
-            var scrollPosition = await JSRuntime.InvokeAsync<Dictionary<string, int>>("xmlFormatter.saveScrollPosition", "output-source");
-
-            if (ShowFormattedXml)
-            {
-                // Apply syntax highlighting with animation
-                await JSRuntime.InvokeVoidAsync("xmlFormatter.highlightElement", "output-source", true);
-            }
-            else
-            {
-                // Show raw XML
-                await JSRuntime.InvokeVoidAsync("xmlFormatter.showRawElement", "output-source", OutputContent);
-            }
-
-            // Restore scroll position immediately after format change
-            await JSRuntime.InvokeVoidAsync("xmlFormatter.restoreScrollPosition", "output-source", scrollPosition);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error toggling XML format");
-            ToastNotification.ShowError("Failed to toggle format. Please try again.");
-        }
-
+        // Monaco viewer handles formatting automatically
+        // This method is kept for backwards compatibility but no longer needs to do anything
         StateHasChanged();
     }
 
@@ -388,6 +384,13 @@
             {
                 await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.setTheme", "sourceXml", theme);
                 Logger.LogInformation("Updated Source XML viewer theme to {Theme}", theme);
+            }
+
+            // Update Output XML viewer theme if initialized
+            if (_outputXmlViewerInitialized)
+            {
+                await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.setTheme", "outputXml", theme);
+                Logger.LogInformation("Updated Output XML viewer theme to {Theme}", theme);
             }
         }
         catch (Exception ex)
@@ -698,24 +701,8 @@
             if (result.IsSuccess)
             {
                 TransformationError = null; // Clear error on success
-                // Save scroll position before updating content (only if output already exists)
-                Dictionary<string, int>? scrollPosition = null;
-                if (!string.IsNullOrEmpty(OutputContent) && !ShowRendered)
-                {
-                    try
-                    {
-                        scrollPosition = await JSRuntime.InvokeAsync<Dictionary<string, int>>("xmlFormatter.saveScrollPosition", "output-source");
-                        Logger.LogInformation("Saved scroll position before transformation update");
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogWarning(ex, "Could not save scroll position");
-                    }
-                }
-
                 OutputContent = result.OutputContent;
                 TransformationStats = result;
-                _outputContentKey++; // Force Blazor to recreate element (required when mixing Blazor text with JS innerHTML)
                 Logger.LogInformation("Transformation successful in {Time}ms. OutputContent length: {Length}", result.ProcessingTimeMs, OutputContent?.Length ?? 0);
 
                 // Trigger visual success feedback (green glow on Transform button)
@@ -729,31 +716,39 @@
                     }
                 }
 
-                // If we're in Source view (Rendered OFF) with formatting enabled, re-apply syntax highlighting after render
-                if (!ShowRendered && ShowFormattedXml)
+                // Update or initialize Output XML viewer (only if Source view is active)
+                if (!ShowRendered)
                 {
-                    // Schedule syntax highlighting after Blazor renders the new content
-                    var savedScrollPos = scrollPosition; // Capture for closure
                     _ = InvokeAsync(async () =>
                     {
-                        // Minimal delay - just enough for Blazor to finish its render cycle
-                        await Task.Yield();
+                        await Task.Delay(100); // Give Blazor time to render the container
                         try
                         {
-                            // Use animation to hide element during highlighting
-                            await JSRuntime.InvokeVoidAsync("xmlFormatter.highlightElement", "output-source", true);
-                            Logger.LogInformation("XML syntax highlighting applied after transformation");
-
-                            // Restore scroll position immediately after highlighting
-                            if (savedScrollPos != null)
+                            if (!_outputXmlViewerInitialized)
                             {
-                                await JSRuntime.InvokeVoidAsync("xmlFormatter.restoreScrollPosition", "output-source", savedScrollPos);
-                                Logger.LogInformation("Restored scroll position after transformation");
+                                var outputTheme = ThemeService.GetMonacoTheme();
+                                await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.createViewer",
+                                    "output-xml-viewer",
+                                    "outputXml",
+                                    new {
+                                        value = OutputContent ?? "",
+                                        language = "xml",
+                                        theme = outputTheme
+                                    });
+                                _outputXmlViewerInitialized = true;
+                                Logger.LogInformation("Output XML viewer initialized after transformation");
+                            }
+                            else
+                            {
+                                await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.setValue",
+                                    "outputXml",
+                                    OutputContent ?? "");
+                                Logger.LogInformation("Updated Output XML viewer content");
                             }
                         }
                         catch (Exception ex)
                         {
-                            Logger.LogError(ex, "Error applying syntax highlighting after transformation");
+                            Logger.LogError(ex, "Error initializing/updating Output XML viewer");
                         }
                     });
                 }
@@ -924,6 +919,7 @@
     private bool monacoInitialized = false;
     private bool keyboardShortcutsInitialized = false;
     private bool _sourceXmlViewerInitialized = false;
+    private bool _outputXmlViewerInitialized = false;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -1119,6 +1115,20 @@
             catch (Exception ex)
             {
                 Logger.LogError(ex, "Error disposing Source XML viewer");
+            }
+        }
+
+        // Dispose Output XML viewer
+        if (_outputXmlViewerInitialized)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.dispose", "outputXml");
+                Logger.LogInformation("Disposed Output XML viewer");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error disposing Output XML viewer");
             }
         }
 
