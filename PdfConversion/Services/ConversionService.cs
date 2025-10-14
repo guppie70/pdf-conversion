@@ -875,10 +875,10 @@ public class ConversionService : IConversionService
 
                 if (bodyContent != null && bodyContent.Any())
                 {
-                    // Add content to section, preserving XHTML elements
+                    // Add content to section, stripping XHTML namespace
                     foreach (var element in bodyContent)
                     {
-                        sectionElement.Add(new XElement(element));
+                        sectionElement.Add(StripNamespace(element));
                     }
                 }
                 else
@@ -893,5 +893,25 @@ public class ConversionService : IConversionService
         }
 
         return populated;
+    }
+
+    /// <summary>
+    /// Recursively strips namespace from an element and all its descendants
+    /// </summary>
+    private XElement StripNamespace(XElement element)
+    {
+        // Create new element without namespace
+        var newElement = new XElement(
+            element.Name.LocalName,
+            element.Attributes().Where(a => !a.IsNamespaceDeclaration),
+            element.Nodes().Select(n =>
+            {
+                if (n is XElement e)
+                    return StripNamespace(e);
+                return n;
+            })
+        );
+
+        return newElement;
     }
 }
