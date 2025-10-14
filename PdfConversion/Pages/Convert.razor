@@ -3,6 +3,7 @@
 @using System.IO
 @using PdfConversion.Services
 @using PdfConversion.Models
+@using PdfConversion.Components
 @inject IProjectManagementService ProjectService
 @inject IConversionService ConversionService
 @inject ILogger<Pages.Convert> Logger
@@ -176,6 +177,11 @@
             </div>
         </div>
     </div>
+
+    <!-- Duplicate Match Modal -->
+    <DuplicateMatchModal DuplicateMatches="_pendingDuplicates"
+                         IsVisible="_showDuplicateModal"
+                         OnSelectionConfirmed="HandleDuplicateSelectionConfirmed" />
 </div>
 
 @code {
@@ -197,6 +203,11 @@
 
     // Cancellation support
     private CancellationTokenSource? _cancellationTokenSource;
+
+    // Duplicate selection support
+    private List<HeaderMatch>? _pendingDuplicates;
+    private TaskCompletionSource<HeaderMatch?>? _duplicateSelectionTcs;
+    private bool _showDuplicateModal = false;
 
     // Log
     private readonly List<LogEntry> LogEntries = new();
@@ -377,6 +388,7 @@
                 _config.SourceFile!,
                 _config.HierarchyFile!,
                 AddLogEntry,
+                HandleDuplicateSelection,
                 _cancellationTokenSource.Token);
 
             TotalItems = result.TotalSections;
@@ -453,6 +465,41 @@
     {
         LogEntries.Clear();
         StateHasChanged();
+    }
+
+    private async Task<HeaderMatch?> HandleDuplicateSelection(List<HeaderMatch> duplicates)
+    {
+        // Create a new TaskCompletionSource to wait for user selection
+        _duplicateSelectionTcs = new TaskCompletionSource<HeaderMatch?>();
+        _pendingDuplicates = duplicates;
+        _showDuplicateModal = true;
+
+        // Trigger UI update to show modal
+        StateHasChanged();
+
+        // Wait for user to make selection
+        var selectedMatch = await _duplicateSelectionTcs.Task;
+
+        // Clean up
+        _duplicateSelectionTcs = null;
+        _pendingDuplicates = null;
+
+        return selectedMatch;
+    }
+
+    private async Task HandleDuplicateSelectionConfirmed(HeaderMatch? selectedMatch)
+    {
+        // Hide modal
+        _showDuplicateModal = false;
+        StateHasChanged();
+
+        // Complete the TaskCompletionSource with the user's selection
+        if (_duplicateSelectionTcs != null && !_duplicateSelectionTcs.Task.IsCompleted)
+        {
+            _duplicateSelectionTcs.SetResult(selectedMatch);
+        }
+
+        await Task.CompletedTask;
     }
 
     private class LogEntry

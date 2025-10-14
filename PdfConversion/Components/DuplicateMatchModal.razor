@@ -1,0 +1,196 @@
+@using System.Xml.Linq
+@using PdfConversion.Models
+
+<!-- Modal Backdrop -->
+@if (IsVisible)
+{
+    <div class="modal-backdrop fade show"></div>
+    <div class="modal fade show d-block" tabindex="-1" role="dialog" aria-labelledby="duplicateMatchModalTitle" aria-modal="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+            <div class="modal-content">
+                <!-- Header -->
+                <div class="modal-header">
+                    <h5 class="modal-title" id="duplicateMatchModalTitle">Multiple Headers Found</h5>
+                    <button type="button" class="btn-close" @onclick="HandleCancel" aria-label="Close"></button>
+                </div>
+
+                <!-- Body -->
+                <div class="modal-body">
+                    @if (DuplicateMatches != null && DuplicateMatches.Any())
+                    {
+                        <div class="alert alert-info" role="alert">
+                            <i class="bi bi-info-circle"></i>
+                            <strong>Multiple headers match:</strong> @DuplicateMatches.First().HierarchyItem.LinkName
+                        </div>
+
+                        <p class="text-muted">
+                            Please select which header to use for this section, or skip it entirely.
+                        </p>
+
+                        <div class="duplicate-matches-list">
+                            @for (int i = 0; i < DuplicateMatches.Count; i++)
+                            {
+                                var match = DuplicateMatches[i];
+                                var matchId = $"match_{i}";
+                                var precedingText = GetPrecedingHeaderText(match);
+
+                                <div class="form-check duplicate-match-option">
+                                    <input class="form-check-input"
+                                           type="radio"
+                                           name="duplicateMatch"
+                                           id="@matchId"
+                                           value="@i"
+                                           @onchange="@(() => SelectMatch(i))"
+                                           checked="@(_selectedIndex == i)">
+                                    <label class="form-check-label" for="@matchId">
+                                        <div class="match-info">
+                                            <div class="match-header">
+                                                <span class="badge bg-primary">Match @(i + 1)</span>
+                                                <span class="badge bg-secondary">@GetHeaderLevel(match)</span>
+                                            </div>
+                                            <div class="match-text">
+                                                "@match.MatchedText"
+                                            </div>
+                                            @if (!string.IsNullOrEmpty(precedingText))
+                                            {
+                                                <div class="match-context text-muted">
+                                                    <small>After: @precedingText</small>
+                                                </div>
+                                            }
+                                        </div>
+                                    </label>
+                                </div>
+                            }
+
+                            <!-- Skip option -->
+                            <div class="form-check duplicate-match-option">
+                                <input class="form-check-input"
+                                       type="radio"
+                                       name="duplicateMatch"
+                                       id="match_skip"
+                                       value="-1"
+                                       @onchange="@(() => SelectMatch(-1))"
+                                       checked="@(_selectedIndex == -1)">
+                                <label class="form-check-label" for="match_skip">
+                                    <div class="match-info">
+                                        <div class="match-header">
+                                            <span class="badge bg-warning text-dark">Skip</span>
+                                        </div>
+                                        <div class="match-text text-muted">
+                                            Skip this section entirely
+                                        </div>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <!-- Footer -->
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="HandleCancel">
+                        Cancel
+                    </button>
+                    <button type="button"
+                            class="btn btn-primary"
+                            @onclick="HandleConfirm"
+                            disabled="@(_selectedIndex == null)">
+                        Confirm Selection
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public List<HeaderMatch>? DuplicateMatches { get; set; }
+
+    [Parameter]
+    public EventCallback<HeaderMatch?> OnSelectionConfirmed { get; set; }
+
+    [Parameter]
+    public bool IsVisible { get; set; }
+
+    private int? _selectedIndex = null;
+
+    protected override void OnParametersSet()
+    {
+        // Reset selection when modal becomes visible with new matches
+        if (IsVisible && DuplicateMatches != null && DuplicateMatches.Any())
+        {
+            _selectedIndex = null;
+        }
+    }
+
+    private void SelectMatch(int index)
+    {
+        _selectedIndex = index;
+    }
+
+    private async Task HandleConfirm()
+    {
+        if (_selectedIndex == null) return;
+
+        HeaderMatch? selectedMatch = null;
+
+        // -1 means skip (null)
+        if (_selectedIndex >= 0 && DuplicateMatches != null && _selectedIndex < DuplicateMatches.Count)
+        {
+            selectedMatch = DuplicateMatches[_selectedIndex.Value];
+        }
+
+        await OnSelectionConfirmed.InvokeAsync(selectedMatch);
+    }
+
+    private async Task HandleCancel()
+    {
+        // Cancel is treated as skip
+        await OnSelectionConfirmed.InvokeAsync(null);
+    }
+
+    private string GetHeaderLevel(HeaderMatch match)
+    {
+        if (match.MatchedHeader == null) return "Unknown";
+
+        var elementName = match.MatchedHeader.Name.LocalName.ToUpperInvariant();
+        return elementName; // e.g., "H1", "H2", "H3"
+    }
+
+    private string? GetPrecedingHeaderText(HeaderMatch match)
+    {
+        if (match.MatchedHeader == null) return null;
+
+        try
+        {
+            // Navigate backwards to find previous header (h1-h6)
+            var currentElement = match.MatchedHeader;
+            var previousElement = currentElement.ElementsBeforeSelf().LastOrDefault();
+
+            while (previousElement != null)
+            {
+                var localName = previousElement.Name.LocalName.ToLowerInvariant();
+                if (localName.StartsWith("h") && localName.Length == 2 &&
+                    char.IsDigit(localName[1]))
+                {
+                    // Found a header element
+                    var text = previousElement.Value?.Trim();
+                    if (!string.IsNullOrEmpty(text))
+                    {
+                        // Truncate if too long
+                        return text.Length > 80 ? text.Substring(0, 77) + "..." : text;
+                    }
+                }
+
+                previousElement = previousElement.ElementsBeforeSelf().LastOrDefault();
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+}

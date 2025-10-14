@@ -1,0 +1,105 @@
+/* Modal backdrop styling */
+.modal-backdrop {
+    z-index: 1040;
+}
+
+.modal {
+    z-index: 1050;
+}
+
+/* Duplicate matches list */
+.duplicate-matches-list {
+    max-height: 400px;
+    overflow-y: auto;
+    margin-bottom: 1rem;
+}
+
+/* Individual match option */
+.duplicate-match-option {
+    padding: 1rem;
+    margin-bottom: 0.75rem;
+    border: 2px solid #dee2e6;
+    border-radius: 0.375rem;
+    transition: all 0.2s ease;
+    background-color: #fff;
+}
+
+.duplicate-match-option:hover {
+    border-color: #0d6efd;
+    background-color: #f8f9fa;
+}
+
+.duplicate-match-option:has(input:checked) {
+    border-color: #0d6efd;
+    background-color: #e7f1ff;
+}
+
+/* Match info layout */
+.match-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-left: 0.5rem;
+}
+
+.match-header {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.match-text {
+    font-weight: 500;
+    color: #212529;
+    font-size: 0.95rem;
+}
+
+.match-context {
+    font-size: 0.875rem;
+    color: #6c757d;
+}
+
+/* Radio button styling */
+.form-check-input {
+    cursor: pointer;
+    width: 1.25rem;
+    height: 1.25rem;
+    margin-top: 0.25rem;
+}
+
+.form-check-label {
+    cursor: pointer;
+    width: 100%;
+}
+
+/* Badge styling */
+.badge {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+}
+
+/* Alert styling */
+.alert {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.alert i {
+    font-size: 1.25rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 576px) {
+    .modal-dialog {
+        margin: 0.5rem;
+    }
+
+    .duplicate-matches-list {
+        max-height: 300px;
+    }
+
+    .duplicate-match-option {
+        padding: 0.75rem;
+    }
+}

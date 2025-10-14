@@ -47,6 +47,7 @@ public interface IConversionService
     /// <param name="sourceFile">The source XML file name</param>
     /// <param name="hierarchyFile">The hierarchy XML file name</param>
     /// <param name="logCallback">Callback for real-time logging to UI</param>
+    /// <param name="duplicateSelectionCallback">Callback for user selection when duplicate headers are found</param>
     /// <param name="cancellationToken">Token to cancel the operation</param>
     /// <returns>Conversion result with statistics and created files</returns>
     Task<ConversionResult> StartConversionAsync(
@@ -54,6 +55,7 @@ public interface IConversionService
         string sourceFile,
         string hierarchyFile,
         Action<string> logCallback,
+        Func<List<HeaderMatch>, Task<HeaderMatch?>>? duplicateSelectionCallback = null,
         CancellationToken cancellationToken = default);
 }
 
@@ -653,6 +655,7 @@ public class ConversionService : IConversionService
         string sourceFile,
         string hierarchyFile,
         Action<string> logCallback,
+        Func<List<HeaderMatch>, Task<HeaderMatch?>>? duplicateSelectionCallback = null,
         CancellationToken cancellationToken = default)
     {
         var startTime = DateTime.UtcNow;
@@ -732,12 +735,55 @@ public class ConversionService : IConversionService
                 var match = matches[i];
                 var progress = $"[{i + 1}/{matches.Count}]";
 
-                // Skip duplicates
+                // Handle duplicates with user selection
                 if (match.IsDuplicate)
                 {
-                    logCallback($"{progress} ⚠ Skipping duplicate: {match.HierarchyItem.LinkName}");
-                    result.SkippedSections++;
-                    continue;
+                    // Collect all duplicate matches for this linkname
+                    var linkName = match.HierarchyItem.LinkName;
+                    var duplicateMatches = matches
+                        .Where(m => m.HierarchyItem.LinkName == linkName && m.IsDuplicate)
+                        .ToList();
+
+                    // If we haven't processed this duplicate group yet
+                    if (duplicateMatches.Any() && duplicateMatches[0] == match)
+                    {
+                        logCallback($"{progress} ℹ Duplicate found for '{linkName}', asking user...");
+
+                        HeaderMatch? selectedMatch = null;
+
+                        if (duplicateSelectionCallback != null)
+                        {
+                            try
+                            {
+                                selectedMatch = await duplicateSelectionCallback(duplicateMatches);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Error in duplicate selection callback");
+                                logCallback($"{progress} ✗ Error in duplicate selection: {ex.Message}");
+                            }
+                        }
+
+                        if (selectedMatch != null)
+                        {
+                            logCallback($"{progress} ✓ User selected match {selectedMatch.DuplicateIndex + 1} of {selectedMatch.DuplicateCount}: {selectedMatch.MatchedText}");
+                            match = selectedMatch; // Use selected match
+                        }
+                        else
+                        {
+                            logCallback($"{progress} ⚠ User skipped duplicate: {linkName}");
+                            result.SkippedSections += duplicateMatches.Count;
+                            // Skip all remaining duplicates in this group
+                            i += duplicateMatches.Count - 1;
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        // This is not the first duplicate in the group, skip it
+                        // (already handled when we processed the first one)
+                        continue;
+                    }
                 }
 
                 // Skip unmatched
