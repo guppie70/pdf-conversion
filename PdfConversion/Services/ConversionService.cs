@@ -47,7 +47,8 @@ public interface IConversionService
     /// <param name="sourceFile">The source XML file name</param>
     /// <param name="hierarchyFile">The hierarchy XML file name</param>
     /// <param name="logCallback">Callback for real-time logging to UI</param>
-    /// <param name="duplicateSelectionCallback">Callback for user selection when duplicate headers are found</param>
+    /// <param name="duplicateSelectionCallback">Callback for user selection when duplicate headers are found.
+    /// Parameters: duplicateMatches, transformedDocument, processedMatches, allHierarchyItems, currentHierarchyItem</param>
     /// <param name="cancellationToken">Token to cancel the operation</param>
     /// <returns>Conversion result with statistics and created files</returns>
     Task<ConversionResult> StartConversionAsync(
@@ -55,7 +56,7 @@ public interface IConversionService
         string sourceFile,
         string hierarchyFile,
         Action<string> logCallback,
-        Func<List<HeaderMatch>, Task<HeaderMatch?>>? duplicateSelectionCallback = null,
+        Func<List<HeaderMatch>, XDocument, List<HeaderMatch>, List<HierarchyItem>, HierarchyItem, Task<HeaderMatch?>>? duplicateSelectionCallback = null,
         CancellationToken cancellationToken = default);
 }
 
@@ -655,7 +656,7 @@ public class ConversionService : IConversionService
         string sourceFile,
         string hierarchyFile,
         Action<string> logCallback,
-        Func<List<HeaderMatch>, Task<HeaderMatch?>>? duplicateSelectionCallback = null,
+        Func<List<HeaderMatch>, XDocument, List<HeaderMatch>, List<HierarchyItem>, HierarchyItem, Task<HeaderMatch?>>? duplicateSelectionCallback = null,
         CancellationToken cancellationToken = default)
     {
         var startTime = DateTime.UtcNow;
@@ -720,6 +721,9 @@ public class ConversionService : IConversionService
             logCallback("");
             logCallback("Processing sections...");
 
+            // Track resolved duplicates to avoid asking twice
+            var resolvedDuplicates = new Dictionary<string, HeaderMatch>();
+
             for (int i = 0; i < matches.Count; i++)
             {
                 // Check for cancellation before processing each section
@@ -740,49 +744,72 @@ public class ConversionService : IConversionService
                 {
                     // Collect all duplicate matches for this linkname
                     var linkName = match.HierarchyItem.LinkName;
-                    var duplicateMatches = matches
-                        .Where(m => m.HierarchyItem.LinkName == linkName && m.IsDuplicate)
-                        .ToList();
 
-                    // If we haven't processed this duplicate group yet
-                    if (duplicateMatches.Any() && duplicateMatches[0] == match)
+                    // Check if we already resolved this from a previous boundary selection
+                    if (resolvedDuplicates.ContainsKey(linkName))
                     {
-                        logCallback($"{progress} ℹ Duplicate found for '{linkName}', asking user...");
-
-                        HeaderMatch? selectedMatch = null;
-
-                        if (duplicateSelectionCallback != null)
-                        {
-                            try
-                            {
-                                selectedMatch = await duplicateSelectionCallback(duplicateMatches);
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogError(ex, "Error in duplicate selection callback");
-                                logCallback($"{progress} ✗ Error in duplicate selection: {ex.Message}");
-                            }
-                        }
-
-                        if (selectedMatch != null)
-                        {
-                            logCallback($"{progress} ✓ User selected match {selectedMatch.DuplicateIndex + 1} of {selectedMatch.DuplicateCount}: {selectedMatch.MatchedText}");
-                            match = selectedMatch; // Use selected match
-                        }
-                        else
-                        {
-                            logCallback($"{progress} ⚠ User skipped duplicate: {linkName}");
-                            result.SkippedSections += duplicateMatches.Count;
-                            // Skip all remaining duplicates in this group
-                            i += duplicateMatches.Count - 1;
-                            continue;
-                        }
+                        logCallback($"{progress} ℹ Using previously selected duplicate for '{linkName}'");
+                        match = resolvedDuplicates[linkName];
+                        // Remove from resolved list as we've now used it
+                        resolvedDuplicates.Remove(linkName);
                     }
                     else
                     {
-                        // This is not the first duplicate in the group, skip it
-                        // (already handled when we processed the first one)
-                        continue;
+                        var duplicateMatches = matches
+                            .Where(m => m.HierarchyItem.LinkName == linkName && m.IsDuplicate)
+                            .ToList();
+
+                        // If we haven't processed this duplicate group yet
+                        if (duplicateMatches.Any() && duplicateMatches[0] == match)
+                        {
+                            logCallback($"{progress} ℹ Duplicate found for '{linkName}', asking user...");
+
+                            HeaderMatch? selectedMatch = null;
+
+                            if (duplicateSelectionCallback != null)
+                            {
+                                try
+                                {
+                                    // Get list of matches processed so far (for context visualization)
+                                    var processedMatches = matches.Take(i).ToList();
+
+                                    // Get current hierarchy item (the one with duplicates)
+                                    var currentHierarchyItem = match.HierarchyItem;
+
+                                    selectedMatch = await duplicateSelectionCallback(
+                                        duplicateMatches,
+                                        transformedXhtml,
+                                        processedMatches,
+                                        hierarchyItems,
+                                        currentHierarchyItem);
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogError(ex, "Error in duplicate selection callback");
+                                    logCallback($"{progress} ✗ Error in duplicate selection: {ex.Message}");
+                                }
+                            }
+
+                            if (selectedMatch != null)
+                            {
+                                logCallback($"{progress} ✓ User selected match {selectedMatch.DuplicateIndex + 1} of {selectedMatch.DuplicateCount}: {selectedMatch.MatchedText}");
+                                match = selectedMatch; // Use selected match
+                            }
+                            else
+                            {
+                                logCallback($"{progress} ⚠ User skipped duplicate: {linkName}");
+                                result.SkippedSections += duplicateMatches.Count;
+                                // Skip all remaining duplicates in this group
+                                i += duplicateMatches.Count - 1;
+                                continue;
+                            }
+                        }
+                        else
+                        {
+                            // This is not the first duplicate in the group, skip it
+                            // (already handled when we processed the first one)
+                            continue;
+                        }
                     }
                 }
 
@@ -796,10 +823,72 @@ public class ConversionService : IConversionService
 
                 try
                 {
-                    // Extract content
+                    // Find the next matched header to use as boundary
+                    XElement? nextHeader = null;
+
+                    // Find current item's position in hierarchy
+                    var currentHierarchyIndex = hierarchyItems.IndexOf(match.HierarchyItem);
+
+                    // Look for the next hierarchical item
+                    if (currentHierarchyIndex >= 0 && currentHierarchyIndex < hierarchyItems.Count - 1)
+                    {
+                        var nextHierarchyItem = hierarchyItems[currentHierarchyIndex + 1];
+                        var nextLinkName = nextHierarchyItem.LinkName;
+
+                        // Find all matches for this next item
+                        var nextMatches = matches
+                            .Where(m => m.HierarchyItem.LinkName == nextLinkName && m.MatchedHeader != null)
+                            .ToList();
+
+                        if (nextMatches.Count > 1)
+                        {
+                            // Multiple matches found for next boundary - ask user
+                            logCallback($"{progress} ℹ Multiple headers found for next boundary '{nextLinkName}', asking user...");
+
+                            HeaderMatch? selectedNextMatch = null;
+
+                            if (duplicateSelectionCallback != null)
+                            {
+                                try
+                                {
+                                    var processedMatches = matches.Take(i).ToList();
+                                    selectedNextMatch = await duplicateSelectionCallback(
+                                        nextMatches,
+                                        transformedXhtml,
+                                        processedMatches,
+                                        hierarchyItems,
+                                        nextHierarchyItem);
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogError(ex, "Error in duplicate selection for boundary");
+                                    logCallback($"{progress} ✗ Error selecting boundary: {ex.Message}");
+                                }
+                            }
+
+                            if (selectedNextMatch != null)
+                            {
+                                nextHeader = selectedNextMatch.MatchedHeader;
+                                logCallback($"{progress} ✓ User selected boundary: {selectedNextMatch.MatchedText}");
+                                // Store this selection for reuse when processing the next section
+                                resolvedDuplicates[nextLinkName] = selectedNextMatch;
+                            }
+                            else
+                            {
+                                logCallback($"{progress} ⚠ User skipped boundary selection, extracting to end");
+                            }
+                        }
+                        else if (nextMatches.Count == 1)
+                        {
+                            nextHeader = nextMatches[0].MatchedHeader;
+                        }
+                    }
+
+                    // Extract content with explicit boundary
                     var extractedContent = _contentExtractionService.ExtractContent(
                         transformedXhtml,
-                        match.MatchedHeader);
+                        match.MatchedHeader,
+                        nextHeader); // Pass the selected next header as explicit boundary
 
                     // Normalize headers
                     var normalizedContent = _headerNormalizationService.NormalizeHeaders(extractedContent);

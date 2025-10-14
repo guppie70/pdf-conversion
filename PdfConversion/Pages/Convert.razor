@@ -1,6 +1,7 @@
 @page "/convert"
 @using System
 @using System.IO
+@using System.Xml.Linq
 @using PdfConversion.Services
 @using PdfConversion.Models
 @using PdfConversion.Components
@@ -180,6 +181,10 @@
 
     <!-- Duplicate Match Modal -->
     <DuplicateMatchModal DuplicateMatches="_pendingDuplicates"
+                         TransformedDocument="_transformedDocumentContext"
+                         ProcessedMatches="_processedMatchesContext"
+                         AllHierarchyItems="_allHierarchyItems"
+                         CurrentHierarchyItem="_currentHierarchyItem"
                          IsVisible="_showDuplicateModal"
                          OnSelectionConfirmed="HandleDuplicateSelectionConfirmed" />
 </div>
@@ -208,6 +213,10 @@
     private List<HeaderMatch>? _pendingDuplicates;
     private TaskCompletionSource<HeaderMatch?>? _duplicateSelectionTcs;
     private bool _showDuplicateModal = false;
+    private XDocument? _transformedDocumentContext;
+    private List<HeaderMatch>? _processedMatchesContext;
+    private List<HierarchyItem>? _allHierarchyItems;
+    private HierarchyItem? _currentHierarchyItem;
 
     // Log
     private readonly List<LogEntry> LogEntries = new();
@@ -467,11 +476,20 @@
         StateHasChanged();
     }
 
-    private async Task<HeaderMatch?> HandleDuplicateSelection(List<HeaderMatch> duplicates)
+    private async Task<HeaderMatch?> HandleDuplicateSelection(
+        List<HeaderMatch> duplicates,
+        XDocument transformedDocument,
+        List<HeaderMatch> processedMatches,
+        List<HierarchyItem> allHierarchyItems,
+        HierarchyItem currentHierarchyItem)
     {
         // Create a new TaskCompletionSource to wait for user selection
         _duplicateSelectionTcs = new TaskCompletionSource<HeaderMatch?>();
         _pendingDuplicates = duplicates;
+        _transformedDocumentContext = transformedDocument;
+        _processedMatchesContext = processedMatches;
+        _allHierarchyItems = allHierarchyItems;
+        _currentHierarchyItem = currentHierarchyItem;
         _showDuplicateModal = true;
 
         // Trigger UI update to show modal
@@ -483,6 +501,10 @@
         // Clean up
         _duplicateSelectionTcs = null;
         _pendingDuplicates = null;
+        _transformedDocumentContext = null;
+        _processedMatchesContext = null;
+        _allHierarchyItems = null;
+        _currentHierarchyItem = null;
 
         return selectedMatch;
     }

@@ -1,12 +1,13 @@
 @using System.Xml.Linq
 @using PdfConversion.Models
+@using Microsoft.AspNetCore.Components
 
 <!-- Modal Backdrop -->
 @if (IsVisible)
 {
     <div class="modal-backdrop fade show"></div>
     <div class="modal fade show d-block" tabindex="-1" role="dialog" aria-labelledby="duplicateMatchModalTitle" aria-modal="true">
-        <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+        <div class="modal-dialog modal-custom-wide modal-dialog-centered" role="document">
             <div class="modal-content">
                 <!-- Header -->
                 <div class="modal-header">
@@ -18,71 +19,97 @@
                 <div class="modal-body">
                     @if (DuplicateMatches != null && DuplicateMatches.Any())
                     {
-                        <div class="alert alert-info" role="alert">
+                        <div class="alert alert-info mb-3" role="alert">
                             <i class="bi bi-info-circle"></i>
                             <strong>Multiple headers match:</strong> @DuplicateMatches.First().HierarchyItem.LinkName
+                            <button type="button" class="btn btn-sm btn-warning skip-button" @onclick="HandleSkip">
+                                <i class="bi bi-skip-forward"></i> Skip This Section
+                            </button>
                         </div>
 
-                        <p class="text-muted">
-                            Please select which header to use for this section, or skip it entirely.
-                        </p>
+                        <div class="two-column-layout">
+                            <!-- Column 1: Hierarchy Tree (25%) -->
+                            <div class="hierarchy-tree-column">
+                                <h6 class="column-title">Document Hierarchy</h6>
+                                <div class="hierarchy-tree">
+                                    @if (AllHierarchyItems != null && AllHierarchyItems.Any())
+                                    {
+                                        @foreach (var item in AllHierarchyItems)
+                                        {
+                                            var isProcessed = ProcessedMatches?.Any(m => m.HierarchyItem.Id == item.Id) == true;
+                                            var isCurrent = CurrentHierarchyItem?.Id == item.Id;
+                                            var statusClass = isProcessed ? "processed" : (isCurrent ? "current" : "upcoming");
+                                            var statusIcon = isProcessed ? "✓" : (isCurrent ? "►" : "□");
+                                            var levelClass = $"level-{item.Level}";
 
-                        <div class="duplicate-matches-list">
-                            @for (int i = 0; i < DuplicateMatches.Count; i++)
-                            {
-                                var match = DuplicateMatches[i];
-                                var matchId = $"match_{i}";
-                                var precedingText = GetPrecedingHeaderText(match);
-
-                                <div class="form-check duplicate-match-option">
-                                    <input class="form-check-input"
-                                           type="radio"
-                                           name="duplicateMatch"
-                                           id="@matchId"
-                                           value="@i"
-                                           @onchange="@(() => SelectMatch(i))"
-                                           checked="@(_selectedIndex == i)">
-                                    <label class="form-check-label" for="@matchId">
-                                        <div class="match-info">
-                                            <div class="match-header">
-                                                <span class="badge bg-primary">Match @(i + 1)</span>
-                                                <span class="badge bg-secondary">@GetHeaderLevel(match)</span>
+                                            <div class="hierarchy-item @statusClass @levelClass">
+                                                <span class="status-icon">@statusIcon</span>
+                                                <span class="item-name">@item.LinkName</span>
+                                                @if (isCurrent)
+                                                {
+                                                    <span class="current-label">CURRENT</span>
+                                                }
                                             </div>
-                                            <div class="match-text">
-                                                "@match.MatchedText"
-                                            </div>
-                                            @if (!string.IsNullOrEmpty(precedingText))
-                                            {
-                                                <div class="match-context text-muted">
-                                                    <small>After: @precedingText</small>
-                                                </div>
-                                            }
-                                        </div>
-                                    </label>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <div class="text-muted small">No hierarchy information available.</div>
+                                    }
                                 </div>
-                            }
+                            </div>
 
-                            <!-- Skip option -->
-                            <div class="form-check duplicate-match-option">
-                                <input class="form-check-input"
-                                       type="radio"
-                                       name="duplicateMatch"
-                                       id="match_skip"
-                                       value="-1"
-                                       @onchange="@(() => SelectMatch(-1))"
-                                       checked="@(_selectedIndex == -1)">
-                                <label class="form-check-label" for="match_skip">
-                                    <div class="match-info">
-                                        <div class="match-header">
-                                            <span class="badge bg-warning text-dark">Skip</span>
-                                        </div>
-                                        <div class="match-text text-muted">
-                                            Skip this section entirely
-                                        </div>
-                                    </div>
-                                </label>
+                            <!-- Column 2: Document Preview (75%) -->
+                            <div class="preview-column">
+                                <div class="document-context-header">
+                                    <h6 class="column-title">Full Document Preview</h6>
+                                    <p class="text-muted small mb-1">
+                                        <strong>Gray:</strong> Already processed |
+                                        <strong>Yellow:</strong> Current section being extracted |
+                                        <strong>Blue:</strong> Duplicate headers - click to select |
+                                        <strong>Normal:</strong> Future sections (not yet processed)
+                                    </p>
+                                    <p class="text-muted small">
+                                        Click on the blue header you want to use for this section.
+                                    </p>
+                                </div>
+                                <div id="document-preview" class="document-preview">
+                                    @RenderDocumentWithContext()
+                                </div>
                             </div>
                         </div>
+
+                        <!-- Hidden buttons for Blazor event handling -->
+                        <div style="display: none;">
+                            @for (int i = 0; i < DuplicateMatches.Count; i++)
+                            {
+                                var index = i; // Capture for closure
+                                <button id="confirm-match-@i" @onclick="@(() => SelectAndConfirmMatch(index))"></button>
+                            }
+                        </div>
+
+                        <!-- JavaScript for handling header clicks and auto-scroll -->
+                        <script>
+                            (function() {
+                                // Setup click handlers for duplicate headers
+                                document.querySelectorAll('[data-match-index]').forEach(element => {
+                                    element.addEventListener('click', function() {
+                                        const matchIndex = parseInt(this.getAttribute('data-match-index'));
+                                        // Trigger the hidden button click
+                                        const button = document.getElementById('confirm-match-' + matchIndex);
+                                        if (button) button.click();
+                                    });
+                                });
+
+                                // Auto-scroll to first duplicate header
+                                setTimeout(() => {
+                                    const firstDuplicate = document.querySelector('[data-match-index="0"]');
+                                    if (firstDuplicate) {
+                                        firstDuplicate.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    }
+                                }, 100);
+                            })();
+                        </script>
                     }
                 </div>
 
@@ -91,12 +118,7 @@
                     <button type="button" class="btn btn-secondary" @onclick="HandleCancel">
                         Cancel
                     </button>
-                    <button type="button"
-                            class="btn btn-primary"
-                            @onclick="HandleConfirm"
-                            disabled="@(_selectedIndex == null)">
-                        Confirm Selection
-                    </button>
+                    <span class="text-muted small">Click on a blue header in the preview to select it, or use the Skip button above.</span>
                 </div>
             </div>
         </div>
@@ -108,45 +130,67 @@
     public List<HeaderMatch>? DuplicateMatches { get; set; }
 
     [Parameter]
+    public XDocument? TransformedDocument { get; set; }
+
+    [Parameter]
+    public List<HeaderMatch>? ProcessedMatches { get; set; }
+
+    [Parameter]
+    public List<HierarchyItem>? AllHierarchyItems { get; set; }
+
+    [Parameter]
+    public HierarchyItem? CurrentHierarchyItem { get; set; }
+
+    [Parameter]
     public EventCallback<HeaderMatch?> OnSelectionConfirmed { get; set; }
 
     [Parameter]
     public bool IsVisible { get; set; }
 
-    private int? _selectedIndex = null;
-
-    protected override void OnParametersSet()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // Reset selection when modal becomes visible with new matches
-        if (IsVisible && DuplicateMatches != null && DuplicateMatches.Any())
+        if (firstRender && IsVisible && DuplicateMatches != null && DuplicateMatches.Any())
         {
-            _selectedIndex = null;
+            // Auto-scroll to the first duplicate header
+            await ScrollToFirstDuplicate();
         }
     }
 
-    private void SelectMatch(int index)
+    private async Task ScrollToFirstDuplicate()
     {
-        _selectedIndex = index;
+        // Use JavaScript interop to scroll to the first duplicate header element
+        // The first duplicate header will have a data-match-index="0" attribute
+        var script = @"
+            const preview = document.getElementById('document-preview');
+            if (preview) {
+                const firstDuplicate = preview.querySelector('[data-match-index=""0""]');
+                if (firstDuplicate) {
+                    firstDuplicate.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }
+        ";
+        // Note: In a real implementation, you'd use IJSRuntime to execute this
+        // For now, we'll add the script inline in the rendered HTML
     }
 
-    private async Task HandleConfirm()
+    private async Task SelectAndConfirmMatch(int matchIndex)
     {
-        if (_selectedIndex == null) return;
+        if (DuplicateMatches == null || matchIndex < 0 || matchIndex >= DuplicateMatches.Count)
+            return;
 
-        HeaderMatch? selectedMatch = null;
-
-        // -1 means skip (null)
-        if (_selectedIndex >= 0 && DuplicateMatches != null && _selectedIndex < DuplicateMatches.Count)
-        {
-            selectedMatch = DuplicateMatches[_selectedIndex.Value];
-        }
-
+        var selectedMatch = DuplicateMatches[matchIndex];
         await OnSelectionConfirmed.InvokeAsync(selectedMatch);
+    }
+
+    private async Task HandleSkip()
+    {
+        // Skip is treated as null
+        await OnSelectionConfirmed.InvokeAsync(null);
     }
 
     private async Task HandleCancel()
     {
-        // Cancel is treated as skip
+        // Cancel is also treated as skip
         await OnSelectionConfirmed.InvokeAsync(null);
     }
 
@@ -193,4 +237,226 @@
             return null;
         }
     }
+
+    private string DetermineElementContext(XElement element, HashSet<XElement?> processedHeaders, XElement? firstDuplicate, XElement? lastDuplicate)
+    {
+        // Get the body element for document order comparison
+        var body = element.Ancestors().FirstOrDefault(a => a.Name.LocalName.ToLowerInvariant() == "body");
+        if (body == null)
+        {
+            return "upcoming-content";
+        }
+
+        // Get all elements in document order
+        var allElements = body.Descendants().ToList();
+        var elementIndex = allElements.IndexOf(element);
+
+        if (elementIndex == -1)
+        {
+            return "upcoming-content";
+        }
+
+        // Find the last processed header's position
+        int lastProcessedIndex = -1;
+        if (processedHeaders != null && processedHeaders.Any())
+        {
+            foreach (var processed in processedHeaders)
+            {
+                if (processed != null)
+                {
+                    var index = allElements.IndexOf(processed);
+                    if (index > lastProcessedIndex)
+                    {
+                        lastProcessedIndex = index;
+                    }
+                }
+            }
+        }
+
+        // Find first and last duplicate positions
+        int firstDuplicateIndex = firstDuplicate != null ? allElements.IndexOf(firstDuplicate) : -1;
+        int lastDuplicateIndex = lastDuplicate != null ? allElements.IndexOf(lastDuplicate) : -1;
+
+        // Determine the context based on position
+        if (lastProcessedIndex >= 0 && elementIndex <= lastProcessedIndex)
+        {
+            // Element is before or at the last processed header
+            return "processed-content";
+        }
+        else if (firstDuplicateIndex >= 0 && elementIndex < firstDuplicateIndex)
+        {
+            // Element is after last processed but before first duplicate
+            // This is the CURRENT SECTION
+            return "current-section";
+        }
+        else if (lastDuplicateIndex >= 0 && elementIndex > lastDuplicateIndex)
+        {
+            // Element is after the last duplicate header
+            return "upcoming-content";
+        }
+        else
+        {
+            // Element is between duplicates or in an ambiguous position
+            // For safety, treat as upcoming
+            return "upcoming-content";
+        }
+    }
+
+    private MarkupString RenderDocumentWithContext()
+    {
+        if (TransformedDocument == null || DuplicateMatches == null || !DuplicateMatches.Any())
+        {
+            return new MarkupString("<p class='text-muted'>No document context available.</p>");
+        }
+
+        try
+        {
+            // Get the XHTML body content
+            var xhtmlNs = XNamespace.Get("http://www.w3.org/1999/xhtml");
+            var bodyElement = TransformedDocument.Descendants(xhtmlNs + "body").FirstOrDefault();
+
+            if (bodyElement == null)
+            {
+                return new MarkupString("<p class='text-muted'>No body content found in document.</p>");
+            }
+
+            var htmlBuilder = new System.Text.StringBuilder();
+
+            // Get all duplicate header elements for quick lookup
+            var duplicateHeaderElements = DuplicateMatches
+                .Where(m => m.MatchedHeader != null)
+                .Select(m => m.MatchedHeader)
+                .ToHashSet();
+
+            // Get all processed header elements for quick lookup
+            var processedHeaderElements = ProcessedMatches?
+                .Where(m => m.MatchedHeader != null)
+                .Select(m => m.MatchedHeader)
+                .ToHashSet() ?? new HashSet<XElement?>();
+
+            // Find the position of duplicate headers in the document
+            var firstDuplicateHeader = DuplicateMatches.First().MatchedHeader;
+            var lastDuplicateHeader = DuplicateMatches.Last().MatchedHeader;
+
+            // Render each element in the body
+            foreach (var element in bodyElement.Elements())
+            {
+                RenderElementWithContext(element, htmlBuilder, duplicateHeaderElements, processedHeaderElements, firstDuplicateHeader, lastDuplicateHeader);
+            }
+
+            return new MarkupString(htmlBuilder.ToString());
+        }
+        catch (Exception ex)
+        {
+            return new MarkupString($"<p class='text-danger'>Error rendering document: {ex.Message}</p>");
+        }
+    }
+
+    private void RenderElementWithContext(
+        XElement element,
+        System.Text.StringBuilder htmlBuilder,
+        HashSet<XElement?> duplicateHeaders,
+        HashSet<XElement?> processedHeaders,
+        XElement? firstDuplicate,
+        XElement? lastDuplicate,
+        int depth = 0)
+    {
+        var elementName = element.Name.LocalName.ToLowerInvariant();
+        var cssClass = "";
+        var isClickable = false;
+        var matchIndex = -1;
+
+        // List of content elements that should receive contextual styling
+        var contentElements = new[] { "p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "td", "th" };
+        var shouldApplyContextStyles = contentElements.Contains(elementName);
+
+        // Determine the context class for this element
+        if (duplicateHeaders.Contains(element))
+        {
+            cssClass = "duplicate-option-preview";
+            isClickable = true;
+            matchIndex = DuplicateMatches!.FindIndex(m => m.MatchedHeader == element);
+            shouldApplyContextStyles = true; // Always style duplicate headers
+        }
+        else if (processedHeaders.Contains(element))
+        {
+            cssClass = "processed-content";
+            shouldApplyContextStyles = true; // Always style processed headers
+        }
+        else if (shouldApplyContextStyles)
+        {
+            // Only determine context for content elements, not structural containers
+            cssClass = DetermineElementContext(element, processedHeaders, firstDuplicate, lastDuplicate);
+        }
+
+        // Build the HTML element with inline styles
+        var styleAttr = "";
+        if (shouldApplyContextStyles)
+        {
+            switch (cssClass)
+            {
+                case "processed-content":
+                    styleAttr = "color: #6c757d; opacity: 0.5; background-color: #f8f9fa; padding: 0.25rem 0.5rem; margin: 0.25rem 0; border-left: 3px solid #dee2e6;";
+                    break;
+                case "current-section":
+                    styleAttr = "color: #856404; background-color: #fff3cd; padding: 0.5rem; margin: 0.5rem 0; border-left: 4px solid #ffc107; font-weight: 500;";
+                    break;
+                case "duplicate-option-preview":
+                    styleAttr = "color: #004085; background-color: #cfe2ff; padding: 0.5rem; margin: 0.5rem 0; border: 2px solid #0d6efd; border-radius: 0.25rem; font-weight: bold; cursor: pointer; box-shadow: 0 2px 4px rgba(13, 110, 253, 0.2);";
+                    break;
+                case "upcoming-content":
+                    // Normal appearance - no opacity reduction, no background, normal text color
+                    styleAttr = "color: #212529; padding: 0.25rem 0.5rem; margin: 0.25rem 0; border-right: 3px solid #e9ecef;";
+                    break;
+            }
+        }
+
+        var attributes = "";
+        if (!string.IsNullOrEmpty(styleAttr))
+        {
+            attributes = $" style=\"{styleAttr}\"";
+        }
+
+        if (isClickable && matchIndex >= 0)
+        {
+            var uniqueId = $"duplicate-header-{matchIndex}";
+            attributes += $" id=\"{uniqueId}\" data-match-index=\"{matchIndex}\"";
+            if (string.IsNullOrEmpty(styleAttr))
+            {
+                attributes += " style=\"cursor: pointer;\"";
+            }
+        }
+
+        // Add indentation for readability (optional)
+        var indent = depth > 0 ? new string(' ', depth * 2) : "";
+
+        htmlBuilder.Append($"{indent}<{elementName}{attributes}>");
+
+        // Check if element has child elements
+        var childElements = element.Elements().ToList();
+        var hasChildren = childElements.Any();
+
+        if (hasChildren)
+        {
+            // Element has children - recursively render them
+            foreach (var childElement in childElements)
+            {
+                htmlBuilder.Append("<br/>");
+                RenderElementWithContext(childElement, htmlBuilder, duplicateHeaders, processedHeaders, firstDuplicate, lastDuplicate, depth + 1);
+            }
+        }
+        else
+        {
+            // No children - render direct text content
+            var textContent = element.Nodes().OfType<XText>().FirstOrDefault()?.Value?.Trim();
+            if (!string.IsNullOrEmpty(textContent))
+            {
+                htmlBuilder.Append(System.Net.WebUtility.HtmlEncode(textContent));
+            }
+        }
+
+        htmlBuilder.Append($"</{elementName}>");
+    }
+
+
 }
