@@ -9,10 +9,14 @@
                 xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
                 exclude-result-prefixes="xs hdr lst x rdf">
 
+    <!-- Output settings: indent="no" prevents unwanted line breaks in inline elements like <p> -->
     <xsl:output method="xhtml"
                 encoding="UTF-8"
-                indent="yes"
+                indent="no"
                 omit-xml-declaration="no"/>
+
+    <!-- Strip whitespace-only text nodes from structural elements to keep output clean -->
+    <xsl:strip-space elements="Document Sect Table TR thead tbody TOC L"/>
 
     <!-- Include modular XSLT files -->
     <xsl:include href="modules/headers.xslt"/>
