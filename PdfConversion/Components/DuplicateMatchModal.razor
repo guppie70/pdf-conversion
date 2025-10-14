@@ -25,6 +25,9 @@
                             <button type="button" class="btn btn-sm btn-warning skip-button" @onclick="HandleSkip">
                                 <i class="bi bi-skip-forward"></i> Skip This Section
                             </button>
+                            <button type="button" class="btn btn-sm btn-danger skip-button" @onclick="HandleStopConversion">
+                                <i class="bi bi-stop-circle"></i> Stop Conversion
+                            </button>
                         </div>
 
                         <div class="two-column-layout">
@@ -38,11 +41,19 @@
                                         {
                                             var isProcessed = ProcessedMatches?.Any(m => m.HierarchyItem.Id == item.Id) == true;
                                             var isCurrent = CurrentHierarchyItem?.Id == item.Id;
-                                            var statusClass = isProcessed ? "processed" : (isCurrent ? "current" : "upcoming");
-                                            var statusIcon = isProcessed ? "✓" : (isCurrent ? "►" : "□");
+                                            var isParentOfCurrent = CurrentHierarchyItem != null && IsParentOf(item, CurrentHierarchyItem, AllHierarchyItems);
+
+                                            var statusClass = isProcessed ? "processed" :
+                                                            (isCurrent ? "current" :
+                                                            (isParentOfCurrent ? "processing" : "upcoming"));
+
+                                            var statusIcon = isProcessed ? "✓" :
+                                                           (isCurrent ? "►" :
+                                                           (isParentOfCurrent ? "⚙" : "□"));
+
                                             var levelClass = $"level-{item.Level}";
 
-                                            <div class="hierarchy-item @statusClass @levelClass">
+                                            <div class="hierarchy-item @statusClass @levelClass" id="@(isCurrent ? "current-hierarchy-item" : $"hierarchy-item-{item.Id}")">
                                                 <span class="status-icon">@statusIcon</span>
                                                 <span class="item-name">@item.LinkName</span>
                                                 @if (isCurrent)
@@ -70,7 +81,7 @@
                                         <strong>Normal:</strong> Future sections (not yet processed)
                                     </p>
                                     <p class="text-muted small">
-                                        Click on the blue header you want to use for this section.
+                                        Click on a blue header to select it, or use the Skip button above.
                                     </p>
                                 </div>
                                 <div id="document-preview" class="document-preview">
@@ -101,8 +112,23 @@
                                     });
                                 });
 
-                                // Auto-scroll to first duplicate header
+                                // Auto-scroll to both current hierarchy item and first duplicate header
                                 setTimeout(() => {
+                                    // Scroll hierarchy tree to current item
+                                    const currentHierarchyItem = document.getElementById('current-hierarchy-item');
+                                    if (currentHierarchyItem) {
+                                        const hierarchyTree = currentHierarchyItem.closest('.hierarchy-tree');
+                                        if (hierarchyTree) {
+                                            // Calculate the position to center the current item
+                                            const itemTop = currentHierarchyItem.offsetTop;
+                                            const itemHeight = currentHierarchyItem.offsetHeight;
+                                            const treeHeight = hierarchyTree.clientHeight;
+                                            const scrollPosition = itemTop - (treeHeight / 2) + (itemHeight / 2);
+                                            hierarchyTree.scrollTop = Math.max(0, scrollPosition);
+                                        }
+                                    }
+
+                                    // Scroll document preview to first duplicate header
                                     const firstDuplicate = document.querySelector('[data-match-index="0"]');
                                     if (firstDuplicate) {
                                         firstDuplicate.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -111,14 +137,6 @@
                             })();
                         </script>
                     }
-                </div>
-
-                <!-- Footer -->
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" @onclick="HandleCancel">
-                        Cancel
-                    </button>
-                    <span class="text-muted small">Click on a blue header in the preview to select it, or use the Skip button above.</span>
                 </div>
             </div>
         </div>
@@ -146,6 +164,9 @@
 
     [Parameter]
     public bool IsVisible { get; set; }
+
+    [Parameter]
+    public CancellationTokenSource? CancellationTokenSource { get; set; }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -184,14 +205,61 @@
 
     private async Task HandleSkip()
     {
-        // Skip is treated as null
+        // Skip is treated as null (continue conversion, skip this section)
+        await OnSelectionConfirmed.InvokeAsync(null);
+    }
+
+    private async Task HandleStopConversion()
+    {
+        // Stop the entire conversion process
+        if (CancellationTokenSource != null && !CancellationTokenSource.IsCancellationRequested)
+        {
+            CancellationTokenSource.Cancel();
+        }
+
+        // Also close the modal and return null
         await OnSelectionConfirmed.InvokeAsync(null);
     }
 
     private async Task HandleCancel()
     {
-        // Cancel is also treated as skip
+        // X button - stop the entire conversion process
+        if (CancellationTokenSource != null && !CancellationTokenSource.IsCancellationRequested)
+        {
+            CancellationTokenSource.Cancel();
+        }
+
+        // Close the modal and return null
         await OnSelectionConfirmed.InvokeAsync(null);
+    }
+
+    private bool IsParentOf(HierarchyItem potentialParent, HierarchyItem child, List<HierarchyItem> allItems)
+    {
+        // A parent must have a lower level number (higher in hierarchy)
+        if (potentialParent.Level >= child.Level)
+            return false;
+
+        // Find indices in the list
+        var parentIndex = allItems.IndexOf(potentialParent);
+        var childIndex = allItems.IndexOf(child);
+
+        if (parentIndex < 0 || childIndex < 0 || parentIndex >= childIndex)
+            return false;
+
+        // Check if there's any item between parent and child with same or lower level as parent
+        // If there is, then potentialParent is not the direct parent
+        for (int i = parentIndex + 1; i < childIndex; i++)
+        {
+            if (allItems[i].Level <= potentialParent.Level)
+            {
+                // Found another item at same or higher level, so potentialParent is not the parent
+                return false;
+            }
+        }
+
+        // Check if the child is a direct descendant (one level difference)
+        // For now, we consider any item with lower level that comes before as a parent
+        return true;
     }
 
     private string GetHeaderLevel(HeaderMatch match)

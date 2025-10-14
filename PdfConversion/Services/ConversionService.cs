@@ -755,8 +755,10 @@ public class ConversionService : IConversionService
                     }
                     else
                     {
+                        // Find all duplicates for THIS SPECIFIC hierarchy item (by Id, not LinkName)
+                        // This ensures we don't mix duplicates from different hierarchy items with the same LinkName
                         var duplicateMatches = matches
-                            .Where(m => m.HierarchyItem.LinkName == linkName && m.IsDuplicate)
+                            .Where(m => m.HierarchyItem.Id == match.HierarchyItem.Id && m.IsDuplicate)
                             .ToList();
 
                         // If we haven't processed this duplicate group yet
@@ -835,47 +837,72 @@ public class ConversionService : IConversionService
                         var nextHierarchyItem = hierarchyItems[currentHierarchyIndex + 1];
                         var nextLinkName = nextHierarchyItem.LinkName;
 
-                        // Find all matches for this next item
+                        // Find all matches for this SPECIFIC next item (by Id, not LinkName)
+                        // This ensures we don't get matches for other hierarchy items with the same LinkName
                         var nextMatches = matches
-                            .Where(m => m.HierarchyItem.LinkName == nextLinkName && m.MatchedHeader != null)
+                            .Where(m => m.HierarchyItem.Id == nextHierarchyItem.Id && m.MatchedHeader != null)
                             .ToList();
 
                         if (nextMatches.Count > 1)
                         {
-                            // Multiple matches found for next boundary - ask user
-                            logCallback($"{progress} ℹ Multiple headers found for next boundary '{nextLinkName}', asking user...");
+                            // Multiple matches found - try smart detection first
+                            logCallback($"{progress} ℹ Multiple headers found for boundary '{nextLinkName}'");
 
-                            HeaderMatch? selectedNextMatch = null;
+                            // Try to disambiguate by looking at subsequent headers
+                            var disambiguatedMatch = TryDisambiguateBySequence(
+                                nextMatches,
+                                hierarchyItems,
+                                currentHierarchyIndex + 1,
+                                transformedXhtml,
+                                matches,
+                                logCallback,
+                                progress);
 
-                            if (duplicateSelectionCallback != null)
+                            if (disambiguatedMatch != null)
                             {
-                                try
-                                {
-                                    var processedMatches = matches.Take(i).ToList();
-                                    selectedNextMatch = await duplicateSelectionCallback(
-                                        nextMatches,
-                                        transformedXhtml,
-                                        processedMatches,
-                                        hierarchyItems,
-                                        nextHierarchyItem);
-                                }
-                                catch (Exception ex)
-                                {
-                                    _logger.LogError(ex, "Error in duplicate selection for boundary");
-                                    logCallback($"{progress} ✗ Error selecting boundary: {ex.Message}");
-                                }
-                            }
-
-                            if (selectedNextMatch != null)
-                            {
-                                nextHeader = selectedNextMatch.MatchedHeader;
-                                logCallback($"{progress} ✓ User selected boundary: {selectedNextMatch.MatchedText}");
-                                // Store this selection for reuse when processing the next section
-                                resolvedDuplicates[nextLinkName] = selectedNextMatch;
+                                // Smart detection succeeded
+                                nextHeader = disambiguatedMatch.MatchedHeader;
+                                logCallback($"{progress} ✓ Auto-selected boundary based on header sequence: {disambiguatedMatch.MatchedText}");
+                                // Store this selection for reuse
+                                resolvedDuplicates[nextLinkName] = disambiguatedMatch;
                             }
                             else
                             {
-                                logCallback($"{progress} ⚠ User skipped boundary selection, extracting to end");
+                                // Still ambiguous - ask user
+                                logCallback($"{progress} ℹ Could not auto-resolve, asking user...");
+
+                                HeaderMatch? selectedNextMatch = null;
+
+                                if (duplicateSelectionCallback != null)
+                                {
+                                    try
+                                    {
+                                        var processedMatches = matches.Take(i).ToList();
+                                        selectedNextMatch = await duplicateSelectionCallback(
+                                            nextMatches,
+                                            transformedXhtml,
+                                            processedMatches,
+                                            hierarchyItems,
+                                            nextHierarchyItem);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        _logger.LogError(ex, "Error in duplicate selection for boundary");
+                                        logCallback($"{progress} ✗ Error selecting boundary: {ex.Message}");
+                                    }
+                                }
+
+                                if (selectedNextMatch != null)
+                                {
+                                    nextHeader = selectedNextMatch.MatchedHeader;
+                                    logCallback($"{progress} ✓ User selected boundary: {selectedNextMatch.MatchedText}");
+                                    // Store this selection for reuse when processing the next section
+                                    resolvedDuplicates[nextLinkName] = selectedNextMatch;
+                                }
+                                else
+                                {
+                                    logCallback($"{progress} ⚠ User skipped boundary selection, extracting to end");
+                                }
                             }
                         }
                         else if (nextMatches.Count == 1)
@@ -1085,5 +1112,151 @@ public class ConversionService : IConversionService
         );
 
         return newElement;
+    }
+
+    /// <summary>
+    /// Tries to disambiguate duplicate header matches by looking at the sequence of subsequent headers
+    /// </summary>
+    private HeaderMatch? TryDisambiguateBySequence(
+        List<HeaderMatch> duplicateMatches,
+        List<HierarchyItem> hierarchyItems,
+        int startHierarchyIndex,
+        XDocument transformedXhtml,
+        List<HeaderMatch> allMatches,
+        Action<string> logCallback,
+        string progress)
+    {
+        try
+        {
+            logCallback($"{progress}   Checking next 3-4 headers to auto-resolve ambiguity...");
+
+            // Determine how many headers to look ahead (max 4, or until end of hierarchy)
+            // Start from the NEXT item after the duplicate, not the duplicate itself
+            int lookAheadCount = Math.Min(4, hierarchyItems.Count - startHierarchyIndex - 1);
+
+            // Get the next few hierarchy items to check (AFTER the duplicate)
+            var upcomingHierarchy = new List<HierarchyItem>();
+            for (int j = 0; j < lookAheadCount && startHierarchyIndex + 1 + j < hierarchyItems.Count; j++)
+            {
+                upcomingHierarchy.Add(hierarchyItems[startHierarchyIndex + 1 + j]);
+            }
+
+            if (upcomingHierarchy.Count < 1)
+            {
+                // Not enough headers to disambiguate
+                logCallback($"{progress}   Not enough subsequent headers to disambiguate");
+                return null;
+            }
+
+            // Get the XHTML namespace
+            var xhtmlNs = XNamespace.Get("http://www.w3.org/1999/xhtml");
+            var allHeaders = transformedXhtml.Descendants()
+                .Where(e => IsHeaderElement(e))
+                .ToList();
+
+            // Score each duplicate by how well the subsequent headers match
+            var candidateScores = new Dictionary<HeaderMatch, int>();
+
+            foreach (var duplicate in duplicateMatches)
+            {
+                if (duplicate.MatchedHeader == null) continue;
+
+                int score = 0;
+                var duplicateIndex = allHeaders.IndexOf(duplicate.MatchedHeader);
+
+                if (duplicateIndex < 0) continue;
+
+                // Look for the subsequent hierarchy items after this duplicate
+                for (int j = 0; j < upcomingHierarchy.Count; j++)
+                {
+                    var expectedItem = upcomingHierarchy[j];
+                    bool found = false;
+
+                    // Look in the next headers after the duplicate (within next 20 headers)
+                    for (int k = duplicateIndex + 1; k < allHeaders.Count && k < duplicateIndex + 20; k++)
+                    {
+                        var header = allHeaders[k];
+                        var headerText = NormalizeHeaderText(header.Value);
+
+                        if (HeaderMatchesHierarchy(headerText, expectedItem.LinkName))
+                        {
+                            found = true;
+                            score += (5 - j); // Higher score for closer matches (5 for 1st, 4 for 2nd, etc.)
+                            logCallback($"{progress}     Found expected header '{expectedItem.LinkName}' at position {j + 1}");
+                            break;
+                        }
+                    }
+
+                    if (!found)
+                    {
+                        // Penalty for missing expected header
+                        score -= 2;
+                        logCallback($"{progress}     Expected header '{expectedItem.LinkName}' not found (penalty: -2)");
+                    }
+                }
+
+                candidateScores[duplicate] = score;
+                logCallback($"{progress}     Candidate {duplicate.DuplicateIndex + 1}: '{duplicate.MatchedText}' - Score: {score}");
+            }
+
+            // Find the best scoring candidate
+            if (candidateScores.Count > 0)
+            {
+                var bestCandidate = candidateScores.OrderByDescending(kvp => kvp.Value).First();
+                var secondBest = candidateScores.OrderByDescending(kvp => kvp.Value).Skip(1).FirstOrDefault();
+
+                // Only auto-select if there's a clear winner (at least 3 points difference)
+                if (secondBest.Key == null || bestCandidate.Value - secondBest.Value >= 3)
+                {
+                    logCallback($"{progress}   Best match found with score {bestCandidate.Value}");
+                    return bestCandidate.Key;
+                }
+                else
+                {
+                    logCallback($"{progress}   Scores too close to auto-select (best: {bestCandidate.Value}, second: {secondBest.Value})");
+                }
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in disambiguation logic");
+            logCallback($"{progress}   Error during disambiguation: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Checks if an element is a header element (h1-h6)
+    /// </summary>
+    private bool IsHeaderElement(XElement element)
+    {
+        var localName = element.Name.LocalName.ToLowerInvariant();
+        return localName.Length == 2 && localName[0] == 'h' && char.IsDigit(localName[1]);
+    }
+
+    /// <summary>
+    /// Normalizes header text for comparison
+    /// </summary>
+    private string NormalizeHeaderText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+
+        // Remove extra whitespace and trim
+        return System.Text.RegularExpressions.Regex.Replace(text.Trim(), @"\s+", " ");
+    }
+
+    /// <summary>
+    /// Checks if header text matches hierarchy link name (case-insensitive)
+    /// </summary>
+    private bool HeaderMatchesHierarchy(string headerText, string hierarchyLinkName)
+    {
+        if (string.IsNullOrWhiteSpace(headerText) || string.IsNullOrWhiteSpace(hierarchyLinkName))
+            return false;
+
+        // Simple case-insensitive comparison
+        return string.Equals(headerText, hierarchyLinkName, StringComparison.OrdinalIgnoreCase);
     }
 }
