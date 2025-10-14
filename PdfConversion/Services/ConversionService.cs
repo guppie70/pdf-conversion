@@ -47,12 +47,14 @@ public interface IConversionService
     /// <param name="sourceFile">The source XML file name</param>
     /// <param name="hierarchyFile">The hierarchy XML file name</param>
     /// <param name="logCallback">Callback for real-time logging to UI</param>
+    /// <param name="cancellationToken">Token to cancel the operation</param>
     /// <returns>Conversion result with statistics and created files</returns>
     Task<ConversionResult> StartConversionAsync(
         string projectId,
         string sourceFile,
         string hierarchyFile,
-        Action<string> logCallback);
+        Action<string> logCallback,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -650,7 +652,8 @@ public class ConversionService : IConversionService
         string projectId,
         string sourceFile,
         string hierarchyFile,
-        Action<string> logCallback)
+        Action<string> logCallback,
+        CancellationToken cancellationToken = default)
     {
         var startTime = DateTime.UtcNow;
         var result = new ConversionResult
@@ -716,6 +719,16 @@ public class ConversionService : IConversionService
 
             for (int i = 0; i < matches.Count; i++)
             {
+                // Check for cancellation before processing each section
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    logCallback("⚠ Conversion cancelled by user");
+                    result.Success = false;
+                    result.WasCancelled = true;
+                    result.Duration = DateTime.UtcNow - startTime;
+                    break;
+                }
+
                 var match = matches[i];
                 var progress = $"[{i + 1}/{matches.Count}]";
 
@@ -748,9 +761,9 @@ public class ConversionService : IConversionService
                     // Populate template
                     var sectionXml = PopulateTemplate(template, match.HierarchyItem, normalizedContent);
 
-                    // Write to file
+                    // Write to file (always complete current file write before cancelling)
                     var outputPath = Path.Combine("/app/data/output/optiver/projects", projectId, "data", match.HierarchyItem.DataRef);
-                    await File.WriteAllTextAsync(outputPath, sectionXml.ToString());
+                    await File.WriteAllTextAsync(outputPath, sectionXml.ToString(), cancellationToken);
 
                     result.CreatedFiles.Add(match.HierarchyItem.DataRef);
                     result.SuccessfulSections++;
@@ -766,12 +779,24 @@ public class ConversionService : IConversionService
                 }
             }
 
-            result.Success = result.FailedSections == 0;
-            result.Duration = DateTime.UtcNow - startTime;
+            // Set success status (only if not cancelled)
+            if (!result.WasCancelled)
+            {
+                result.Success = result.FailedSections == 0;
+                result.Duration = DateTime.UtcNow - startTime;
+            }
 
             // Final summary
             logCallback("");
-            logCallback("=== Conversion Complete ===");
+            if (result.WasCancelled)
+            {
+                logCallback("=== Conversion Cancelled ===");
+            }
+            else
+            {
+                logCallback("=== Conversion Complete ===");
+            }
+
             logCallback($"Duration: {result.Duration.TotalSeconds:F1}s");
             logCallback($"Successful: {result.SuccessfulSections}");
             logCallback($"Failed: {result.FailedSections}");
@@ -788,7 +813,19 @@ public class ConversionService : IConversionService
                 }
             }
 
-            _logger.LogInformation("Conversion completed: {Result}", result.ToString());
+            _logger.LogInformation("Conversion {Status}: {Result}",
+                result.WasCancelled ? "cancelled" : "completed",
+                result.ToString());
+            return result;
+        }
+        catch (OperationCanceledException)
+        {
+            // Handle explicit cancellation (if thrown)
+            result.Success = false;
+            result.WasCancelled = true;
+            result.Duration = DateTime.UtcNow - startTime;
+            logCallback("✗ Conversion cancelled by user");
+            _logger.LogInformation("Conversion cancelled for project {ProjectId}", projectId);
             return result;
         }
         catch (Exception ex)

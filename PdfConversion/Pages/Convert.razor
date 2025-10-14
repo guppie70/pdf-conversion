@@ -7,6 +7,7 @@
 @inject IConversionService ConversionService
 @inject ILogger<Pages.Convert> Logger
 @inject IJSRuntime JSRuntime
+@implements IDisposable
 
 <PageTitle>Convert: PDF to Taxxor Sections</PageTitle>
 
@@ -111,7 +112,7 @@
                     <span>Processing: @CurrentItemIndex / @TotalItems sections (@ProgressPercentage%)</span>
                 </div>
                 <div class="progress mt-2" style="height: 30px;">
-                    <div class="progress-bar progress-bar-striped @(IsProcessing ? "progress-bar-animated" : "")"
+                    <div class="progress-bar progress-bar-striped @(IsProcessing ? "progress-bar-animated" : "") @(CurrentItemName == "Cancelled" ? "bg-warning" : "")"
                          role="progressbar"
                          style="width: @ProgressPercentage%"
                          aria-valuenow="@ProgressPercentage"
@@ -122,8 +123,24 @@
                 </div>
                 @if (!string.IsNullOrEmpty(CurrentItemName))
                 {
-                    <div class="mt-2 text-muted">
-                        <strong>Status:</strong> Processing "@CurrentItemName"...
+                    <div class="mt-2 @(CurrentItemName == "Cancelled" ? "text-warning" : "text-muted")">
+                        <strong>Status:</strong>
+                        @if (CurrentItemName == "Cancelled")
+                        {
+                            <span>@CurrentItemName (conversion stopped at section @CurrentItemIndex of @TotalItems)</span>
+                        }
+                        else if (CurrentItemName == "Complete")
+                        {
+                            <span>@CurrentItemName</span>
+                        }
+                        else if (CurrentItemName == "Failed")
+                        {
+                            <span class="text-danger">@CurrentItemName</span>
+                        }
+                        else
+                        {
+                            <span>Processing "@CurrentItemName"...</span>
+                        }
                     </div>
                 }
             </div>
@@ -177,6 +194,9 @@
     private int TotalItems = 0;
     private string? CurrentItemName;
     private int ProgressPercentage => TotalItems > 0 ? (CurrentItemIndex * 100 / TotalItems) : 0;
+
+    // Cancellation support
+    private CancellationTokenSource? _cancellationTokenSource;
 
     // Log
     private readonly List<LogEntry> LogEntries = new();
@@ -332,6 +352,10 @@
     {
         if (!_config.IsValid) return;
 
+        // Create new cancellation token source
+        _cancellationTokenSource?.Dispose();
+        _cancellationTokenSource = new CancellationTokenSource();
+
         IsProcessing = true;
         ProcessingComplete = false;
         CurrentItemIndex = 0;
@@ -352,12 +376,30 @@
                 _config.ProjectId!,
                 _config.SourceFile!,
                 _config.HierarchyFile!,
-                AddLogEntry);
+                AddLogEntry,
+                _cancellationTokenSource.Token);
 
             TotalItems = result.TotalSections;
             CurrentItemIndex = result.SuccessfulSections + result.FailedSections;
-            CurrentItemName = "Complete";
 
+            if (result.WasCancelled)
+            {
+                CurrentItemName = "Cancelled";
+            }
+            else
+            {
+                CurrentItemName = "Complete";
+            }
+
+            IsProcessing = false;
+            ProcessingComplete = true;
+            StateHasChanged();
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when cancellation is requested
+            AddLogEntry("✗ Conversion cancelled by user");
+            CurrentItemName = "Cancelled";
             IsProcessing = false;
             ProcessingComplete = true;
             StateHasChanged();
@@ -366,21 +408,33 @@
         {
             Logger.LogError(ex, "Error during conversion");
             AddLogEntry($"✗ Error: {ex.Message}");
+            CurrentItemName = "Failed";
             IsProcessing = false;
             ProcessingComplete = false;
             StateHasChanged();
+        }
+        finally
+        {
+            // Clean up cancellation token source
+            _cancellationTokenSource?.Dispose();
+            _cancellationTokenSource = null;
         }
     }
 
     private Task StopConversion()
     {
-        if (!IsProcessing) return Task.CompletedTask;
-
-        AddLogEntry("Stopping conversion...");
-        IsProcessing = false;
-        StateHasChanged();
+        if (_cancellationTokenSource != null && !_cancellationTokenSource.IsCancellationRequested)
+        {
+            AddLogEntry("Stopping conversion...");
+            _cancellationTokenSource.Cancel();
+        }
 
         return Task.CompletedTask;
+    }
+
+    public void Dispose()
+    {
+        _cancellationTokenSource?.Dispose();
     }
 
     private void AddLogEntry(string message)

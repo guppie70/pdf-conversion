@@ -46,11 +46,20 @@ public class ConversionResult
     public TimeSpan Duration { get; set; }
 
     /// <summary>
+    /// Whether the conversion was cancelled by the user
+    /// </summary>
+    public bool WasCancelled { get; set; }
+
+    /// <summary>
     /// Returns a formatted summary of the conversion results
     /// </summary>
     public override string ToString() =>
-        $"Conversion {(Success ? "Successful" : "Failed")}: " +
-        $"{SuccessfulSections}/{TotalSections} sections created, " +
-        $"{FailedSections} failed, {SkippedSections} skipped, " +
-        $"Duration: {Duration.TotalSeconds:F1}s";
+        WasCancelled
+            ? $"Conversion Cancelled: " +
+              $"{SuccessfulSections}/{TotalSections} sections created before cancellation, " +
+              $"Duration: {Duration.TotalSeconds:F1}s"
+            : $"Conversion {(Success ? "Successful" : "Failed")}: " +
+              $"{SuccessfulSections}/{TotalSections} sections created, " +
+              $"{FailedSections} failed, {SkippedSections} skipped, " +
+              $"Duration: {Duration.TotalSeconds:F1}s";
 }
