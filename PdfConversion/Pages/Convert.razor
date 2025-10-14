@@ -6,6 +6,7 @@
 @inject IProjectManagementService ProjectService
 @inject IConversionService ConversionService
 @inject ILogger<Pages.Convert> Logger
+@inject IJSRuntime JSRuntime
 
 <PageTitle>Convert: PDF to Taxxor Sections</PageTitle>
 
@@ -187,6 +188,66 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadProjectsAsync();
+        await RestoreSavedSelectionsAsync();
+    }
+
+    private async Task RestoreSavedSelectionsAsync()
+    {
+        try
+        {
+            // Restore project selection
+            var savedProjectId = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "convert.projectId");
+            if (!string.IsNullOrEmpty(savedProjectId) && Projects?.Any(p => p.ProjectId == savedProjectId) == true)
+            {
+                _config.ProjectId = savedProjectId;
+                await LoadProjectFilesAsync(savedProjectId);
+
+                // Restore source file selection
+                var savedSourceFile = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "convert.sourceFile");
+                if (!string.IsNullOrEmpty(savedSourceFile) && SourceFiles?.Contains(savedSourceFile) == true)
+                {
+                    _config.SourceFile = savedSourceFile;
+                }
+
+                // Restore hierarchy file selection
+                var savedHierarchyFile = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "convert.hierarchyFile");
+                if (!string.IsNullOrEmpty(savedHierarchyFile) && HierarchyFiles?.Contains(savedHierarchyFile) == true)
+                {
+                    _config.HierarchyFile = savedHierarchyFile;
+                }
+
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Error restoring saved selections from localStorage");
+        }
+    }
+
+    private async Task LoadProjectFilesAsync(string projectId)
+    {
+        // Load source files (XML files in project root)
+        var allFiles = (await ProjectService.GetProjectFilesAsync(projectId)).ToList();
+        SourceFiles = allFiles.Where(f => f.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        // Load hierarchy files (XML files in metadata subfolder)
+        var metadataPath = Path.Combine("/app/data/input/optiver/projects", projectId, "metadata");
+        if (Directory.Exists(metadataPath))
+        {
+            HierarchyFiles = Directory.GetFiles(metadataPath, "*.xml")
+                .Select(Path.GetFileName)
+                .Where(f => !string.IsNullOrEmpty(f))
+                .Cast<string>()
+                .ToList();
+        }
+        else
+        {
+            HierarchyFiles = new List<string>();
+        }
+
+        Logger.LogInformation("Loaded {SourceCount} source files and {HierarchyCount} hierarchy files for project {ProjectId}",
+            SourceFiles.Count, HierarchyFiles.Count, projectId);
     }
 
     private async Task LoadProjectsAsync()
@@ -215,29 +276,17 @@
 
             if (!string.IsNullOrEmpty(_config.ProjectId))
             {
-                // Load source files (XML files in project root)
-                var allFiles = (await ProjectService.GetProjectFilesAsync(_config.ProjectId)).ToList();
-                SourceFiles = allFiles.Where(f => f.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)).ToList();
-
-                // Load hierarchy files (XML files in metadata subfolder)
-                var metadataPath = Path.Combine("/app/data/input/optiver/projects", _config.ProjectId, "metadata");
-                if (Directory.Exists(metadataPath))
-                {
-                    HierarchyFiles = Directory.GetFiles(metadataPath, "*.xml")
-                        .Select(Path.GetFileName)
-                        .Where(f => !string.IsNullOrEmpty(f))
-                        .Cast<string>()
-                        .ToList();
-                }
-                else
-                {
-                    HierarchyFiles = new List<string>();
-                }
-
-                Logger.LogInformation("Loaded {SourceCount} source files and {HierarchyCount} hierarchy files for project {ProjectId}",
-                    SourceFiles.Count, HierarchyFiles.Count, _config.ProjectId);
-
+                await LoadProjectFilesAsync(_config.ProjectId);
+                await JSRuntime.InvokeVoidAsync("localStorage.setItem", "convert.projectId", _config.ProjectId);
+                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "convert.sourceFile");
+                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "convert.hierarchyFile");
                 AddLogEntry($"Project selected: {_config.ProjectId}");
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "convert.projectId");
+                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "convert.sourceFile");
+                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "convert.hierarchyFile");
             }
 
             StateHasChanged();
@@ -249,26 +298,34 @@
         }
     }
 
-    private Task OnSourceFileChanged(ChangeEventArgs e)
+    private async Task OnSourceFileChanged(ChangeEventArgs e)
     {
         _config.SourceFile = e.Value?.ToString();
         if (!string.IsNullOrEmpty(_config.SourceFile))
         {
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "convert.sourceFile", _config.SourceFile);
             AddLogEntry($"Source file selected: {_config.SourceFile}");
         }
+        else
+        {
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "convert.sourceFile");
+        }
         StateHasChanged();
-        return Task.CompletedTask;
     }
 
-    private Task OnHierarchyFileChanged(ChangeEventArgs e)
+    private async Task OnHierarchyFileChanged(ChangeEventArgs e)
     {
         _config.HierarchyFile = e.Value?.ToString();
         if (!string.IsNullOrEmpty(_config.HierarchyFile))
         {
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "convert.hierarchyFile", _config.HierarchyFile);
             AddLogEntry($"Hierarchy file selected: {_config.HierarchyFile}");
         }
+        else
+        {
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "convert.hierarchyFile");
+        }
         StateHasChanged();
-        return Task.CompletedTask;
     }
 
     private async Task StartConversion()
