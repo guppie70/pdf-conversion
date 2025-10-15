@@ -21,6 +21,8 @@
     <PackageReference Include="StackExchange.Redis" Version="2.8.16" />
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="9.0.0" />
     <PackageReference Include="System.Threading.Channels" Version="9.0.0" />
+    <!-- Diff comparison package -->
+    <PackageReference Include="DiffPlex" Version="1.7.2" />
   </ItemGroup>
 
   <ItemGroup>

@@ -8,17 +8,19 @@
     <!-- Table transformation templates (default mode) - Adobe PDF → Taxxor TDM structure -->
 
     <xsl:template match="Table" priority="10">
-        <xsl:variable name="tableId" select="generate-id()"/>
+        <!-- Generate obfuscated but deterministic ID: d{pos*1677}e{pos*846} resembles original generate-id() format while remaining position-based -->
+        <xsl:variable name="position" select="count(preceding::Table) + 1"/>
+        <xsl:variable name="tableId" select="concat('d', $position * 1677, 'e', $position * 846)"/>
         <div id="tablewrapper_{$tableId}"
              class="table-wrapper structured-data-table"
-             data-instanceid="{generate-id()}-wrapper">
+             data-instanceid="{$tableId}-wrapper">
             <div class="tablegraph-header-wrapper">
                 <div class="table-title">tabletitle</div>
                 <div class="table-scale">scale</div>
             </div>
             <table id="table_{$tableId}"
                    class="tabletype-numbers"
-                   data-instanceid="{generate-id()}-table">
+                   data-instanceid="{$tableId}-table">
                 <xsl:choose>
                     <xsl:when test="TR[1][TH and not(TD)]">
                         <thead>

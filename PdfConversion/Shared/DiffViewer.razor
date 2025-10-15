@@ -1,0 +1,152 @@
+@using PdfConversion.Services
+@using DiffPlex.DiffBuilder.Model
+
+<div class="diff-viewer">
+    @if (ValidationResult == null)
+    {
+        <div class="text-center text-muted p-4">
+            <i class="bi bi-info-circle"></i> No validation results to display
+        </div>
+    }
+    else if (!ValidationResult.Success)
+    {
+        <div class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle"></i> <strong>Validation Error:</strong> @ValidationResult.ErrorMessage
+        </div>
+    }
+    else if (ValidationResult.IsPerfectMatch)
+    {
+        <div class="alert alert-success">
+            <i class="bi bi-check-circle-fill"></i>
+            <strong>Perfect Match!</strong>
+            <p class="mb-0 mt-2">
+                The reconstructed document matches the original perfectly. All @ValidationResult.LinesUnchanged lines are identical.
+            </p>
+        </div>
+        <div class="validation-stats">
+            <div class="stat-item">
+                <span class="stat-label">Duration:</span>
+                <span class="stat-value">@ValidationResult.Duration.TotalSeconds.ToString("F2")s</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Lines Matched:</span>
+                <span class="stat-value text-success">@ValidationResult.LinesUnchanged</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Match Percentage:</span>
+                <span class="stat-value text-success">100%</span>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-warning">
+            <i class="bi bi-exclamation-circle"></i>
+            <strong>Differences Found</strong>
+            <p class="mb-0 mt-2">
+                The reconstructed document differs from the original in @ValidationResult.TotalDifferences location(s).
+            </p>
+        </div>
+
+        <div class="validation-stats">
+            <div class="stat-item">
+                <span class="stat-label">Duration:</span>
+                <span class="stat-value">@ValidationResult.Duration.TotalSeconds.ToString("F2")s</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Match Percentage:</span>
+                <span class="stat-value">@ValidationResult.MatchPercentage.ToString("F2")%</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Lines Unchanged:</span>
+                <span class="stat-value text-muted">@ValidationResult.LinesUnchanged</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Lines Modified:</span>
+                <span class="stat-value text-warning">@ValidationResult.LinesModified</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Lines Added:</span>
+                <span class="stat-value text-success">@ValidationResult.LinesAdded</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Lines Deleted:</span>
+                <span class="stat-value text-danger">@ValidationResult.LinesDeleted</span>
+            </div>
+        </div>
+
+        @if (ValidationResult.DiffResult != null)
+        {
+            <div class="diff-content">
+                <div class="diff-header">
+                    <h6>Side-by-Side Comparison</h6>
+                    <small class="text-muted">Original (left) vs Reconstructed (right)</small>
+                </div>
+                <div class="diff-panels">
+                    <div class="diff-panel original-panel">
+                        <div class="panel-title">Original (Normalized XML)</div>
+                        <div class="diff-lines">
+                            @{
+                                int lineNumber = 1;
+                            }
+                            @foreach (var line in ValidationResult.DiffResult.OldTextLines)
+                            {
+                                <div class="diff-line @GetLineClass(line.Type)">
+                                    <span class="line-number">@lineNumber</span>
+                                    <span class="line-prefix">@GetLinePrefix(line.Type)</span>
+                                    <span class="line-content">@line.Text</span>
+                                </div>
+                                lineNumber++;
+                            }
+                        </div>
+                    </div>
+                    <div class="diff-panel reconstructed-panel">
+                        <div class="panel-title">Reconstructed (From Sections)</div>
+                        <div class="diff-lines">
+                            @{
+                                lineNumber = 1;
+                            }
+                            @foreach (var line in ValidationResult.DiffResult.NewTextLines)
+                            {
+                                <div class="diff-line @GetLineClass(line.Type)">
+                                    <span class="line-number">@lineNumber</span>
+                                    <span class="line-prefix">@GetLinePrefix(line.Type)</span>
+                                    <span class="line-content">@line.Text</span>
+                                </div>
+                                lineNumber++;
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter]
+    public RoundTripValidationResult? ValidationResult { get; set; }
+
+    private string GetLineClass(ChangeType changeType)
+    {
+        return changeType switch
+        {
+            ChangeType.Inserted => "line-added",
+            ChangeType.Deleted => "line-deleted",
+            ChangeType.Modified => "line-modified",
+            ChangeType.Imaginary => "line-imaginary",
+            _ => "line-unchanged"
+        };
+    }
+
+    private string GetLinePrefix(ChangeType changeType)
+    {
+        return changeType switch
+        {
+            ChangeType.Inserted => "+",
+            ChangeType.Deleted => "-",
+            ChangeType.Modified => "~",
+            _ => " "
+        };
+    }
+}

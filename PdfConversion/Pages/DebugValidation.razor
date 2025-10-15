@@ -1,0 +1,216 @@
+@page "/debug-validation"
+@using PdfConversion.Services
+@inject IRoundTripValidationService ValidationService
+@inject ILogger<DebugValidation> Logger
+
+<PageTitle>Debug Round-Trip Validation</PageTitle>
+
+<div class="container-fluid">
+    <h3>Debug Round-Trip Validation</h3>
+
+    <div class="row mb-3">
+        <div class="col-12">
+            <button class="btn btn-primary" @onclick="RunValidation" disabled="@isRunning">
+                @if (isRunning)
+                {
+                    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    <span>Running Validation...</span>
+                }
+                else
+                {
+                    <span>Run Validation for ar24-3</span>
+                }
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(isError ? "alert-danger" : "alert-info")">
+            @statusMessage
+        </div>
+    }
+
+    @if (validationResult != null)
+    {
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5>Validation Results</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row">
+                    <dt class="col-sm-3">Success:</dt>
+                    <dd class="col-sm-9">@validationResult.Success</dd>
+
+                    <dt class="col-sm-3">Match Percentage:</dt>
+                    <dd class="col-sm-9">@validationResult.MatchPercentage.ToString("F2")%</dd>
+
+                    <dt class="col-sm-3">Lines Unchanged:</dt>
+                    <dd class="col-sm-9">@validationResult.LinesUnchanged</dd>
+
+                    <dt class="col-sm-3">Lines Modified:</dt>
+                    <dd class="col-sm-9">@validationResult.LinesModified</dd>
+
+                    <dt class="col-sm-3">Lines Added:</dt>
+                    <dd class="col-sm-9">@validationResult.LinesAdded</dd>
+
+                    <dt class="col-sm-3">Lines Deleted:</dt>
+                    <dd class="col-sm-9">@validationResult.LinesDeleted</dd>
+
+                    <dt class="col-sm-3">Duration:</dt>
+                    <dd class="col-sm-9">@validationResult.Duration.TotalSeconds.ToString("F2") seconds</dd>
+
+                    @if (!string.IsNullOrEmpty(validationResult.DebugOutputDirectory))
+                    {
+                        <dt class="col-sm-3">Debug Directory:</dt>
+                        <dd class="col-sm-9">@validationResult.DebugOutputDirectory</dd>
+                    }
+                </dl>
+            </div>
+        </div>
+    }
+
+    @if (debugFiles.Any())
+    {
+        <div class="card">
+            <div class="card-header">
+                <h5>Debug Files</h5>
+            </div>
+            <div class="card-body">
+                <div class="list-group">
+                    @foreach (var file in debugFiles)
+                    {
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <strong>@file.Name</strong>
+                                    <br />
+                                    <small class="text-muted">Size: @FormatFileSize(file.Size)</small>
+                                </div>
+                                <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewFileContent(file.Path)">
+                                    View Content
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(fileContent))
+    {
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5>File Content: @selectedFileName</h5>
+            </div>
+            <div class="card-body">
+                <pre class="border p-2" style="max-height: 400px; overflow-y: auto;">@fileContent</pre>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool isRunning = false;
+    private bool isError = false;
+    private string statusMessage = "";
+    private RoundTripValidationResult? validationResult = null;
+    private List<DebugFileInfo> debugFiles = new();
+    private string fileContent = "";
+    private string selectedFileName = "";
+
+    private class DebugFileInfo
+    {
+        public string Name { get; set; } = "";
+        public string Path { get; set; } = "";
+        public long Size { get; set; }
+    }
+
+    private async Task RunValidation()
+    {
+        try
+        {
+            isRunning = true;
+            isError = false;
+            statusMessage = "Running validation...";
+            debugFiles.Clear();
+            fileContent = "";
+            selectedFileName = "";
+
+            // Run validation for ar24-3 project
+            validationResult = await ValidationService.ValidateRoundTripAsync("ar24-3");
+
+            if (validationResult.Success)
+            {
+                statusMessage = $"Validation completed: {validationResult.MatchPercentage:F2}% match";
+
+                // Load debug files if directory exists
+                if (!string.IsNullOrEmpty(validationResult.DebugOutputDirectory) && Directory.Exists(validationResult.DebugOutputDirectory))
+                {
+                    var files = Directory.GetFiles(validationResult.DebugOutputDirectory, "*.xml")
+                        .OrderBy(f => f)
+                        .Select(f => new DebugFileInfo
+                        {
+                            Name = Path.GetFileName(f),
+                            Path = f,
+                            Size = new FileInfo(f).Length
+                        })
+                        .ToList();
+
+                    debugFiles = files;
+                    statusMessage += $". {files.Count} debug files created.";
+                }
+            }
+            else
+            {
+                isError = true;
+                statusMessage = $"Validation failed: {validationResult.ErrorMessage}";
+            }
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            statusMessage = $"Error: {ex.Message}";
+            Logger.LogError(ex, "Error running validation");
+        }
+        finally
+        {
+            isRunning = false;
+        }
+    }
+
+    private async Task ViewFileContent(string filePath)
+    {
+        try
+        {
+            selectedFileName = Path.GetFileName(filePath);
+            var content = await File.ReadAllTextAsync(filePath);
+
+            // Truncate if too large
+            if (content.Length > 10000)
+            {
+                content = content.Substring(0, 10000) + "\n\n... (truncated, file too large)";
+            }
+
+            fileContent = content;
+        }
+        catch (Exception ex)
+        {
+            fileContent = $"Error reading file: {ex.Message}";
+        }
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        double len = bytes;
+        int order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:F1} {sizes[order]}";
+    }
+}

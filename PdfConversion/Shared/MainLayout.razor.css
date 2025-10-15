@@ -2,13 +2,13 @@
     position: relative;
     display: flex;
     flex-direction: column;
-    height: 100vh;
-    overflow: hidden;
+    min-height: 100vh;
+    overflow: auto;
 }
 
 main {
     flex: 1;
-    overflow: hidden;
+    overflow: auto;
 }
 
 .content {

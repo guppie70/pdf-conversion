@@ -156,6 +156,7 @@ public class ContentExtractionService : IContentExtractionService
     {
         var elements = new List<XElement>();
         var collecting = false;
+        var addedElements = new HashSet<XElement>(); // Track elements we've already added
 
         // Get the root body element to traverse
         var body = start.Ancestors()
@@ -167,13 +168,26 @@ public class ContentExtractionService : IContentExtractionService
             body = start.Parent ?? throw new InvalidOperationException("Start element has no parent");
         }
 
-        // Traverse all descendants of body to collect elements
+        // Traverse all descendants of body to find headers (they can be nested)
         foreach (var element in body.Descendants())
         {
+            // Skip if this element was already added as part of a parent element
+            if (addedElements.Any(added => added == element || added.Descendants().Contains(element)))
+            {
+                continue;
+            }
+
             if (element == start)
             {
                 collecting = true;
-                elements.Add(new XElement(element)); // Create a copy
+                var copy = new XElement(element);
+                elements.Add(copy);
+                // Mark this element and all its descendants as added
+                addedElements.Add(element);
+                foreach (var descendant in element.Descendants())
+                {
+                    addedElements.Add(descendant);
+                }
                 continue;
             }
 
@@ -202,7 +216,14 @@ public class ContentExtractionService : IContentExtractionService
                         }
                     }
 
-                    elements.Add(new XElement(element)); // Create a copy
+                    var copy = new XElement(element);
+                    elements.Add(copy);
+                    // Mark this element and all its descendants as added
+                    addedElements.Add(element);
+                    foreach (var descendant in element.Descendants())
+                    {
+                        addedElements.Add(descendant);
+                    }
                 }
             }
         }

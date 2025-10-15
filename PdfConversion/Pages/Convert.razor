@@ -7,6 +7,7 @@
 @using PdfConversion.Components
 @inject IProjectManagementService ProjectService
 @inject IConversionService ConversionService
+@inject IRoundTripValidationService ValidationService
 @inject ILogger<Pages.Convert> Logger
 @inject IJSRuntime JSRuntime
 @implements IDisposable
@@ -149,6 +150,45 @@
         </div>
     }
 
+    <!-- Validation Panel -->
+    @if (ProcessingComplete && !string.IsNullOrEmpty(_config.ProjectId) && CurrentItemName != "Cancelled")
+    {
+        <div class="convert-panel mt-3">
+            <div class="panel-header">
+                <h5>Round-Trip Validation</h5>
+                <button class="btn btn-sm btn-primary"
+                        @onclick="StartValidation"
+                        disabled="@IsValidating">
+                    @if (IsValidating)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        <span>Validating...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-check-circle"></i>
+                        <span> Validate Round-Trip</span>
+                    }
+                </button>
+            </div>
+            <div class="panel-body">
+                @if (ValidationResult == null && !IsValidating)
+                {
+                    <div class="text-center text-muted p-4">
+                        <i class="bi bi-info-circle fs-3"></i>
+                        <p class="mt-2 mb-0">
+                            Click "Validate Round-Trip" to verify that sections can be reconstructed back to the original normalized XML.
+                        </p>
+                    </div>
+                }
+                else
+                {
+                    <DiffViewer ValidationResult="@ValidationResult" />
+                }
+            </div>
+        </div>
+    }
+
     <!-- Log Panel -->
     <div class="convert-panel mt-3">
         <div class="panel-header">
@@ -222,6 +262,10 @@
     // Log
     private readonly List<LogEntry> LogEntries = new();
     private ElementReference _logViewerElement;
+
+    // Validation
+    private bool IsValidating = false;
+    private RoundTripValidationResult? ValidationResult = null;
 
     // Computed properties
     private bool IsProjectSelected => !string.IsNullOrEmpty(_config.ProjectId);
@@ -525,6 +569,42 @@
         }
 
         await Task.CompletedTask;
+    }
+
+    private async Task StartValidation()
+    {
+        if (string.IsNullOrEmpty(_config.ProjectId))
+        {
+            Logger.LogWarning("Cannot start validation: no project selected");
+            return;
+        }
+
+        IsValidating = true;
+        ValidationResult = null;
+        StateHasChanged();
+
+        try
+        {
+            Logger.LogInformation("Starting round-trip validation for project {ProjectId}", _config.ProjectId);
+
+            ValidationResult = await ValidationService.ValidateRoundTripAsync(_config.ProjectId);
+
+            Logger.LogInformation("Round-trip validation completed: {Result}", ValidationResult.ToString());
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during round-trip validation");
+            ValidationResult = new RoundTripValidationResult
+            {
+                Success = false,
+                ErrorMessage = $"Validation error: {ex.Message}"
+            };
+        }
+        finally
+        {
+            IsValidating = false;
+            StateHasChanged();
+        }
     }
 
     private class LogEntry
