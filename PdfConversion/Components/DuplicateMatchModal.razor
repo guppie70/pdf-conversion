@@ -21,7 +21,8 @@
                     {
                         <div class="alert alert-info mb-3" role="alert">
                             <i class="bi bi-info-circle"></i>
-                            <strong>Multiple headers match:</strong> @DuplicateMatches.First().HierarchyItem.LinkName
+                            <strong>Section boundary unclear:</strong> Found multiple "@DuplicateMatches.First().HierarchyItem.LinkName" headers.
+                            Please select which one marks the end of the "@CurrentHierarchyItem?.LinkName" section.
                             <button type="button" class="btn btn-sm btn-warning skip-button" @onclick="HandleSkip">
                                 <i class="bi bi-skip-forward"></i> Skip This Section
                             </button>
@@ -345,27 +346,25 @@
         int firstDuplicateIndex = firstDuplicate != null ? allElements.IndexOf(firstDuplicate) : -1;
         int lastDuplicateIndex = lastDuplicate != null ? allElements.IndexOf(lastDuplicate) : -1;
 
-        // Determine the context based on position
-        if (lastProcessedIndex >= 0 && elementIndex <= lastProcessedIndex)
+        // IMPORTANT: Check in priority order to ensure correct coloring
+        // Priority 1: After last duplicate = upcoming content (everything after duplicates should be normal)
+        if (lastDuplicateIndex >= 0 && elementIndex > lastDuplicateIndex)
         {
-            // Element is before or at the last processed header
-            return "processed-content";
-        }
-        else if (firstDuplicateIndex >= 0 && elementIndex < firstDuplicateIndex)
-        {
-            // Element is after last processed but before first duplicate
-            // This is the CURRENT SECTION
-            return "current-section";
-        }
-        else if (lastDuplicateIndex >= 0 && elementIndex > lastDuplicateIndex)
-        {
-            // Element is after the last duplicate header
             return "upcoming-content";
         }
+        // Priority 2: Before or at last processed = processed content (gray)
+        else if (lastProcessedIndex >= 0 && elementIndex <= lastProcessedIndex)
+        {
+            return "processed-content";
+        }
+        // Priority 3: After processed but before first duplicate = current section (yellow)
+        else if (firstDuplicateIndex >= 0 && elementIndex < firstDuplicateIndex)
+        {
+            return "current-section";
+        }
+        // Priority 4: Between duplicates or other = upcoming content
         else
         {
-            // Element is between duplicates or in an ambiguous position
-            // For safety, treat as upcoming
             return "upcoming-content";
         }
     }
@@ -446,14 +445,10 @@
             matchIndex = DuplicateMatches!.FindIndex(m => m.MatchedHeader == element);
             shouldApplyContextStyles = true; // Always style duplicate headers
         }
-        else if (processedHeaders.Contains(element))
-        {
-            cssClass = "processed-content";
-            shouldApplyContextStyles = true; // Always style processed headers
-        }
         else if (shouldApplyContextStyles)
         {
-            // Only determine context for content elements, not structural containers
+            // Determine context for content elements based on position
+            // This correctly handles processed headers by checking their position relative to duplicates
             cssClass = DetermineElementContext(element, processedHeaders, firstDuplicate, lastDuplicate);
         }
 

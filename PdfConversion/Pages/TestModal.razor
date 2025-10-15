@@ -1,0 +1,576 @@
+@page "/test-modal"
+@using System.Xml.Linq
+@using System.Text
+@using PdfConversion.Models
+@using PdfConversion.Services
+@using PdfConversion.Components
+@inject IProjectManagementService ProjectService
+@inject IXsltTransformationService XsltService
+@inject IHeaderMatchingService HeaderMatchingService
+@inject ILogger<TestModal> Logger
+
+<PageTitle>Document Color Test</PageTitle>
+
+<style>
+    .test-container {
+        display: flex;
+        gap: 20px;
+        margin-top: 20px;
+    }
+    .test-sidebar {
+        flex: 0 0 300px;
+        position: sticky;
+        top: 20px;
+        align-self: flex-start;
+    }
+    .test-preview {
+        flex: 1;
+        border: 1px solid #dee2e6;
+        padding: 20px;
+        background: white;
+        max-width: 900px;
+    }
+    .legend {
+        margin-bottom: 20px;
+        padding: 15px;
+        background: #f8f9fa;
+        border-radius: 5px;
+    }
+    .legend-item {
+        display: flex;
+        align-items: center;
+        margin: 8px 0;
+    }
+    .legend-color {
+        width: 30px;
+        height: 20px;
+        margin-right: 10px;
+        border: 1px solid #333;
+    }
+</style>
+
+<div class="container-fluid">
+    <h3>Document Color Test Page</h3>
+    <p class="text-muted">
+        Tests document preview colors for duplicate header selection modal.<br/>
+        <strong>Scenario:</strong> Extracting "Property, plant and equipment" section - finding boundary at "Recognition and measurement"
+    </p>
+
+    @if (_isLoading)
+    {
+        <div class="alert alert-info">
+            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+            Loading test data...
+        </div>
+    }
+    else if (_error != null)
+    {
+        <div class="alert alert-danger">
+            <strong>Error:</strong> @_error
+        </div>
+        <button class="btn btn-primary" @onclick="ReloadData">Retry</button>
+    }
+    else
+    {
+        <div class="test-container">
+            <!-- Sidebar with info and legend -->
+            <div class="test-sidebar">
+                <div class="alert alert-success mb-3">
+                    <strong>✓ Test data loaded</strong><br/>
+                    <small>
+                        Duplicates: @(_duplicateMatches?.Count ?? 0)<br/>
+                        Processed: @(_processedMatches?.Count ?? 0)<br/>
+                        Current: @(_currentHeaderMatch?.HierarchyItem.LinkName ?? "none")
+                    </small>
+                </div>
+
+                <div class="legend">
+                    <h6>Expected Colors:</h6>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #f8f9fa; opacity: 0.5;"></div>
+                        <span><strong>Gray:</strong> Processed</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #fff3cd;"></div>
+                        <span><strong>Yellow:</strong> Current (in-between)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #cfe2ff; border: 2px solid #0d6efd;"></div>
+                        <span><strong>Blue:</strong> Duplicates</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: white;"></div>
+                        <span><strong>Normal:</strong> Upcoming</span>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-body">
+                        <h6>Test Sections:</h6>
+                        <ul class="small">
+                            <li>✓ Non-derivative financial instruments (last processed)</li>
+                            <li><strong>→ Property, plant and equipment (CURRENT)</strong></li>
+                            <li style="color: #0d6efd;">▶ Recognition and measurement #1 (duplicate)</li>
+                            <li style="color: #0d6efd;">▶ Recognition and measurement #2 (duplicate)</li>
+                            <li>Subsequent expenditure (upcoming)</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <button class="btn btn-secondary btn-sm mt-3 w-100" @onclick="ReloadData">Reload Data</button>
+                <button class="btn btn-primary btn-sm mt-2 w-100" @onclick="ShowModal">Show in Modal</button>
+            </div>
+
+            <!-- Document preview -->
+            <div class="test-preview" id="document-preview">
+                @if (_renderedHtml != null)
+                {
+                    @_renderedHtml
+                }
+                else
+                {
+                    <p class="text-muted">No preview available</p>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+<!-- Modal (optional) -->
+<DuplicateMatchModal
+    DuplicateMatches="_duplicateMatches"
+    TransformedDocument="_transformedDocument"
+    ProcessedMatches="_processedMatches"
+    AllHierarchyItems="_hierarchyItems"
+    CurrentHierarchyItem="_currentHeaderMatch?.HierarchyItem"
+    IsVisible="_showModal"
+    OnSelectionConfirmed="HandleSelection" />
+
+@code {
+    private bool _isLoading = true;
+    private string? _error = null;
+    private bool _showModal = false;
+
+    private List<HeaderMatch>? _duplicateMatches;
+    private XDocument? _transformedDocument;
+    private List<HeaderMatch>? _processedMatches;
+    private List<HierarchyItem>? _hierarchyItems;
+    private HeaderMatch? _currentHeaderMatch;
+    private MarkupString? _renderedHtml;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTestData();
+    }
+
+    private async Task LoadTestData()
+    {
+        _isLoading = true;
+        _error = null;
+        StateHasChanged();
+
+        try
+        {
+            Logger.LogInformation("Loading test data for modal");
+
+            // 1. Load and transform source XML for ar24-3
+            var projectId = "ar24-3";
+            var sourceFile = "oahpl-financial-statements-fy24.xml";
+
+            var xmlContent = await ProjectService.ReadInputFileAsync(projectId, sourceFile);
+            var xsltPath = "/app/xslt/transformation.xslt";
+            var xsltContent = await File.ReadAllTextAsync(xsltPath);
+
+            var options = new TransformationOptions
+            {
+                UseXslt3Service = true,
+                NormalizeHeaders = false,
+                Parameters = new Dictionary<string, string>
+                {
+                    { "project-id", projectId },
+                    { "file-name", sourceFile },
+                    { "generate-ids", "true" }
+                }
+            };
+
+            var transformResult = await XsltService.TransformAsync(xmlContent, xsltContent, options);
+            if (!transformResult.IsSuccess)
+            {
+                throw new Exception($"Transformation failed: {transformResult.ErrorMessage}");
+            }
+
+            _transformedDocument = XDocument.Parse(transformResult.OutputContent);
+
+            // 2. Load hierarchy
+            var hierarchyPath = "/app/data/input/optiver/projects/ar24-3/metadata/hierarchy-ar-pdf-en.xml";
+            var hierarchyContent = await File.ReadAllTextAsync(hierarchyPath);
+            var hierarchyDoc = XDocument.Parse(hierarchyContent);
+
+            var ns = hierarchyDoc.Root?.GetDefaultNamespace() ?? XNamespace.None;
+            _hierarchyItems = ExtractHierarchyItems(hierarchyDoc.Root?.Element(ns + "structured"), ns);
+
+            // 3. Match headers
+            var allMatches = await HeaderMatchingService.FindExactMatchesAsync(_transformedDocument, _hierarchyItems);
+
+            // 4. Find "Property, plant and equipment" - this is the CURRENT section
+            // Use the ID from the hierarchy: property-plant-and-equipment-a9l3d7eq5wt8588c (level 3)
+            var currentMatch = allMatches.FirstOrDefault(m =>
+                m.HierarchyItem.Id == "property-plant-and-equipment-a9l3d7eq5wt8588c");
+
+            if (currentMatch == null)
+            {
+                throw new Exception($"Could not find 'Property, plant and equipment' section (id: property-plant-and-equipment-a9l3d7eq5wt8588c). Found {allMatches.Count} total matches.");
+            }
+
+            _currentHeaderMatch = currentMatch;
+
+            // 5. Find all "Recognition and measurement" matches that are DUPLICATES
+            // The header matching service marks duplicates with IsDuplicate = true
+            _duplicateMatches = allMatches
+                .Where(m => m.HierarchyItem.LinkName.Equals("Recognition and measurement", StringComparison.OrdinalIgnoreCase)
+                    && m.IsDuplicate)
+                .ToList();
+
+            // If no duplicates are marked, just find ALL "Recognition and measurement" matches
+            if (!_duplicateMatches.Any())
+            {
+                _duplicateMatches = allMatches
+                    .Where(m => m.HierarchyItem.LinkName.Equals("Recognition and measurement", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                Logger.LogWarning("No duplicates marked by service, found {Count} Recognition and measurement matches", _duplicateMatches.Count);
+            }
+            else
+            {
+                Logger.LogInformation("Found {Count} Recognition and measurement duplicates", _duplicateMatches.Count);
+            }
+
+            if (!_duplicateMatches.Any())
+            {
+                throw new Exception("Could not find any 'Recognition and measurement' matches");
+            }
+
+            // 6. Create processed matches - everything up to and including "Non-derivative financial instruments"
+            var nonDerivativeMatch = allMatches.FirstOrDefault(m =>
+                m.HierarchyItem.LinkName.Equals("Non-derivative financial instruments", StringComparison.OrdinalIgnoreCase));
+
+            if (nonDerivativeMatch != null)
+            {
+                var nonDerivativeIndex = allMatches.IndexOf(nonDerivativeMatch);
+                _processedMatches = allMatches.Take(nonDerivativeIndex + 1).ToList();
+            }
+            else
+            {
+                // Fallback: take first 10 matches as processed
+                _processedMatches = allMatches.Take(10).ToList();
+            }
+
+            Logger.LogInformation("Test data loaded successfully");
+            Logger.LogInformation("Current section: {Current}", _currentHeaderMatch.HierarchyItem.LinkName);
+            Logger.LogInformation("Duplicate matches: {Count}", _duplicateMatches.Count);
+            Logger.LogInformation("Processed matches: {Count}", _processedMatches.Count);
+
+            // Log details of each duplicate match
+            for (int i = 0; i < _duplicateMatches.Count; i++)
+            {
+                var match = _duplicateMatches[i];
+                Logger.LogInformation("Duplicate [{Index}]: Text='{Text}', HeaderIsNull={IsNull}, Hash={Hash}",
+                    i,
+                    match.MatchedText ?? "null",
+                    match.MatchedHeader == null,
+                    match.MatchedHeader?.GetHashCode() ?? 0);
+            }
+
+            // Render the document with context styling
+            RenderDocumentPreview();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading test data");
+            _error = ex.Message;
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void RenderDocumentPreview()
+    {
+        if (_transformedDocument == null || _duplicateMatches == null || _processedMatches == null)
+        {
+            Logger.LogWarning("Cannot render preview: missing required data");
+            return;
+        }
+
+        var ns = _transformedDocument.Root?.GetDefaultNamespace() ?? XNamespace.None;
+        var body = _transformedDocument.Root?.Element(ns + "body");
+
+        if (body == null)
+        {
+            Logger.LogWarning("No body element found in transformed document");
+            return;
+        }
+
+        var htmlBuilder = new StringBuilder();
+        var processedHeaders = _processedMatches.Select(m => m.MatchedHeader).Where(h => h != null).ToList();
+        var duplicateHeaders = _duplicateMatches.Select(m => m.MatchedHeader).Where(h => h != null).ToHashSet();
+        var lastProcessedHeader = processedHeaders.LastOrDefault();
+        var firstDuplicate = _duplicateMatches.FirstOrDefault()?.MatchedHeader;
+        var lastDuplicate = _duplicateMatches.LastOrDefault()?.MatchedHeader;
+
+        // Get all elements in document order
+        var allElements = body.Descendants().ToList();
+        var elementContextMap = new Dictionary<XElement, string?>();
+
+        Logger.LogInformation("Starting context determination for {Count} elements", allElements.Count);
+        Logger.LogInformation("Last processed header: {Header}", lastProcessedHeader?.Value.Trim() ?? "null");
+        Logger.LogInformation("Duplicate headers count: {Count}", duplicateHeaders.Count);
+        Logger.LogInformation("Current header: {Header}", _currentHeaderMatch?.MatchedHeader?.Value.Trim() ?? "null");
+
+        // Log duplicate header details
+        foreach (var dupHeader in duplicateHeaders)
+        {
+            if (dupHeader != null)
+            {
+                Logger.LogInformation("Duplicate header in set: '{Text}' (hash: {Hash})",
+                    dupHeader.Value.Trim(), dupHeader.GetHashCode());
+            }
+        }
+
+        // Track whether we've passed key boundaries
+        bool passedLastProcessed = false;
+        bool passedLastDuplicate = false;
+        int processedCount = 0;
+        int currentCount = 0;
+        int duplicateCount = 0;
+        int upcomingCount = 0;
+
+        // Pre-calculate positions
+        int lastDupPos = lastDuplicate != null ? allElements.IndexOf(lastDuplicate) : -1;
+        int firstDupPos = firstDuplicate != null ? allElements.IndexOf(firstDuplicate) : -1;
+
+        for (int i = 0; i < allElements.Count; i++)
+        {
+            var element = allElements[i];
+            string? contextClass = null;
+
+            // Log all headers we encounter
+            var elementName = element.Name.LocalName.ToLowerInvariant();
+            if (elementName.StartsWith("h") && elementName.Length == 2)
+            {
+                var headerText = element.Value.Trim();
+                if (headerText.Contains("Recognition and measurement") ||
+                    headerText.Contains("Property, plant and equipment"))
+                {
+                    Logger.LogInformation("Checking header: '{Text}' (hash: {Hash}), in duplicates: {InDup}, is current: {IsCurrent}",
+                        headerText, element.GetHashCode(),
+                        duplicateHeaders.Contains(element),
+                        element == _currentHeaderMatch?.MatchedHeader);
+                }
+            }
+
+            // IMPORTANT: Check in priority order
+            // Priority 1: Duplicate headers (must be highlighted for user selection)
+            if (duplicateHeaders.Contains(element))
+            {
+                contextClass = "duplicate-option-preview";
+                duplicateCount++;
+                passedLastProcessed = true;
+                if (element == lastDuplicate)
+                {
+                    passedLastDuplicate = true;
+                }
+                Logger.LogInformation("Found duplicate header: {Text}", element.Value.Trim());
+            }
+            // Priority 2: Current section header
+            else if (element == _currentHeaderMatch?.MatchedHeader)
+            {
+                contextClass = "current-section";
+                currentCount++;
+                Logger.LogInformation("Found current section header: {Text}", element.Value.Trim());
+            }
+            // Priority 3: Check if we've passed last duplicate → upcoming content
+            else if (passedLastDuplicate || (lastDupPos >= 0 && i > lastDupPos))
+            {
+                contextClass = "upcoming-content";
+                upcomingCount++;
+                passedLastDuplicate = true; // Ensure all subsequent elements are also upcoming
+            }
+            // Priority 4: Last processed header
+            else if (element == lastProcessedHeader)
+            {
+                passedLastProcessed = true;
+                contextClass = "processed-content";
+                processedCount++;
+            }
+            // Priority 5: Still in processed region (before last processed)
+            else if (!passedLastProcessed && processedHeaders.Contains(element))
+            {
+                contextClass = "processed-content";
+                processedCount++;
+            }
+            // Priority 6: Between last processed and first duplicate → current section content
+            else if (passedLastProcessed && firstDupPos >= 0 && i < firstDupPos)
+            {
+                contextClass = "current-section";
+                currentCount++;
+            }
+
+            elementContextMap[element] = contextClass;
+        }
+
+        Logger.LogInformation("Context counts - Processed: {P}, Current: {C}, Duplicate: {D}, Upcoming: {U}",
+            processedCount, currentCount, duplicateCount, upcomingCount);
+
+        // Render body with context-aware styling
+        RenderElementTreeWithContext(body, elementContextMap, htmlBuilder);
+
+        _renderedHtml = new MarkupString(htmlBuilder.ToString());
+        Logger.LogInformation("Rendered document preview with {Length} characters", htmlBuilder.Length);
+    }
+
+    private void RenderElementTreeWithContext(
+        XElement element,
+        Dictionary<XElement, string?> contextMap,
+        StringBuilder htmlBuilder)
+    {
+        var tag = element.Name.LocalName;
+
+        // Skip rendering the body tag itself, just render its children
+        if (tag.Equals("body", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var child in element.Elements())
+            {
+                RenderElementTreeWithContext(child, contextMap, htmlBuilder);
+            }
+            return;
+        }
+
+        htmlBuilder.Append($"<{tag}");
+
+        // Copy attributes
+        foreach (var attr in element.Attributes())
+        {
+            if (!attr.IsNamespaceDeclaration)
+            {
+                htmlBuilder.Append($" {attr.Name.LocalName}=\"{System.Security.SecurityElement.Escape(attr.Value)}\"");
+            }
+        }
+
+        // Apply context styling if this element has a context
+        if (contextMap.TryGetValue(element, out var contextClass) && !string.IsNullOrEmpty(contextClass))
+        {
+            var styleAttr = GetInlineStyle(contextClass);
+            if (!string.IsNullOrEmpty(styleAttr))
+            {
+                htmlBuilder.Append($" style=\"{styleAttr}\"");
+            }
+        }
+
+        htmlBuilder.Append(">");
+
+        // Render children
+        if (element.HasElements)
+        {
+            foreach (var child in element.Elements())
+            {
+                RenderElementTreeWithContext(child, contextMap, htmlBuilder);
+            }
+        }
+        else
+        {
+            var text = element.Value;
+            htmlBuilder.Append(System.Security.SecurityElement.Escape(text));
+        }
+
+        htmlBuilder.Append($"</{tag}>");
+    }
+
+    private string? GetInlineStyle(string? contextClass)
+    {
+        return contextClass switch
+        {
+            "processed-content" => "color: #6c757d; opacity: 0.5; background-color: #f8f9fa; padding: 0.25rem 0.5rem; margin: 0.25rem 0; border-left: 3px solid #dee2e6;",
+            "current-section" => "color: #856404; background-color: #fff3cd; padding: 0.5rem; margin: 0.5rem 0; border-left: 4px solid #ffc107; font-weight: 500;",
+            "duplicate-option-preview" => "color: #004085; background-color: #cfe2ff; padding: 0.5rem; margin: 0.5rem 0; border: 2px solid #0d6efd; border-radius: 0.25rem; font-weight: bold; cursor: pointer; box-shadow: 0 2px 4px rgba(13, 110, 253, 0.2);",
+            "upcoming-content" => "color: #212529; padding: 0.25rem 0.5rem; margin: 0.25rem 0; border-right: 3px solid #e9ecef;",
+            _ => null
+        };
+    }
+
+
+    private List<HierarchyItem> ExtractHierarchyItems(XElement? parent, XNamespace ns)
+    {
+        var items = new List<HierarchyItem>();
+        if (parent == null) return items;
+
+        foreach (var itemElement in parent.Elements(ns + "item"))
+        {
+            var item = ParseHierarchyItem(itemElement, ns);
+            if (item != null)
+            {
+                items.Add(item);
+            }
+
+            var subItems = itemElement.Element(ns + "sub_items");
+            if (subItems != null)
+            {
+                items.AddRange(ExtractHierarchyItems(subItems, ns));
+            }
+        }
+
+        return items;
+    }
+
+    private HierarchyItem? ParseHierarchyItem(XElement element, XNamespace ns)
+    {
+        var id = element.Attribute("id")?.Value;
+        var level = int.Parse(element.Attribute("level")?.Value ?? "0");
+        var dataRef = element.Attribute("data-ref")?.Value;
+        var webPage = element.Element(ns + "web_page");
+        var linkName = webPage?.Element(ns + "linkname")?.Value;
+        var path = webPage?.Element(ns + "path")?.Value;
+
+        if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(linkName))
+            return null;
+
+        return new HierarchyItem
+        {
+            Id = id!,
+            Level = level,
+            DataRef = dataRef ?? "",
+            LinkName = linkName,
+            WebPagePath = path ?? ""
+        };
+    }
+
+    private void ShowModal()
+    {
+        _showModal = true;
+        StateHasChanged();
+    }
+
+    private async Task ReloadData()
+    {
+        await LoadTestData();
+    }
+
+    private Task HandleSelection(HeaderMatch? selectedMatch)
+    {
+        _showModal = false;
+        StateHasChanged();
+
+        if (selectedMatch != null)
+        {
+            Logger.LogInformation("User selected: {Text}", selectedMatch.MatchedText);
+        }
+        else
+        {
+            Logger.LogInformation("User cancelled or skipped");
+        }
+
+        return Task.CompletedTask;
+    }
+}

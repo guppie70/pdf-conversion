@@ -883,7 +883,7 @@ public class ConversionService : IConversionService
                                             transformedXhtml,
                                             processedMatches,
                                             hierarchyItems,
-                                            nextHierarchyItem);
+                                            match.HierarchyItem); // Current section being extracted, NOT the boundary
                                     }
                                     catch (Exception ex)
                                     {
