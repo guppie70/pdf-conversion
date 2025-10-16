@@ -14,8 +14,6 @@ let finalAlignmentTimeout = null;
  * @param {string} rightPanelId - ID of the right panel element
  */
 export function initializeSyncScroll(leftPanelId, rightPanelId) {
-    console.log('Initializing sync scroll for panels:', leftPanelId, rightPanelId);
-
     const leftPanel = document.getElementById(leftPanelId);
     const rightPanel = document.getElementById(rightPanelId);
 
@@ -39,8 +37,6 @@ function findLineIndexAtScroll(panel) {
 
     const scrollTop = panel.scrollTop;
 
-    console.log(`Finding line at scrollTop ${scrollTop}, total lines: ${lines.length}`);
-
     // Find the line whose top is closest to the current scroll position
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
@@ -49,14 +45,12 @@ function findLineIndexAtScroll(panel) {
 
         // If this line is visible at the top (its bottom edge is below the scroll position)
         if (lineBottom > scrollTop) {
-            console.log(`Found line index ${i} at offsetTop ${lineTop}, lineBottom ${lineBottom}`);
             return i;
         }
     }
 
     // If we've scrolled past all lines, return the last line
     const lastIndex = Math.max(0, lines.length - 1);
-    console.log(`Defaulting to last line index ${lastIndex}`);
     return lastIndex;
 }
 
@@ -68,7 +62,6 @@ function findLineIndexAtScroll(panel) {
 function scrollToLineIndex(panel, lineIndex) {
     const lines = panel.querySelectorAll('.diff-line');
     if (lines.length === 0 || lineIndex < 0) {
-        console.log('Cannot scroll: no lines or invalid index');
         return;
     }
 
@@ -78,7 +71,6 @@ function scrollToLineIndex(panel, lineIndex) {
 
     if (targetLine) {
         const targetScrollTop = targetLine.offsetTop;
-        console.log(`Scrolling to line index ${targetIndex}, offsetTop ${targetScrollTop}`);
         panel.scrollTop = targetScrollTop;
     }
 }
@@ -117,7 +109,6 @@ export function enableSyncScroll(leftPanelId, rightPanelId) {
         }
 
         // Immediate synchronization (may be slightly imperfect during rapid scrolling)
-        console.log('Left panel scrolled, syncing right panel...');
         const lineIndex = findLineIndexAtScroll(leftPanel);
         scrollToLineIndex(rightPanel, lineIndex);
 
@@ -128,7 +119,6 @@ export function enableSyncScroll(leftPanelId, rightPanelId) {
 
         // Schedule final alignment after user stops scrolling (200ms debounce)
         finalAlignmentTimeout = setTimeout(() => {
-            console.log('Final alignment: left → right');
             // Set flag to prevent the triggered scroll event from starting another sync cycle
             isScrolling = true;
             const finalLineIndex = findLineIndexAtScroll(leftPanel);
@@ -157,7 +147,6 @@ export function enableSyncScroll(leftPanelId, rightPanelId) {
         }
 
         // Immediate synchronization (may be slightly imperfect during rapid scrolling)
-        console.log('Right panel scrolled, syncing left panel...');
         const lineIndex = findLineIndexAtScroll(rightPanel);
         scrollToLineIndex(leftPanel, lineIndex);
 
@@ -168,7 +157,6 @@ export function enableSyncScroll(leftPanelId, rightPanelId) {
 
         // Schedule final alignment after user stops scrolling (200ms debounce)
         finalAlignmentTimeout = setTimeout(() => {
-            console.log('Final alignment: right → left');
             // Set flag to prevent the triggered scroll event from starting another sync cycle
             isScrolling = true;
             const finalLineIndex = findLineIndexAtScroll(rightPanel);
@@ -187,8 +175,6 @@ export function enableSyncScroll(leftPanelId, rightPanelId) {
     // Add event listeners
     leftPanel.addEventListener('scroll', leftScrollHandler, { passive: true });
     rightPanel.addEventListener('scroll', rightScrollHandler, { passive: true });
-
-    console.log('Synchronized scrolling enabled (line-based algorithm)');
 }
 
 /**
@@ -225,8 +211,6 @@ export function disableSyncScroll(leftPanelId, rightPanelId) {
         clearTimeout(finalAlignmentTimeout);
         finalAlignmentTimeout = null;
     }
-
-    console.log('Synchronized scrolling disabled');
 }
 
 /**
@@ -246,7 +230,6 @@ function getDifferenceLineIndices(panel) {
         }
     });
 
-    console.log(`Found ${differenceIndices.length} differences in panel`);
     return differenceIndices;
 }
 
@@ -267,13 +250,11 @@ export function jumpToNextDifference(leftPanelId, rightPanelId) {
 
     // Get current scroll position (use left panel as reference)
     const currentLineIndex = findLineIndexAtScroll(leftPanel);
-    console.log(`Current line index: ${currentLineIndex}`);
 
     // Get all difference indices
     const differenceIndices = getDifferenceLineIndices(leftPanel);
 
     if (differenceIndices.length === 0) {
-        console.log('No differences found');
         return false;
     }
 
@@ -281,11 +262,8 @@ export function jumpToNextDifference(leftPanelId, rightPanelId) {
     const nextDifferenceIndex = differenceIndices.find(index => index > currentLineIndex);
 
     if (nextDifferenceIndex === undefined) {
-        console.log('Already at last difference, no next difference found');
         return false;
     }
-
-    console.log(`Jumping to next difference at line ${nextDifferenceIndex}`);
 
     // Temporarily disable sync to prevent infinite loop
     isScrolling = true;
@@ -323,13 +301,11 @@ export function jumpToPreviousDifference(leftPanelId, rightPanelId) {
 
     // Get current scroll position (use left panel as reference)
     const currentLineIndex = findLineIndexAtScroll(leftPanel);
-    console.log(`Current line index: ${currentLineIndex}`);
 
     // Get all difference indices
     const differenceIndices = getDifferenceLineIndices(leftPanel);
 
     if (differenceIndices.length === 0) {
-        console.log('No differences found');
         return false;
     }
 
@@ -338,11 +314,8 @@ export function jumpToPreviousDifference(leftPanelId, rightPanelId) {
     const previousDifferenceIndex = [...differenceIndices].reverse().find(index => index < currentLineIndex);
 
     if (previousDifferenceIndex === undefined) {
-        console.log('Already at first difference, no previous difference found');
         return false;
     }
-
-    console.log(`Jumping to previous difference at line ${previousDifferenceIndex}`);
 
     // Temporarily disable sync to prevent infinite loop
     isScrolling = true;
