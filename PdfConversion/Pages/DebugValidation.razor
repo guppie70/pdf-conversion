@@ -1,7 +1,10 @@
 @page "/debug-validation"
 @using PdfConversion.Services
+@using DiffPlex.DiffBuilder.Model
+@implements IAsyncDisposable
 @inject IRoundTripValidationService ValidationService
 @inject ILogger<DebugValidation> Logger
+@inject IJSRuntime JSRuntime
 
 <PageTitle>Debug Round-Trip Validation</PageTitle>
 
@@ -68,6 +71,59 @@
                 </dl>
             </div>
         </div>
+
+        @if (validationResult.DiffResult != null &&
+             validationResult.DiffResult.OldTextLines.Any() &&
+             validationResult.DiffResult.NewTextLines.Any())
+        {
+            <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Side-by-Side Diff Viewer</h5>
+                    <div class="sync-toggle-container">
+                        <label class="sync-toggle-label">
+                            <input type="checkbox"
+                                   @bind="isSyncScrollEnabled"
+                                   @bind:after="OnSyncScrollToggled" />
+                            <span>Synchronized Scrolling</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <div class="diff-viewer-container">
+                        <!-- Left Panel: Original XML -->
+                        <div class="diff-panel diff-panel-left">
+                            <div class="diff-panel-header">Original XML (Fresh Transformation)</div>
+                            <div id="diffPanelLeft" class="diff-panel-content">
+                                @foreach (var line in validationResult.DiffResult.OldTextLines.Select((l, i) => new { Line = l, Index = i }))
+                                {
+                                    <div class="diff-line @GetLineClass(line.Line.Type)">
+                                        <div class="diff-line-number">@(line.Index + 1)</div>
+                                        <div class="diff-line-content">@(string.IsNullOrWhiteSpace(line.Line.Text) ? " " : line.Line.Text)</div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        <!-- Divider -->
+                        <div class="diff-panel-divider"></div>
+
+                        <!-- Right Panel: Reconstructed XML -->
+                        <div class="diff-panel diff-panel-right">
+                            <div class="diff-panel-header">Reconstructed XML (From Sections)</div>
+                            <div id="diffPanelRight" class="diff-panel-content">
+                                @foreach (var line in validationResult.DiffResult.NewTextLines.Select((l, i) => new { Line = l, Index = i }))
+                                {
+                                    <div class="diff-line @GetLineClass(line.Line.Type)">
+                                        <div class="diff-line-number">@(line.Index + 1)</div>
+                                        <div class="diff-line-content">@(string.IsNullOrWhiteSpace(line.Line.Text) ? " " : line.Line.Text)</div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
     }
 
     @if (debugFiles.Any())
@@ -119,12 +175,94 @@
     private List<DebugFileInfo> debugFiles = new();
     private string fileContent = "";
     private string selectedFileName = "";
+    private bool isSyncScrollEnabled = true;
+    private IJSObjectReference? diffViewerModule;
 
     private class DebugFileInfo
     {
         public string Name { get; set; } = "";
         public string Path { get; set; } = "";
         public long Size { get; set; }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                diffViewerModule = await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./js/diff-viewer.js?v=1");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to load diff-viewer.js module");
+            }
+        }
+
+        // Initialize or update sync scroll when validation result is available
+        if (validationResult?.DiffResult != null && diffViewerModule != null)
+        {
+            try
+            {
+                if (isSyncScrollEnabled)
+                {
+                    await diffViewerModule.InvokeVoidAsync("initializeSyncScroll", "diffPanelLeft", "diffPanelRight");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to initialize synchronized scrolling");
+            }
+        }
+    }
+
+    private async Task OnSyncScrollToggled()
+    {
+        if (diffViewerModule == null) return;
+
+        try
+        {
+            if (isSyncScrollEnabled)
+            {
+                await diffViewerModule.InvokeVoidAsync("enableSyncScroll", "diffPanelLeft", "diffPanelRight");
+            }
+            else
+            {
+                await diffViewerModule.InvokeVoidAsync("disableSyncScroll", "diffPanelLeft", "diffPanelRight");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to toggle synchronized scrolling");
+        }
+    }
+
+    private string GetLineClass(ChangeType changeType)
+    {
+        return changeType switch
+        {
+            ChangeType.Unchanged => "line-unchanged",
+            ChangeType.Deleted => "line-deleted",
+            ChangeType.Inserted => "line-inserted",
+            ChangeType.Modified => "line-modified",
+            ChangeType.Imaginary => "line-imaginary",
+            _ => "line-unchanged"
+        };
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (diffViewerModule != null)
+        {
+            try
+            {
+                await diffViewerModule.DisposeAsync();
+            }
+            catch
+            {
+                // Ignore disposal errors
+            }
+        }
     }
 
     private async Task RunValidation()
