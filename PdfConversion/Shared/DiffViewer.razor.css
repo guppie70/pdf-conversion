@@ -44,18 +44,34 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 1rem;
+}
+
+.diff-header-left {
+    flex: 1;
+    min-width: 0;
 }
 
 .diff-header-left h6 {
     margin: 0 0 0.25rem 0;
 }
 
-/* Header Controls Container */
+/* Center navigation section */
+.diff-header-center {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+/* Right controls container */
 .diff-header-controls {
     display: flex;
     align-items: center;
     justify-content: flex-end;
     gap: 0.5rem;
+    flex: 1;
+    flex-wrap: wrap;
 }
 
 .sync-toggle-label {
@@ -248,6 +264,51 @@
     outline: none;
 }
 
+/* Navigation Button Group */
+.nav-button-group {
+    display: flex;
+    gap: 0.25rem;
+    border-radius: 0.25rem;
+    overflow: hidden;
+}
+
+/* Navigation Buttons */
+.nav-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.875rem;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+    border-radius: 0;
+}
+
+.nav-btn:first-child {
+    border-top-left-radius: 0.25rem;
+    border-bottom-left-radius: 0.25rem;
+}
+
+.nav-btn:last-child {
+    border-top-right-radius: 0.25rem;
+    border-bottom-right-radius: 0.25rem;
+}
+
+.nav-btn:hover:not(:disabled) {
+    background-color: var(--bs-primary);
+    color: white;
+    border-color: var(--bs-primary);
+}
+
+.nav-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.nav-btn i {
+    font-size: 1rem;
+}
+
 /* Fullscreen Button */
 .fullscreen-btn {
     display: flex;
@@ -269,8 +330,46 @@
     font-size: 1rem;
 }
 
+/* Highlight animation for navigation */
+::deep .diff-line-highlighted {
+    animation: highlightPulse 1s ease-out;
+}
+
+@keyframes highlightPulse {
+    0% {
+        box-shadow: inset 0 0 0 2px var(--bs-primary);
+        background-color: rgba(13, 110, 253, 0.15);
+    }
+    100% {
+        box-shadow: inset 0 0 0 2px transparent;
+    }
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
+    .diff-header {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .diff-header-left {
+        flex: 1 1 100%;
+        margin-bottom: 0.5rem;
+    }
+
+    .diff-header-center {
+        order: 2;
+        flex: 1 1 auto;
+        justify-content: center;
+    }
+
+    .diff-header-controls {
+        order: 3;
+        flex: 1 1 auto;
+        justify-content: flex-end;
+        gap: 0.25rem;
+    }
+
     .diff-viewer-container {
         flex-direction: column;
         gap: 0;
@@ -298,15 +397,22 @@
         grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     }
 
+    /* Hide text labels on mobile, keep icons only */
+    .nav-btn span,
     .fullscreen-btn span {
         display: none;
     }
 
+    .nav-btn,
     .fullscreen-btn {
         padding: 0.25rem 0.5rem;
     }
 
     .diff-content.fullscreen .diff-panel-content {
         height: calc(100vh - 100px);
+    }
+
+    .sync-toggle-label span {
+        display: none;
     }
 }

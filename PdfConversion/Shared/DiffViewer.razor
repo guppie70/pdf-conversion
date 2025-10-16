@@ -86,6 +86,24 @@
                         <h6>Side-by-Side Comparison</h6>
                         <small class="text-muted">Original (left) vs Reconstructed (right)</small>
                     </div>
+                    <div class="diff-header-center">
+                        <div class="nav-button-group">
+                            <button class="btn btn-sm btn-outline-secondary nav-btn"
+                                    @onclick="JumpToPreviousDifference"
+                                    disabled="@(!hasPreviousDifference)"
+                                    title="Previous Difference">
+                                <i class="bi bi-arrow-up-circle"></i>
+                                <span>Previous</span>
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary nav-btn"
+                                    @onclick="JumpToNextDifference"
+                                    disabled="@(!hasNextDifference)"
+                                    title="Next Difference">
+                                <i class="bi bi-arrow-down-circle"></i>
+                                <span>Next</span>
+                            </button>
+                        </div>
+                    </div>
                     <div class="diff-header-controls">
                         <label class="sync-toggle-label">
                             <input type="checkbox"
@@ -93,7 +111,7 @@
                                    @bind:after="OnSyncScrollToggled" />
                             <span>Synchronized Scrolling</span>
                         </label>
-                        <button class="btn btn-sm btn-outline-secondary ms-2 fullscreen-btn" @onclick="ToggleFullscreen">
+                        <button class="btn btn-sm btn-outline-secondary fullscreen-btn" @onclick="ToggleFullscreen">
                             <i class="bi bi-@(isFullscreen ? "fullscreen-exit" : "fullscreen")"></i>
                             <span>@(isFullscreen ? "Exit Fullscreen" : "Fullscreen")</span>
                         </button>
@@ -142,6 +160,8 @@
 
     private bool isSyncScrollEnabled = true;
     private bool isFullscreen = false;
+    private bool hasNextDifference = true;
+    private bool hasPreviousDifference = false;
     private IJSObjectReference? diffViewerModule;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -150,7 +170,7 @@
         {
             try
             {
-                diffViewerModule = await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./js/diff-viewer.js?v=1");
+                diffViewerModule = await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./js/diff-viewer.js?v=2");
             }
             catch (Exception ex)
             {
@@ -213,6 +233,62 @@
     {
         isFullscreen = !isFullscreen;
         Logger.LogInformation("Fullscreen mode {Mode}", isFullscreen ? "enabled" : "disabled");
+    }
+
+    private async Task JumpToNextDifference()
+    {
+        if (diffViewerModule == null) return;
+
+        try
+        {
+            var found = await diffViewerModule.InvokeAsync<bool>("jumpToNextDifference", "diffPanelLeft", "diffPanelRight");
+
+            if (!found)
+            {
+                hasNextDifference = false;
+                Logger.LogInformation("Already at last difference");
+            }
+
+            // Update button states
+            await UpdateNavigationButtonStates();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to jump to next difference");
+        }
+    }
+
+    private async Task JumpToPreviousDifference()
+    {
+        if (diffViewerModule == null) return;
+
+        try
+        {
+            var found = await diffViewerModule.InvokeAsync<bool>("jumpToPreviousDifference", "diffPanelLeft", "diffPanelRight");
+
+            if (!found)
+            {
+                hasPreviousDifference = false;
+                Logger.LogInformation("Already at first difference");
+            }
+
+            // Update button states
+            await UpdateNavigationButtonStates();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to jump to previous difference");
+        }
+    }
+
+    private async Task UpdateNavigationButtonStates()
+    {
+        // This method checks if there are more differences in either direction
+        // For now, we enable both buttons after each navigation
+        // A more sophisticated implementation could track the current position
+        hasNextDifference = true;
+        hasPreviousDifference = true;
+        await Task.CompletedTask;
     }
 
     private void HandleKeyDown(KeyboardEventArgs e)

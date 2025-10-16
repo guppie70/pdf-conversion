@@ -228,3 +228,157 @@ export function disableSyncScroll(leftPanelId, rightPanelId) {
 
     console.log('Synchronized scrolling disabled');
 }
+
+/**
+ * Get all difference line indices (modified, inserted, deleted)
+ * @param {HTMLElement} panel - The panel element
+ * @returns {number[]} Array of line indices that have differences
+ */
+function getDifferenceLineIndices(panel) {
+    const lines = panel.querySelectorAll('.diff-line');
+    const differenceIndices = [];
+
+    lines.forEach((line, index) => {
+        // Check if line has any difference class (not unchanged or imaginary)
+        if (!line.classList.contains('line-unchanged') &&
+            !line.classList.contains('line-imaginary')) {
+            differenceIndices.push(index);
+        }
+    });
+
+    console.log(`Found ${differenceIndices.length} differences in panel`);
+    return differenceIndices;
+}
+
+/**
+ * Jump to the next difference from the current scroll position
+ * @param {string} leftPanelId - ID of the left panel element
+ * @param {string} rightPanelId - ID of the right panel element
+ * @returns {boolean} True if a difference was found and scrolled to, false otherwise
+ */
+export function jumpToNextDifference(leftPanelId, rightPanelId) {
+    const leftPanel = document.getElementById(leftPanelId);
+    const rightPanel = document.getElementById(rightPanelId);
+
+    if (!leftPanel || !rightPanel) {
+        console.error('Could not find panels for navigation');
+        return false;
+    }
+
+    // Get current scroll position (use left panel as reference)
+    const currentLineIndex = findLineIndexAtScroll(leftPanel);
+    console.log(`Current line index: ${currentLineIndex}`);
+
+    // Get all difference indices
+    const differenceIndices = getDifferenceLineIndices(leftPanel);
+
+    if (differenceIndices.length === 0) {
+        console.log('No differences found');
+        return false;
+    }
+
+    // Find the next difference after current position
+    const nextDifferenceIndex = differenceIndices.find(index => index > currentLineIndex);
+
+    if (nextDifferenceIndex === undefined) {
+        console.log('Already at last difference, no next difference found');
+        return false;
+    }
+
+    console.log(`Jumping to next difference at line ${nextDifferenceIndex}`);
+
+    // Temporarily disable sync to prevent infinite loop
+    isScrolling = true;
+
+    // Scroll both panels to the next difference
+    scrollToLineIndex(leftPanel, nextDifferenceIndex);
+    scrollToLineIndex(rightPanel, nextDifferenceIndex);
+
+    // Re-enable sync after a short delay
+    setTimeout(() => {
+        isScrolling = false;
+    }, 100);
+
+    // Highlight the difference briefly
+    highlightDifference(leftPanel, nextDifferenceIndex);
+    highlightDifference(rightPanel, nextDifferenceIndex);
+
+    return true;
+}
+
+/**
+ * Jump to the previous difference from the current scroll position
+ * @param {string} leftPanelId - ID of the left panel element
+ * @param {string} rightPanelId - ID of the right panel element
+ * @returns {boolean} True if a difference was found and scrolled to, false otherwise
+ */
+export function jumpToPreviousDifference(leftPanelId, rightPanelId) {
+    const leftPanel = document.getElementById(leftPanelId);
+    const rightPanel = document.getElementById(rightPanelId);
+
+    if (!leftPanel || !rightPanel) {
+        console.error('Could not find panels for navigation');
+        return false;
+    }
+
+    // Get current scroll position (use left panel as reference)
+    const currentLineIndex = findLineIndexAtScroll(leftPanel);
+    console.log(`Current line index: ${currentLineIndex}`);
+
+    // Get all difference indices
+    const differenceIndices = getDifferenceLineIndices(leftPanel);
+
+    if (differenceIndices.length === 0) {
+        console.log('No differences found');
+        return false;
+    }
+
+    // Find the previous difference before current position
+    // Reverse the array to find the last one that's less than current
+    const previousDifferenceIndex = [...differenceIndices].reverse().find(index => index < currentLineIndex);
+
+    if (previousDifferenceIndex === undefined) {
+        console.log('Already at first difference, no previous difference found');
+        return false;
+    }
+
+    console.log(`Jumping to previous difference at line ${previousDifferenceIndex}`);
+
+    // Temporarily disable sync to prevent infinite loop
+    isScrolling = true;
+
+    // Scroll both panels to the previous difference
+    scrollToLineIndex(leftPanel, previousDifferenceIndex);
+    scrollToLineIndex(rightPanel, previousDifferenceIndex);
+
+    // Re-enable sync after a short delay
+    setTimeout(() => {
+        isScrolling = false;
+    }, 100);
+
+    // Highlight the difference briefly
+    highlightDifference(leftPanel, previousDifferenceIndex);
+    highlightDifference(rightPanel, previousDifferenceIndex);
+
+    return true;
+}
+
+/**
+ * Briefly highlight a difference line
+ * @param {HTMLElement} panel - The panel element
+ * @param {number} lineIndex - The line index to highlight
+ */
+function highlightDifference(panel, lineIndex) {
+    const lines = panel.querySelectorAll('.diff-line');
+    if (lineIndex < 0 || lineIndex >= lines.length) return;
+
+    const line = lines[lineIndex];
+
+    // Add highlight class
+    line.classList.add('diff-line-highlighted');
+
+    // Remove highlight after 1 second
+    setTimeout(() => {
+        line.classList.remove('diff-line-highlighted');
+    }, 1000);
+}
