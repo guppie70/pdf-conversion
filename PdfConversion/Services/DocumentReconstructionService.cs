@@ -144,8 +144,8 @@ public class DocumentReconstructionService : IDocumentReconstructionService
                     // Extract all child elements from section and add to document-content div
                     foreach (var element in sectionElement.Elements())
                     {
-                        // Add namespace to elements (convert from no-namespace to XHTML namespace)
-                        documentContentDiv.Add(AddXhtmlNamespace(element, xhtmlNs));
+                        // Add namespace to elements and shift headers based on hierarchy depth
+                        documentContentDiv.Add(AddXhtmlNamespace(element, xhtmlNs, item.Depth));
                     }
                 }
                 catch (Exception ex)
@@ -195,14 +195,15 @@ public class DocumentReconstructionService : IDocumentReconstructionService
             if (subItemsElement != null)
             {
                 // Start extracting from sub_items (skipping report-root itself)
-                ExtractHierarchyItemsRecursive(subItemsElement, ns, items);
+                // Start at depth 1 for items in /items/structured/item/sub_items
+                ExtractHierarchyItemsRecursive(subItemsElement, ns, items, depth: 1);
             }
         }
         else
         {
             // Fallback to original behavior if structure is different
             _logger.LogWarning("Could not find expected hierarchy structure, using fallback extraction");
-            ExtractHierarchyItemsRecursive(structuredElement, ns, items);
+            ExtractHierarchyItemsRecursive(structuredElement, ns, items, depth: 1);
         }
 
         return items;
@@ -211,7 +212,11 @@ public class DocumentReconstructionService : IDocumentReconstructionService
     /// <summary>
     /// Recursively extracts hierarchy items maintaining document order
     /// </summary>
-    private void ExtractHierarchyItemsRecursive(XElement parent, XNamespace ns, List<HierarchyItemData> items)
+    /// <param name="parent">Parent element containing items</param>
+    /// <param name="ns">XML namespace</param>
+    /// <param name="items">List to accumulate items</param>
+    /// <param name="depth">Current hierarchy depth (1-based)</param>
+    private void ExtractHierarchyItemsRecursive(XElement parent, XNamespace ns, List<HierarchyItemData> items, int depth = 1)
     {
         foreach (var itemElement in parent.Elements(ns + "item"))
         {
@@ -223,15 +228,16 @@ public class DocumentReconstructionService : IDocumentReconstructionService
                 items.Add(new HierarchyItemData
                 {
                     Id = id,
-                    DataRef = dataRef
+                    DataRef = dataRef,
+                    Depth = depth
                 });
             }
 
-            // Process sub_items
+            // Process sub_items with incremented depth
             var subItemsElement = itemElement.Element(ns + "sub_items");
             if (subItemsElement != null)
             {
-                ExtractHierarchyItemsRecursive(subItemsElement, ns, items);
+                ExtractHierarchyItemsRecursive(subItemsElement, ns, items, depth + 1);
             }
         }
     }
@@ -239,20 +245,73 @@ public class DocumentReconstructionService : IDocumentReconstructionService
     /// <summary>
     /// Recursively adds XHTML namespace to an element and all its descendants
     /// </summary>
-    private XElement AddXhtmlNamespace(XElement element, XNamespace xhtmlNs)
+    /// <param name="element">Source element to transform</param>
+    /// <param name="xhtmlNs">XHTML namespace to apply</param>
+    /// <param name="hierarchyDepth">Hierarchy depth for header level shifting (1-based)</param>
+    /// <returns>New element with XHTML namespace and shifted header levels</returns>
+    private XElement AddXhtmlNamespace(XElement element, XNamespace xhtmlNs, int hierarchyDepth = 1)
     {
+        var elementName = element.Name.LocalName;
+
+        // Shift header levels based on hierarchy depth
+        // Formula: targetLevel = currentHeaderLevel + (hierarchyDepth - 1)
+        if (IsHeaderElement(elementName, out int currentLevel))
+        {
+            int shift = hierarchyDepth - 1;
+            int targetLevel = currentLevel + shift;
+
+            // Cap at h6 if target exceeds HTML limits
+            if (targetLevel > 6)
+            {
+                elementName = "h6";
+                var shiftedElement = new XElement(
+                    xhtmlNs + elementName,
+                    element.Attributes().Where(a => !a.IsNamespaceDeclaration),
+                    new XAttribute("data-targetheader", $"h{targetLevel}"),
+                    element.Nodes().Select(n =>
+                    {
+                        if (n is XElement e)
+                            return AddXhtmlNamespace(e, xhtmlNs, hierarchyDepth);
+                        return n;
+                    })
+                );
+                return shiftedElement;
+            }
+            else
+            {
+                elementName = $"h{targetLevel}";
+            }
+        }
+
         var newElement = new XElement(
-            xhtmlNs + element.Name.LocalName,
+            xhtmlNs + elementName,
             element.Attributes().Where(a => !a.IsNamespaceDeclaration),
             element.Nodes().Select(n =>
             {
                 if (n is XElement e)
-                    return AddXhtmlNamespace(e, xhtmlNs);
+                    return AddXhtmlNamespace(e, xhtmlNs, hierarchyDepth);
                 return n;
             })
         );
 
         return newElement;
+    }
+
+    /// <summary>
+    /// Checks if an element name is a header (h1-h6) and returns its level
+    /// </summary>
+    /// <param name="elementName">Element name to check</param>
+    /// <param name="level">Output parameter for header level (1-6)</param>
+    /// <returns>True if element is a header</returns>
+    private bool IsHeaderElement(string elementName, out int level)
+    {
+        level = 0;
+        if (elementName.Length == 2 && elementName[0] == 'h' && char.IsDigit(elementName[1]))
+        {
+            level = elementName[1] - '0';
+            return level >= 1 && level <= 6;
+        }
+        return false;
     }
 
     /// <summary>
@@ -285,5 +344,6 @@ public class DocumentReconstructionService : IDocumentReconstructionService
     {
         public string Id { get; set; } = string.Empty;
         public string DataRef { get; set; } = string.Empty;
+        public int Depth { get; set; } = 1;
     }
 }
