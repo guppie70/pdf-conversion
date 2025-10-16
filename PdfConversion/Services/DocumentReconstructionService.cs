@@ -66,7 +66,11 @@ public class DocumentReconstructionService : IDocumentReconstructionService
                         new XElement(xhtmlNs + "meta", new XAttribute("charset", "UTF-8")),
                         new XElement(xhtmlNs + "title", "Reconstructed Document")
                     ),
-                    new XElement(xhtmlNs + "body")
+                    new XElement(xhtmlNs + "body",
+                        new XElement(xhtmlNs + "div",
+                            new XAttribute("class", "document-content")
+                        )
+                    )
                 )
             );
 
@@ -74,6 +78,12 @@ public class DocumentReconstructionService : IDocumentReconstructionService
             if (bodyElement == null)
             {
                 throw new InvalidOperationException("Failed to create body element");
+            }
+
+            var documentContentDiv = bodyElement.Element(xhtmlNs + "div");
+            if (documentContentDiv == null)
+            {
+                throw new InvalidOperationException("Failed to create document-content div");
             }
 
             // 5. Load each section file and append content to body
@@ -131,11 +141,11 @@ public class DocumentReconstructionService : IDocumentReconstructionService
                         continue;
                     }
 
-                    // Extract all child elements from section and add to body
+                    // Extract all child elements from section and add to document-content div
                     foreach (var element in sectionElement.Elements())
                     {
                         // Add namespace to elements (convert from no-namespace to XHTML namespace)
-                        bodyElement.Add(AddXhtmlNamespace(element, xhtmlNs));
+                        documentContentDiv.Add(AddXhtmlNamespace(element, xhtmlNs));
                     }
                 }
                 catch (Exception ex)
