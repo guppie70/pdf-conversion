@@ -71,7 +71,7 @@ main {
     align-items: center;
     gap: 0.5rem;
     margin-left: auto;
-    padding-right: 1rem;
+    padding-right: 0;
 }
 
 .nav-toolbar .toolbar-select {
