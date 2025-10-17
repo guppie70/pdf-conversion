@@ -23,8 +23,12 @@
     <xsl:include href="modules/tables.xslt"/>
     <xsl:include href="modules/lists.xslt"/>
     <xsl:include href="pass2/postprocess.xslt"/>
+    <xsl:include href="pass3/table-symmetry.xslt"/>
 
-    <!-- Two-pass transformation: Pass 1 (Adobe XML → XHTML, default mode) + Pass 2 (cleanup, mode="pass2" in pass2/postprocess.xslt) -->
+    <!-- Three-pass transformation:
+         Pass 1 (Adobe XML → XHTML, default mode)
+         Pass 2 (cleanup, mode="pass2" in pass2/postprocess.xslt)
+         Pass 3 (table symmetry, mode="pass3" in pass3/table-symmetry.xslt) -->
 
     <!-- Identity transform base templates (mode="#all" - works in both passes) -->
 
@@ -61,6 +65,7 @@
     <!-- Document structure templates - two-pass processing -->
 
     <xsl:template match="/">
+        <!-- Pass 1: Adobe XML → Intermediate XHTML -->
         <xsl:variable name="pass1-result">
             <html>
                 <head>
@@ -105,7 +110,7 @@
 
                         tr[data-asymmetric="true"] td,
                         tr[data-asymmetric="true"] th {
-                            
+
                         }
 
                         /* Display cell count information after asymmetrical rows */
@@ -120,6 +125,22 @@
                             text-align: center;
                             margin: 2px 0;
                         }
+
+                        /* Highlight cells added by Pass 3 table symmetry fix */
+                        td[data-cell-added="true"],
+                        th[data-cell-added="true"] {
+                            background-color: #e3f2fd;
+                            border: 1px dashed #2196f3;
+                        }
+
+                        td[data-cell-added="true"]::after,
+                        th[data-cell-added="true"]::after {
+                            content: "➕";
+                            color: #2196f3;
+                            font-size: 0.75em;
+                            margin-left: 0.25em;
+                            opacity: 0.7;
+                        }
                     </style>
                 </head>
                 <body>
@@ -130,7 +151,13 @@
             </html>
         </xsl:variable>
 
-        <xsl:apply-templates select="$pass1-result" mode="pass2"/>
+        <!-- Pass 2: Cleanup (remove "(continued)", detect asymmetric rows) -->
+        <xsl:variable name="pass2-result">
+            <xsl:apply-templates select="$pass1-result" mode="pass2"/>
+        </xsl:variable>
+
+        <!-- Pass 3: Fix asymmetric tables by adding missing cells -->
+        <xsl:apply-templates select="$pass2-result" mode="pass3"/>
     </xsl:template>
 
     <!-- Pass 1: Adobe XML to intermediate XHTML (default mode) -->
