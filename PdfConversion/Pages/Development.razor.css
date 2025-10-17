@@ -129,16 +129,8 @@
     color: #fff;
 }
 
-/* Preview controls */
-.preview-controls {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    margin-left: auto;
-}
-
-/* Toggle switches - COMPACT, standardized to match button height */
-.preview-controls .form-check.form-switch {
+/* Toggle switches in Output Preview panel - COMPACT, standardized to match button height */
+.panel-right .panel-header-left .form-check.form-switch {
     padding-left: 0;
     margin-bottom: 0;
     display: flex;
@@ -146,7 +138,7 @@
     height: 32px;
 }
 
-.preview-controls .form-check.form-switch .form-check-input {
+.panel-right .panel-header-left .form-check.form-switch .form-check-input {
     width: 2.5em !important;
     height: 1.25em !important;
     margin-right: 0.5rem;
@@ -158,22 +150,22 @@
     flex-shrink: 0;
 }
 
-.preview-controls .form-check.form-switch .form-check-input:checked {
+.panel-right .panel-header-left .form-check.form-switch .form-check-input:checked {
     background-color: #0d6efd !important;
     border-color: #0d6efd !important;
 }
 
-.preview-controls .form-check.form-switch .form-check-input:hover {
+.panel-right .panel-header-left .form-check.form-switch .form-check-input:hover {
     border-color: #0d6efd !important;
     box-shadow: 0 0 0 0.15rem rgba(13, 110, 253, 0.15) !important;
 }
 
-.preview-controls .form-check.form-switch .form-check-input:focus {
+.panel-right .panel-header-left .form-check.form-switch .form-check-input:focus {
     border-color: #0d6efd !important;
     box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25) !important;
 }
 
-.preview-controls .form-check.form-switch .form-check-label {
+.panel-right .panel-header-left .form-check.form-switch .form-check-label {
     font-size: 0.8rem;
     font-weight: 500;
     color: var(--text-primary);
@@ -183,32 +175,13 @@
     line-height: 1;
 }
 
-.preview-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
+/* Zoom indicator in Output Preview panel header */
 .zoom-indicator {
     font-size: 0.75rem;
     color: #6c757d;
     font-weight: 500;
     min-width: 35px;
     text-align: center;
-}
-
-.preview-actions .btn-sm {
-    padding: 0.25rem 0.5rem;
-    font-size: 0.75rem;
-    height: 32px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    line-height: 1;
-}
-
-.preview-actions .btn-sm i {
-    font-size: 0.75rem;
 }
 
 .panel-content {
