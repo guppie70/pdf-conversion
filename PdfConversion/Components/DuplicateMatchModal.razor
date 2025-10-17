@@ -378,9 +378,9 @@
 
         try
         {
-            // Get the XHTML body content
-            var xhtmlNs = XNamespace.Get("http://www.w3.org/1999/xhtml");
-            var bodyElement = TransformedDocument.Descendants(xhtmlNs + "body").FirstOrDefault();
+            // Get the body content (namespace-agnostic)
+            var bodyElement = TransformedDocument.Descendants()
+                .FirstOrDefault(e => e.Name.LocalName.ToLowerInvariant() == "body");
 
             if (bodyElement == null)
             {
