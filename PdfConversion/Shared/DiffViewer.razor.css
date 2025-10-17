@@ -3,13 +3,28 @@
     padding: 1rem;
 }
 
+/* Dark Theme Colors - VS Code Dark Modern Palette */
+/* Primary background: #1e1e1e */
+/* Secondary background: #252526 */
+/* Panel background: #2d2d30 */
+/* Primary border: #3e3e42 */
+/* Subtle border: #2b2b2b */
+/* Text primary: #cccccc */
+/* Text muted: #858585 */
+/* Text very muted: #6a6a6a */
+/* Scrollbar track: #252526 */
+/* Scrollbar thumb: #424242 / #4e4e4e (hover) */
+/* Diff deleted: #5a1e1e (bg) / #f08080 (text) */
+/* Diff inserted: #1e3a1e (bg) / #7fd87f (text) */
+/* Diff modified: #3a3620 (bg) / #ffb866 (text) */
+
 .validation-stats {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 1rem;
     margin: 1.5rem 0;
     padding: 1rem;
-    background-color: var(--bs-light);
+    background-color: #2d2d30;
     border-radius: 0.375rem;
 }
 
@@ -39,7 +54,7 @@
 
 .diff-header {
     padding: 1rem;
-    background-color: var(--bs-light);
+    background-color: #2d2d30;
     border-bottom: 1px solid var(--bs-border-color);
     display: flex;
     justify-content: space-between;
@@ -81,7 +96,7 @@
     cursor: pointer;
     user-select: none;
     font-size: 0.875rem;
-    color: #495057;
+    color: #cccccc;
     margin: 0;
 }
 
@@ -103,7 +118,7 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    background-color: #f8f9fa;
+    background-color: #252526;
     font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
     font-size: 0.875rem;
     line-height: 1.5;
@@ -113,7 +128,7 @@
     height: 600px;
     overflow-y: auto;
     overflow-x: auto;
-    background-color: white;
+    background-color: #1e1e1e;
 }
 
 .diff-panel-content::-webkit-scrollbar {
@@ -122,33 +137,33 @@
 }
 
 .diff-panel-content::-webkit-scrollbar-track {
-    background: #f1f1f1;
+    background: #252526;
 }
 
 .diff-panel-content::-webkit-scrollbar-thumb {
-    background: #888;
+    background: #424242;
     border-radius: 6px;
 }
 
 .diff-panel-content::-webkit-scrollbar-thumb:hover {
-    background: #555;
+    background: #4e4e4e;
 }
 
 /* Diff Panel Headers */
 .diff-panel-header {
     padding: 0.5rem 1rem;
-    background-color: #e9ecef;
-    border-bottom: 1px solid #dee2e6;
+    background-color: #2d2d30;
+    border-bottom: 1px solid #3e3e42;
     font-weight: 600;
     font-size: 0.875rem;
-    color: #495057;
+    color: #cccccc;
     position: sticky;
     top: 0;
     z-index: 1;
 }
 
 .diff-panel-left .diff-panel-header {
-    border-right: 1px solid #dee2e6;
+    border-right: 1px solid #3e3e42;
 }
 
 /* Individual Diff Line */
@@ -156,11 +171,11 @@
     display: flex;
     align-items: stretch;
     min-height: 1.5rem;
-    border-bottom: 1px solid #e9ecef;
+    border-bottom: 1px solid #2b2b2b;
 }
 
 .diff-line:hover {
-    background-color: rgba(0, 0, 0, 0.05);
+    background-color: rgba(255, 255, 255, 0.05);
 }
 
 /* Line Number Column */
@@ -169,9 +184,9 @@
     width: 3.5rem;
     padding: 0.25rem 0.5rem;
     text-align: right;
-    color: #6c757d;
-    background-color: #f1f3f5;
-    border-right: 1px solid #dee2e6;
+    color: #858585;
+    background-color: #252526;
+    border-right: 1px solid #3e3e42;
     user-select: none;
     font-weight: 500;
 }
@@ -187,56 +202,56 @@
 
 /* Change Type Backgrounds */
 .line-unchanged {
-    background-color: #ffffff;
+    background-color: #1e1e1e;
 }
 
 .line-deleted {
-    background-color: #ffe5e5;
+    background-color: #5a1e1e;
 }
 
 .line-deleted .diff-line-number {
-    background-color: #ffcccc;
-    color: #c92a2a;
+    background-color: #6e2828;
+    color: #f08080;
 }
 
 .line-inserted {
-    background-color: #e5ffe5;
+    background-color: #1e3a1e;
 }
 
 .line-inserted .diff-line-number {
-    background-color: #ccffcc;
-    color: #2f9e44;
+    background-color: #2d4a2d;
+    color: #7fd87f;
 }
 
 .line-modified {
-    background-color: #fff8dc;
+    background-color: #3a3620;
 }
 
 .line-modified .diff-line-number {
-    background-color: #ffe4b3;
-    color: #e67700;
+    background-color: #4d4528;
+    color: #ffb866;
 }
 
 /* Imaginary lines (for alignment in side-by-side view) */
 .line-imaginary {
-    background-color: #f8f9fa;
+    background-color: #1a1a1a;
     opacity: 0.5;
 }
 
 .line-imaginary .diff-line-number {
-    background-color: #e9ecef;
-    color: #adb5bd;
+    background-color: #2b2b2b;
+    color: #6a6a6a;
 }
 
 .line-imaginary .diff-line-content {
     font-style: italic;
-    color: #adb5bd;
+    color: #6a6a6a;
 }
 
 /* Panel Divider */
 .diff-panel-divider {
     width: 1px;
-    background-color: #dee2e6;
+    background-color: #3e3e42;
     flex-shrink: 0;
 }
 
@@ -251,7 +266,7 @@
     margin: 0;
     border-radius: 0;
     max-height: 100vh;
-    background-color: white;
+    background-color: #1e1e1e;
     transition: all 0.3s ease-in-out;
 }
 
@@ -377,7 +392,7 @@
 
     .diff-panel {
         height: 400px;
-        border-bottom: 1px solid #dee2e6;
+        border-bottom: 1px solid #3e3e42;
     }
 
     .diff-panel-divider {
