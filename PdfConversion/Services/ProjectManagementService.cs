@@ -56,9 +56,9 @@ public class ProjectManagementService : IProjectManagementService
         _logger = logger;
         _cache = cache;
 
-        // Paths are relative to /app in the Docker container
-        _inputBasePath = "/app/data/input/optiver/projects";
-        _outputBasePath = "/app/data/output/optiver/projects";
+        // Paths are relative to /app in the Docker container - scan all organizations
+        _inputBasePath = "/app/data/input";
+        _outputBasePath = "/app/data/output";
 
         _logger.LogInformation("ProjectManagementService initialized. Input: {InputPath}, Output: {OutputPath}",
             _inputBasePath, _outputBasePath);
@@ -81,21 +81,43 @@ public class ProjectManagementService : IProjectManagementService
                 return Enumerable.Empty<Project>();
             }
 
-            var projectDirectories = Directory.GetDirectories(_inputBasePath);
             var projects = new List<Project>();
 
-            foreach (var projectDir in projectDirectories)
+            // Scan for organization directories
+            var organizationDirectories = Directory.GetDirectories(_inputBasePath);
+
+            foreach (var orgDir in organizationDirectories)
             {
-                var projectId = Path.GetFileName(projectDir);
+                var organization = Path.GetFileName(orgDir);
 
                 // Skip hidden directories
-                if (projectId.StartsWith('.'))
+                if (organization.StartsWith('.'))
                     continue;
 
-                var project = await CreateProjectFromDirectoryAsync(projectId, projectDir);
-                if (project != null)
+                // Check for projects subdirectory
+                var projectsPath = Path.Combine(orgDir, "projects");
+                if (!Directory.Exists(projectsPath))
                 {
-                    projects.Add(project);
+                    _logger.LogDebug("No projects directory found for organization {Organization}", organization);
+                    continue;
+                }
+
+                // Scan for project directories within this organization
+                var projectDirectories = Directory.GetDirectories(projectsPath);
+
+                foreach (var projectDir in projectDirectories)
+                {
+                    var projectId = Path.GetFileName(projectDir);
+
+                    // Skip hidden directories
+                    if (projectId.StartsWith('.'))
+                        continue;
+
+                    var project = await CreateProjectFromDirectoryAsync(organization, projectId, projectDir);
+                    if (project != null)
+                    {
+                        projects.Add(project);
+                    }
                 }
             }
 
@@ -105,7 +127,7 @@ public class ProjectManagementService : IProjectManagementService
                 .SetAbsoluteExpiration(CacheDuration);
             _cache.Set(ProjectsCacheKey, projects, cacheOptions);
 
-            _logger.LogInformation("Found {Count} projects in {Path}", projects.Count, _inputBasePath);
+            _logger.LogInformation("Found {Count} projects across all organizations in {Path}", projects.Count, _inputBasePath);
             return projects;
         }
         catch (Exception ex)
@@ -118,6 +140,17 @@ public class ProjectManagementService : IProjectManagementService
     public async Task<Project?> GetProjectAsync(string projectId)
     {
         var projects = await GetProjectsAsync();
+
+        // Support both formats: "organization/projectId" and legacy "projectId"
+        if (projectId.Contains('/'))
+        {
+            var parts = projectId.Split('/', 2);
+            var organization = parts[0];
+            var id = parts[1];
+            return projects.FirstOrDefault(p => p.Organization == organization && p.ProjectId == id);
+        }
+
+        // Legacy format - match by projectId only
         return projects.FirstOrDefault(p => p.ProjectId == projectId);
     }
 
@@ -125,7 +158,8 @@ public class ProjectManagementService : IProjectManagementService
     {
         try
         {
-            var projectPath = Path.Combine(_inputBasePath, projectId);
+            var (organization, id) = ParseProjectId(projectId);
+            var projectPath = Path.Combine(_inputBasePath, organization, "projects", id);
 
             if (!Directory.Exists(projectPath))
             {
@@ -142,7 +176,7 @@ public class ProjectManagementService : IProjectManagementService
                 .Cast<string>()
                 .ToList();
 
-            _logger.LogDebug("Found {Count} files in project {ProjectId}", files.Count, projectId);
+            _logger.LogDebug("Found {Count} files in project {Organization}/{ProjectId}", files.Count, organization, id);
             return await Task.FromResult(files);
         }
         catch (Exception ex)
@@ -156,7 +190,8 @@ public class ProjectManagementService : IProjectManagementService
     {
         try
         {
-            var filePath = Path.Combine(_inputBasePath, projectId, fileName);
+            var (organization, id) = ParseProjectId(projectId);
+            var filePath = Path.Combine(_inputBasePath, organization, "projects", id, fileName);
 
             if (!File.Exists(filePath))
             {
@@ -166,8 +201,8 @@ public class ProjectManagementService : IProjectManagementService
             }
 
             var content = await File.ReadAllTextAsync(filePath);
-            _logger.LogDebug("Read {Length} bytes from {FileName} in project {ProjectId}",
-                content.Length, fileName, projectId);
+            _logger.LogDebug("Read {Length} bytes from {FileName} in project {Organization}/{ProjectId}",
+                content.Length, fileName, organization, id);
 
             return content;
         }
@@ -182,7 +217,8 @@ public class ProjectManagementService : IProjectManagementService
     {
         try
         {
-            var projectOutputPath = Path.Combine(_outputBasePath, projectId);
+            var (organization, id) = ParseProjectId(projectId);
+            var projectOutputPath = Path.Combine(_outputBasePath, organization, "projects", id);
 
             // Create output directory if it doesn't exist
             if (!Directory.Exists(projectOutputPath))
@@ -213,7 +249,8 @@ public class ProjectManagementService : IProjectManagementService
     {
         try
         {
-            var projectPath = Path.Combine(_inputBasePath, projectId);
+            var (organization, id) = ParseProjectId(projectId);
+            var projectPath = Path.Combine(_inputBasePath, organization, "projects", id);
             return await Task.FromResult(Directory.Exists(projectPath));
         }
         catch (Exception ex)
@@ -223,14 +260,16 @@ public class ProjectManagementService : IProjectManagementService
         }
     }
 
-    private async Task<Project?> CreateProjectFromDirectoryAsync(string projectId, string projectPath)
+    private async Task<Project?> CreateProjectFromDirectoryAsync(string organization, string projectId, string projectPath)
     {
         try
         {
-            var files = await GetProjectFilesAsync(projectId);
+            // Use the full project identifier format for internal operations
+            var fullProjectId = $"{organization}/{projectId}";
+            var files = await GetProjectFilesAsync(fullProjectId);
             var fileCount = files.Count();
 
-            var outputPath = Path.Combine(_outputBasePath, projectId);
+            var outputPath = Path.Combine(_outputBasePath, organization, "projects", projectId);
             var outputExists = Directory.Exists(outputPath);
             var outputFile = Path.Combine(outputPath, "taxxor.xhtml");
             var hasOutput = File.Exists(outputFile);
@@ -248,7 +287,8 @@ public class ProjectManagementService : IProjectManagementService
             return new Project
             {
                 ProjectId = projectId,
-                Name = FormatProjectName(projectId),
+                Organization = organization,
+                Name = FormatProjectName(organization, projectId),
                 InputPath = projectPath,
                 OutputPath = outputPath,
                 Status = status,
@@ -259,23 +299,38 @@ public class ProjectManagementService : IProjectManagementService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error creating project object for {ProjectId}", projectId);
+            _logger.LogError(ex, "Error creating project object for {Organization}/{ProjectId}", organization, projectId);
             return null;
         }
     }
 
-    private static string FormatProjectName(string projectId)
+    private (string organization, string projectId) ParseProjectId(string projectId)
     {
-        // Convert "ar24-3" to "Annual Report 2024 - 3"
+        // Support both formats: "organization/projectId" and legacy "projectId"
+        if (projectId.Contains('/'))
+        {
+            var parts = projectId.Split('/', 2);
+            return (parts[0], parts[1]);
+        }
+
+        // Legacy format - assume optiver for backward compatibility
+        return ("optiver", projectId);
+    }
+
+    private static string FormatProjectName(string organization, string projectId)
+    {
+        // Convert "ar24-3" to "Annual Report 2024 - 3 (optiver)"
+        var baseName = projectId;
+
         if (projectId.StartsWith("ar"))
         {
             var parts = projectId.Substring(2).Split('-');
             if (parts.Length == 2)
             {
-                return $"Annual Report 20{parts[0]} - {parts[1]}";
+                baseName = $"Annual Report 20{parts[0]} - {parts[1]}";
             }
         }
 
-        return projectId;
+        return $"{baseName} ({organization})";
     }
 }

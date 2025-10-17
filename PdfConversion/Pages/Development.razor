@@ -353,8 +353,7 @@
     protected override async Task OnInitializedAsync()
     {
         // Wire up toolbar state
-        ToolbarState.OnProjectChanged = async (projectId) => await OnProjectChanged(new ChangeEventArgs { Value = projectId });
-        ToolbarState.OnFileChanged = async (fileName) => await OnFileChanged(new ChangeEventArgs { Value = fileName });
+        ToolbarState.OnFilePathChanged = async (filePath) => await OnFilePathChanged(filePath);
         ToolbarState.OnTransform = TransformAsync;
         ToolbarState.OnSave = SaveXsltAsync;
         ToolbarState.OnToggleSettings = ToggleSettings;
@@ -409,9 +408,9 @@
     private void UpdateToolbarState()
     {
         ToolbarState.Projects = Projects;
-        ToolbarState.ProjectFiles = ProjectFiles;
-        ToolbarState.SelectedProjectId = SelectedProjectId;
-        ToolbarState.SelectedFileName = SelectedFileName;
+        ToolbarState.SelectedFilePath = !string.IsNullOrEmpty(SelectedProjectId) && !string.IsNullOrEmpty(SelectedFileName)
+            ? $"{SelectedProjectId}/{SelectedFileName}"
+            : null;
         ToolbarState.IsLoading = IsLoading;
         ToolbarState.IsTransforming = IsTransforming;
         ToolbarState.IsSaving = IsSaving;
@@ -428,7 +427,15 @@
             IsLoading = true;
             UpdateToolbarState();
             Projects = (await ProjectService.GetProjectsAsync()).ToList();
-            Logger.LogInformation("Loaded {Count} projects", Projects.Count);
+
+            // Load files for each project
+            foreach (var project in Projects)
+            {
+                var fullProjectId = $"{project.Organization}/{project.ProjectId}";
+                project.Files = (await ProjectService.GetProjectFilesAsync(fullProjectId)).ToList();
+            }
+
+            Logger.LogInformation("Loaded {Count} projects with files", Projects.Count);
         }
         catch (Exception ex)
         {
@@ -501,6 +508,96 @@
         finally
         {
             IsLoadingXslt = false;
+        }
+    }
+
+    private async Task OnFilePathChanged(string filePath)
+    {
+        try
+        {
+            // Parse: "org/project/file.xml" -> org, project, file
+            var parts = filePath.Split('/', 3);
+            if (parts.Length != 3) return;
+
+            var organization = parts[0];
+            var projectId = parts[1];
+            var fileName = parts[2];
+
+            SelectedProjectId = $"{organization}/{projectId}";
+            SelectedFileName = fileName;
+            XmlContent = null;
+            OutputContent = null;
+
+            IsLoadingXml = true;
+            UpdateToolbarState();
+            StateHasChanged();
+
+            var xmlFilePath = Path.Combine("/app/data/input", organization, "projects", projectId, fileName);
+            XmlContent = await ProjectService.ReadInputFileAsync(SelectedProjectId, fileName);
+            Logger.LogInformation("Loaded file {FileName} from project {ProjectId}", fileName, SelectedProjectId);
+
+            // Start watching the XML file
+            try
+            {
+                XmlFileWatcher.StartWatching(xmlFilePath);
+                Logger.LogInformation("Started watching XML file: {Path}", xmlFilePath);
+            }
+            catch (Exception watchEx)
+            {
+                Logger.LogError(watchEx, "Failed to start XML file watcher");
+            }
+
+            // Auto-transform if enabled
+            if (AutoTransform && CanTransform)
+            {
+                await TransformAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading file from path {Path}", filePath);
+            ToastNotification.ShowError($"Failed to load file: {ex.Message}");
+        }
+        finally
+        {
+            IsLoadingXml = false;
+            UpdateToolbarState();
+            StateHasChanged();
+
+            // Initialize or update Monaco viewer
+            if (!string.IsNullOrEmpty(XmlContent))
+            {
+                _ = InvokeAsync(async () =>
+                {
+                    await Task.Delay(200);
+                    try
+                    {
+                        if (_sourceXmlViewerInitialized)
+                        {
+                            await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.setValue", "sourceXml", XmlContent ?? "");
+                        }
+                        else
+                        {
+                            var sourceXmlTheme = ThemeService.GetMonacoTheme();
+                            await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.createViewer",
+                                "source-xml-viewer",
+                                "sourceXml",
+                                new { value = XmlContent ?? "", language = "xml", theme = sourceXmlTheme });
+                            _sourceXmlViewerInitialized = true;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError(ex, "Error initializing/updating Source XML viewer");
+                    }
+                });
+            }
+
+            // Save selection to localStorage
+            if (!isRestoringFromStorage)
+            {
+                await JSRuntime.InvokeVoidAsync("developmentStorage.saveSelection", SelectedProjectId, SelectedFileName, SelectedXsltFile);
+            }
         }
     }
 
@@ -1232,15 +1329,13 @@
                             await LoadXsltAsync();
                         }
 
-                        // Restore project selection
-                        await OnProjectChanged(new ChangeEventArgs { Value = savedSelection.ProjectId });
-
-                        // Restore file selection if available
-                        if (!string.IsNullOrEmpty(savedSelection.FileName))
+                        // Restore file selection if available (using the new combined path approach)
+                        if (!string.IsNullOrEmpty(savedSelection.ProjectId) && !string.IsNullOrEmpty(savedSelection.FileName))
                         {
-                            // Wait for project files to load
+                            // Wait for projects to load
                             await Task.Delay(800);
-                            await OnFileChanged(new ChangeEventArgs { Value = savedSelection.FileName });
+                            var filePath = $"{savedSelection.ProjectId}/{savedSelection.FileName}";
+                            await OnFilePathChanged(filePath);
                         }
                     }
                     finally

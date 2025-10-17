@@ -21,26 +21,24 @@
         @if (IsOnDevelopmentPage)
         {
             <div class="nav-toolbar">
-                <select class="form-select form-select-sm toolbar-select" @onchange="OnProjectChanged" disabled="@ToolbarState.IsLoading">
-                    <option value="">Project...</option>
+                <select class="form-select form-select-sm toolbar-select" @onchange="OnFileSelectionChanged" disabled="@ToolbarState.IsLoading">
+                    <option value="">Select a file...</option>
                     @if (ToolbarState.Projects != null)
                     {
                         @foreach (var project in ToolbarState.Projects)
                         {
-                            <option value="@project.ProjectId" selected="@(ToolbarState.SelectedProjectId == project.ProjectId)">
-                                @project.Name (@project.FileCount)
-                            </option>
-                        }
-                    }
-                </select>
-
-                <select class="form-select form-select-sm toolbar-select" @onchange="OnFileChanged" disabled="@(ToolbarState.IsLoading || string.IsNullOrEmpty(ToolbarState.SelectedProjectId))">
-                    <option value="">File...</option>
-                    @if (ToolbarState.ProjectFiles != null)
-                    {
-                        @foreach (var file in ToolbarState.ProjectFiles)
-                        {
-                            <option value="@file" selected="@(ToolbarState.SelectedFileName == file)">@file</option>
+                            <optgroup label="@project.Name">
+                                @if (project.Files != null && project.Files.Any())
+                                {
+                                    @foreach (var file in project.Files)
+                                    {
+                                        var fullPath = $"{project.Organization}/{project.ProjectId}/{file}";
+                                        <option value="@fullPath" selected="@(ToolbarState.SelectedFilePath == fullPath)">
+                                            @file
+                                        </option>
+                                    }
+                                }
+                            </optgroup>
                         }
                     }
                 </select>
@@ -132,20 +130,17 @@
         StateHasChanged();
     }
 
-    private async Task OnProjectChanged(ChangeEventArgs e)
+    private async Task OnFileSelectionChanged(ChangeEventArgs e)
     {
-        if (ToolbarState.OnProjectChanged != null)
-        {
-            await ToolbarState.OnProjectChanged(e.Value?.ToString() ?? "");
-        }
-    }
+        var selectedPath = e.Value?.ToString();
+        ToolbarState.SelectedFilePath = selectedPath;
 
-    private async Task OnFileChanged(ChangeEventArgs e)
-    {
-        if (ToolbarState.OnFileChanged != null)
+        if (!string.IsNullOrEmpty(selectedPath) && ToolbarState.OnFilePathChanged != null)
         {
-            await ToolbarState.OnFileChanged(e.Value?.ToString() ?? "");
+            await ToolbarState.OnFilePathChanged(selectedPath);
         }
+
+        StateHasChanged();
     }
 
     private async Task OnTransform()

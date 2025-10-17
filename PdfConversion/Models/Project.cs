@@ -11,6 +11,11 @@ public class Project
     public string ProjectId { get; set; } = string.Empty;
 
     /// <summary>
+    /// Organization name (e.g., "optiver", "antea-group")
+    /// </summary>
+    public string Organization { get; set; } = string.Empty;
+
+    /// <summary>
     /// Display name for the project
     /// </summary>
     public string Name { get; set; } = string.Empty;
@@ -34,6 +39,11 @@ public class Project
     /// Number of files in the project
     /// </summary>
     public int FileCount { get; set; }
+
+    /// <summary>
+    /// List of files in the project (cached for UI display)
+    /// </summary>
+    public List<string> Files { get; set; } = new List<string>();
 
     /// <summary>
     /// Date when the project was created

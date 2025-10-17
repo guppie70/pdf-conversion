@@ -43,7 +43,8 @@ public class FileService : IFileService
             }
 
             fileStream.Position = 0;
-            var projectPath = $"/app/data/input/optiver/projects/{projectId}";
+            var (organization, id) = ParseProjectId(projectId);
+            var projectPath = Path.Combine("/app/data/input", organization, "projects", id);
             Directory.CreateDirectory(projectPath);
 
             var filePath = Path.Combine(projectPath, fileName);
@@ -52,7 +53,7 @@ public class FileService : IFileService
                 await fileStream.CopyToAsync(fileStreamOut);
             }
 
-            _logger.LogInformation("Uploaded XML file {FileName} to project {ProjectId}", fileName, projectId);
+            _logger.LogInformation("Uploaded XML file {FileName} to project {Organization}/{ProjectId}", fileName, organization, id);
             return (true, $"Successfully uploaded {fileName}");
         }
         catch (Exception ex)
@@ -107,7 +108,8 @@ public class FileService : IFileService
         using var memoryStream = new MemoryStream();
         using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, true))
         {
-            var outputPath = $"/app/data/output/optiver/projects/{projectId}";
+            var (organization, id) = ParseProjectId(projectId);
+            var outputPath = Path.Combine("/app/data/output", organization, "projects", id);
             if (Directory.Exists(outputPath))
             {
                 foreach (var file in Directory.GetFiles(outputPath))
@@ -128,19 +130,32 @@ public class FileService : IFileService
         using var memoryStream = new MemoryStream();
         using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, true))
         {
-            var outputBasePath = "/app/data/output/optiver/projects";
+            var outputBasePath = "/app/data/output";
             if (Directory.Exists(outputBasePath))
             {
-                foreach (var projectDir in Directory.GetDirectories(outputBasePath))
+                // Iterate through organization directories
+                foreach (var orgDir in Directory.GetDirectories(outputBasePath))
                 {
-                    var projectId = Path.GetFileName(projectDir);
-                    foreach (var file in Directory.GetFiles(projectDir))
+                    var organization = Path.GetFileName(orgDir);
+                    if (organization.StartsWith('.'))
+                        continue;
+
+                    var projectsPath = Path.Combine(orgDir, "projects");
+                    if (!Directory.Exists(projectsPath))
+                        continue;
+
+                    // Iterate through project directories
+                    foreach (var projectDir in Directory.GetDirectories(projectsPath))
                     {
-                        var entryName = $"{projectId}/{Path.GetFileName(file)}";
-                        var entry = archive.CreateEntry(entryName);
-                        using var entryStream = entry.Open();
-                        using var fileStream = File.OpenRead(file);
-                        await fileStream.CopyToAsync(entryStream);
+                        var projectId = Path.GetFileName(projectDir);
+                        foreach (var file in Directory.GetFiles(projectDir))
+                        {
+                            var entryName = $"{organization}/{projectId}/{Path.GetFileName(file)}";
+                            var entry = archive.CreateEntry(entryName);
+                            using var entryStream = entry.Open();
+                            using var fileStream = File.OpenRead(file);
+                            await fileStream.CopyToAsync(entryStream);
+                        }
                     }
                 }
             }
@@ -235,5 +250,18 @@ public class FileService : IFileService
             _logger.LogError(ex, "Error retrieving XSLT files");
             return Enumerable.Empty<string>();
         }
+    }
+
+    private (string organization, string projectId) ParseProjectId(string projectId)
+    {
+        // Support both formats: "organization/projectId" and legacy "projectId"
+        if (projectId.Contains('/'))
+        {
+            var parts = projectId.Split('/', 2);
+            return (parts[0], parts[1]);
+        }
+
+        // Legacy format - assume optiver for backward compatibility
+        return ("optiver", projectId);
     }
 }
