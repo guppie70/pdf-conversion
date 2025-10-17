@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <xsl:stylesheet version="2.0"
                 xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
-                xmlns="http://www.w3.org/1999/xhtml"
                 xmlns:xs="http://www.w3.org/2001/XMLSchema"
                 exclude-result-prefixes="xs">
 
@@ -15,7 +14,7 @@
     </xsl:template>
 
     <!-- Template for asymmetric rows: add missing cells to balance the row -->
-    <xsl:template match="tr[@data-asymmetric='true']" mode="pass3">
+    <xsl:template match="tr[@data-asymmetric='true']" mode="pass3" priority="10">
         <xsl:variable name="current-cell-count" select="xs:integer(@data-cell-count)"/>
         <xsl:variable name="expected-cell-count" select="xs:integer(@data-expected-count)"/>
         <xsl:variable name="cells-to-add" select="$expected-cell-count - $current-cell-count"/>

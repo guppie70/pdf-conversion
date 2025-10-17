@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <xsl:stylesheet version="2.0"
                 xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
-                xmlns="http://www.w3.org/1999/xhtml"
                 xmlns:xs="http://www.w3.org/2001/XMLSchema"
                 xmlns:hdr="http://taxxor.com/xslt/header-functions"
                 xmlns:lst="http://taxxor.com/xslt/list-functions"
@@ -33,7 +32,7 @@
     <!-- Identity transform base templates (mode="#all" - works in both passes) -->
 
     <xsl:template match="*" mode="#all" priority="-1">
-        <xsl:element name="{local-name()}" namespace="http://www.w3.org/1999/xhtml">
+        <xsl:element name="{local-name()}">
             <xsl:apply-templates select="@*"/>
             <xsl:apply-templates select="node()"/>
         </xsl:element>
