@@ -62,41 +62,45 @@
         <!-- Left Panel: Source XML Viewer -->
         <div class="panel panel-left" id="panel-left">
             <div class="panel-header">
-                <button class="btn btn-link panel-help-btn"
-                        title="Source XML: Select and view your Adobe Acrobat XML input file"
-                        data-bs-toggle="tooltip"
-                        data-bs-placement="right">
-                    <i class="bi bi-question-circle"></i>
-                </button>
-                @if (Projects != null && Projects.Any())
-                {
-                    <select class="form-select form-select-sm xslt-file-select" @onchange="OnFilePathChangedFromDropdown">
-                        <option value="">Select a file...</option>
-                        @foreach (var project in Projects)
-                        {
-                            <optgroup label="@project.Name">
-                                @if (project.Files != null && project.Files.Any())
-                                {
-                                    @foreach (var file in project.Files)
+                <div class="panel-header-left">
+                    @if (Projects != null && Projects.Any())
+                    {
+                        <select class="form-select form-select-sm xslt-file-select" @onchange="OnFilePathChangedFromDropdown">
+                            <option value="">Select a file...</option>
+                            @foreach (var project in Projects)
+                            {
+                                <optgroup label="@project.Name">
+                                    @if (project.Files != null && project.Files.Any())
                                     {
-                                        var fullPath = $"{project.Organization}/{project.ProjectId}/{file}";
-                                        var isSelected = !string.IsNullOrEmpty(SelectedProjectId) &&
-                                                       !string.IsNullOrEmpty(SelectedFileName) &&
-                                                       SelectedProjectId == $"{project.Organization}/{project.ProjectId}" &&
-                                                       SelectedFileName == file;
-                                        <option value="@fullPath" selected="@isSelected">
-                                            @file
-                                        </option>
+                                        @foreach (var file in project.Files)
+                                        {
+                                            var fullPath = $"{project.Organization}/{project.ProjectId}/{file}";
+                                            var isSelected = !string.IsNullOrEmpty(SelectedProjectId) &&
+                                                           !string.IsNullOrEmpty(SelectedFileName) &&
+                                                           SelectedProjectId == $"{project.Organization}/{project.ProjectId}" &&
+                                                           SelectedFileName == file;
+                                            <option value="@fullPath" selected="@isSelected">
+                                                @file
+                                            </option>
+                                        }
                                     }
-                                }
-                            </optgroup>
-                        }
-                    </select>
-                }
-                else
-                {
-                    <span class="text-muted small">@(SelectedFileName ?? "No file selected")</span>
-                }
+                                </optgroup>
+                            }
+                        </select>
+                    }
+                    else
+                    {
+                        <span class="text-muted small">@(SelectedFileName ?? "No file selected")</span>
+                    }
+                </div>
+                <div class="panel-header-right">
+                    <button class="btn btn-sm panel-help-btn"
+                            title="Source XML: Select and view your Adobe Acrobat XML input file"
+                            data-bs-toggle="tooltip"
+                            data-bs-placement="right">
+                        <i class="bi bi-question-circle"></i>
+                    </button>
+                </div>
             </div>
             <div class="panel-content">
                 <!-- Keep Monaco viewer in DOM at all times to prevent detachment -->
@@ -124,25 +128,51 @@
         <!-- Center Panel: XSLT Editor -->
         <div class="panel panel-center" id="panel-center">
             <div class="panel-header">
-                <button class="btn btn-link panel-help-btn"
-                        title="XSLT Transformation: Edit XSLT templates to transform Adobe XML to Taxxor XHTML"
-                        data-bs-toggle="tooltip"
-                        data-bs-placement="bottom">
-                    <i class="bi bi-question-circle"></i>
-                </button>
-                @if (XsltFiles != null && XsltFiles.Any())
-                {
-                    <select class="form-select form-select-sm xslt-file-select" @onchange="OnXsltFileChanged" value="@SelectedXsltFile">
-                        @foreach (var file in XsltFiles)
-                        {
-                            <option value="@file">@file</option>
-                        }
-                    </select>
-                }
-                else
-                {
-                    <span class="text-muted small">@(SelectedXsltFile ?? "transformation.xslt")</span>
-                }
+                <div class="panel-header-left">
+                    @if (XsltFiles != null && XsltFiles.Any())
+                    {
+                        <select class="form-select form-select-sm xslt-file-select" @onchange="OnXsltFileChanged" value="@SelectedXsltFile">
+                            @foreach (var file in XsltFiles)
+                            {
+                                <option value="@file">@file</option>
+                            }
+                        </select>
+                    }
+                    else
+                    {
+                        <span class="text-muted small">@(SelectedXsltFile ?? "transformation.xslt")</span>
+                    }
+                </div>
+                <div class="panel-header-right">
+                    <div class="panel-action-buttons">
+                        <button class="btn btn-sm panel-action-btn" @onclick="TransformAsync" disabled="@(!CanTransform || IsTransforming)" title="Transform (Ctrl+Enter)" data-bs-toggle="tooltip">
+                            @if (IsTransforming)
+                            {
+                                <span class="spinner-border spinner-border-sm"></span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-play-fill"></i>
+                            }
+                        </button>
+                        <button class="btn btn-sm panel-action-btn" @onclick="SaveXsltAsync" disabled="@(!CanSave || IsSaving)" title="Save XSLT (Ctrl+S)" data-bs-toggle="tooltip">
+                            @if (IsSaving)
+                            {
+                                <span class="spinner-border spinner-border-sm"></span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-floppy-fill"></i>
+                            }
+                        </button>
+                        <button class="btn btn-sm panel-help-btn"
+                                title="XSLT Transformation: Edit XSLT templates to transform Adobe XML to Taxxor XHTML"
+                                data-bs-toggle="tooltip"
+                                data-bs-placement="bottom">
+                            <i class="bi bi-question-circle"></i>
+                        </button>
+                    </div>
+                </div>
             </div>
             <div class="panel-content">
                 <LoadingSkeleton IsLoading="@IsLoadingXslt" Type="SkeletonType.CodeEditor" Lines="30">

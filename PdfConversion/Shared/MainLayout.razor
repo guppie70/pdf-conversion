@@ -21,26 +21,6 @@
         {
             <div class="nav-toolbar">
                 <div class="nav-toolbar-actions">
-                    <button class="btn btn-sm btn-light" @onclick="OnTransform" disabled="@(!ToolbarState.CanTransform || ToolbarState.IsTransforming)" title="Transform (Ctrl+Enter)" data-bs-toggle="tooltip">
-                        @if (ToolbarState.IsTransforming)
-                        {
-                            <span class="spinner-border spinner-border-sm"></span>
-                        }
-                        else
-                        {
-                            <i class="bi bi-play-fill"></i>
-                        }
-                    </button>
-                    <button class="btn btn-sm btn-success" @onclick="OnSave" disabled="@(!ToolbarState.CanSave || ToolbarState.IsSaving)" title="Save XSLT (Ctrl+S)" data-bs-toggle="tooltip">
-                        @if (ToolbarState.IsSaving)
-                        {
-                            <span class="spinner-border spinner-border-sm"></span>
-                        }
-                        else
-                        {
-                            <i class="bi bi-save"></i>
-                        }
-                    </button>
                     <button class="btn btn-sm btn-outline-light" @onclick="OnToggleSettings" title="Settings" data-bs-toggle="tooltip">
                         <i class="bi bi-gear-fill"></i>
                     </button>

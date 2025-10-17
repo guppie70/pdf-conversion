@@ -650,30 +650,91 @@
     outline: none;
 }
 
+/* Panel header layout - left/right sections */
+.panel-header-left {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.panel-header-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: auto;
+}
+
+/* Panel action buttons group */
+.panel-action-buttons {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* Panel action buttons (Transform, Save) - VS Code Dark Modern theme */
+.panel-action-btn {
+    padding: 0.375rem 0.75rem;
+    border: 1px solid #3e3e42;
+    background-color: #2d2d30;
+    color: #cccccc;
+    font-size: 0.875rem;
+    border-radius: 0.25rem;
+    transition: all 0.15s ease-in-out;
+    cursor: pointer;
+}
+
+.panel-action-btn:hover:not(:disabled) {
+    background-color: #3e3e42;
+    border-color: #3e3e42;
+    color: #ffffff;
+}
+
+.panel-action-btn:active:not(:disabled) {
+    background-color: #252526;
+    border-color: #3e3e42;
+}
+
+.panel-action-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.panel-action-btn i {
+    font-size: 1rem;
+}
+
+.panel-action-btn .spinner-border-sm {
+    width: 1rem;
+    height: 1rem;
+    border-width: 0.15em;
+}
+
 /* Panel help buttons */
 .panel-help-btn {
-    padding: 0;
+    padding: 0.375rem 0.75rem;
     margin: 0;
-    border: none;
-    background: transparent;
-    color: #858585; /* Muted text */
+    border: 1px solid #3e3e42;
+    background-color: #2d2d30;
+    color: #858585;
     font-size: 1rem;
     line-height: 1;
-    transition: color 0.2s ease;
+    border-radius: 0.25rem;
+    transition: all 0.15s ease-in-out;
     cursor: help;
 }
 
 .panel-help-btn:hover,
 .panel-help-btn:focus {
-    color: #cccccc; /* Brighter on hover */
-    background: transparent;
+    background-color: #3e3e42;
+    border-color: #3e3e42;
+    color: #cccccc;
 }
 
 .panel-help-btn i {
     font-size: 1rem;
 }
 
-/* Adjust panel header spacing to accommodate help button */
+/* Adjust panel header spacing to accommodate layout */
 .panel-header {
     gap: 0.5rem;
 }
