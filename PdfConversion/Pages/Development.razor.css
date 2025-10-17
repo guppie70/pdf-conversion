@@ -649,3 +649,31 @@
     box-shadow: 0 0 0 0.15rem rgba(13, 110, 253, 0.15);
     outline: none;
 }
+
+/* Panel help buttons */
+.panel-help-btn {
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: transparent;
+    color: #858585; /* Muted text */
+    font-size: 1rem;
+    line-height: 1;
+    transition: color 0.2s ease;
+    cursor: help;
+}
+
+.panel-help-btn:hover,
+.panel-help-btn:focus {
+    color: #cccccc; /* Brighter on hover */
+    background: transparent;
+}
+
+.panel-help-btn i {
+    font-size: 1rem;
+}
+
+/* Adjust panel header spacing to accommodate help button */
+.panel-header {
+    gap: 0.5rem;
+}

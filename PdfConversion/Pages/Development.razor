@@ -62,7 +62,12 @@
         <!-- Left Panel: Source XML Viewer -->
         <div class="panel panel-left" id="panel-left">
             <div class="panel-header">
-                <span class="fw-bold">Source XML</span>
+                <button class="btn btn-link panel-help-btn"
+                        title="Source XML: Select and view your Adobe Acrobat XML input file"
+                        data-bs-toggle="tooltip"
+                        data-bs-placement="right">
+                    <i class="bi bi-question-circle"></i>
+                </button>
                 @if (Projects != null && Projects.Any())
                 {
                     <select class="form-select form-select-sm xslt-file-select" @onchange="OnFilePathChangedFromDropdown">
@@ -119,7 +124,12 @@
         <!-- Center Panel: XSLT Editor -->
         <div class="panel panel-center" id="panel-center">
             <div class="panel-header">
-                <span class="fw-bold">XSLT Transformation</span>
+                <button class="btn btn-link panel-help-btn"
+                        title="XSLT Transformation: Edit XSLT templates to transform Adobe XML to Taxxor XHTML"
+                        data-bs-toggle="tooltip"
+                        data-bs-placement="bottom">
+                    <i class="bi bi-question-circle"></i>
+                </button>
                 @if (XsltFiles != null && XsltFiles.Any())
                 {
                     <select class="form-select form-select-sm xslt-file-select" @onchange="OnXsltFileChanged" value="@SelectedXsltFile">
@@ -147,7 +157,12 @@
         <!-- Right Panel: Preview -->
         <div class="panel panel-right" id="panel-right">
             <div class="panel-header">
-                <span class="fw-bold">Output Preview</span>
+                <button class="btn btn-link panel-help-btn"
+                        title="Output Preview: View the transformed XHTML output in HTML or source mode"
+                        data-bs-toggle="tooltip"
+                        data-bs-placement="left">
+                    <i class="bi bi-question-circle"></i>
+                </button>
                 <div class="preview-controls">
                     @if (!string.IsNullOrEmpty(OutputContent))
                     {
@@ -1257,6 +1272,27 @@
                 {
                     Logger.LogError(ex, "Failed to initialize keyboard shortcuts");
                 }
+            }
+
+            // Initialize Bootstrap tooltips for panel help buttons
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("eval", @"
+                    if (typeof bootstrap !== 'undefined') {
+                        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle=""tooltip""]'));
+                        tooltipTriggerList.map(function (tooltipTriggerEl) {
+                            return new bootstrap.Tooltip(tooltipTriggerEl, {
+                                trigger: 'hover focus',
+                                container: 'body'
+                            });
+                        });
+                    }
+                ");
+                Logger.LogInformation("Bootstrap tooltips initialized for panel help buttons");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to initialize Bootstrap tooltips");
             }
 
             // Initialize Monaco Editor for XSLT
