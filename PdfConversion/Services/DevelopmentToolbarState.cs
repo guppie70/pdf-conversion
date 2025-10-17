@@ -10,7 +10,6 @@ public class DevelopmentToolbarState
 {
     // State
     public List<Project>? Projects { get; set; }
-    public string? SelectedFilePath { get; set; } // Format: "org/project/file.xml"
     public bool IsLoading { get; set; }
     public bool IsTransforming { get; set; }
     public bool IsSaving { get; set; }
@@ -22,7 +21,6 @@ public class DevelopmentToolbarState
     public bool CanSave { get; set; }
 
     // Callbacks - Development page sets these
-    public Func<string, Task>? OnFilePathChanged { get; set; }
     public Func<Task>? OnTransform { get; set; }
     public Func<Task>? OnSave { get; set; }
     public Action? OnToggleSettings { get; set; }

@@ -63,7 +63,35 @@
         <div class="panel panel-left" id="panel-left">
             <div class="panel-header">
                 <span class="fw-bold">Source XML</span>
-                <span class="text-muted small">@(SelectedFileName ?? "No file selected")</span>
+                @if (Projects != null && Projects.Any())
+                {
+                    <select class="form-select form-select-sm xslt-file-select" @onchange="OnFilePathChangedFromDropdown">
+                        <option value="">Select a file...</option>
+                        @foreach (var project in Projects)
+                        {
+                            <optgroup label="@project.Name">
+                                @if (project.Files != null && project.Files.Any())
+                                {
+                                    @foreach (var file in project.Files)
+                                    {
+                                        var fullPath = $"{project.Organization}/{project.ProjectId}/{file}";
+                                        var isSelected = !string.IsNullOrEmpty(SelectedProjectId) &&
+                                                       !string.IsNullOrEmpty(SelectedFileName) &&
+                                                       SelectedProjectId == $"{project.Organization}/{project.ProjectId}" &&
+                                                       SelectedFileName == file;
+                                        <option value="@fullPath" selected="@isSelected">
+                                            @file
+                                        </option>
+                                    }
+                                }
+                            </optgroup>
+                        }
+                    </select>
+                }
+                else
+                {
+                    <span class="text-muted small">@(SelectedFileName ?? "No file selected")</span>
+                }
             </div>
             <div class="panel-content">
                 <!-- Keep Monaco viewer in DOM at all times to prevent detachment -->
@@ -353,7 +381,6 @@
     protected override async Task OnInitializedAsync()
     {
         // Wire up toolbar state
-        ToolbarState.OnFilePathChanged = async (filePath) => await OnFilePathChanged(filePath);
         ToolbarState.OnTransform = TransformAsync;
         ToolbarState.OnSave = SaveXsltAsync;
         ToolbarState.OnToggleSettings = ToggleSettings;
@@ -408,9 +435,6 @@
     private void UpdateToolbarState()
     {
         ToolbarState.Projects = Projects;
-        ToolbarState.SelectedFilePath = !string.IsNullOrEmpty(SelectedProjectId) && !string.IsNullOrEmpty(SelectedFileName)
-            ? $"{SelectedProjectId}/{SelectedFileName}"
-            : null;
         ToolbarState.IsLoading = IsLoading;
         ToolbarState.IsTransforming = IsTransforming;
         ToolbarState.IsSaving = IsSaving;
@@ -508,6 +532,15 @@
         finally
         {
             IsLoadingXslt = false;
+        }
+    }
+
+    private async Task OnFilePathChangedFromDropdown(ChangeEventArgs e)
+    {
+        var filePath = e.Value?.ToString();
+        if (!string.IsNullOrEmpty(filePath))
+        {
+            await OnFilePathChanged(filePath);
         }
     }
 
