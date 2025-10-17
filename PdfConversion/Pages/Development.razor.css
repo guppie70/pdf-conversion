@@ -304,14 +304,15 @@
     margin-right: 0.25rem;
 }
 
-/* Empty state styling */
+/* Empty state styling - dark theme */
 .panel-content .text-center {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     height: 100%;
-    color: #6c757d;
+    background-color: #1e1e1e; /* VS Code editor background */
+    color: #858585; /* Muted text for dark theme */
 }
 
 .panel-content .text-center i {

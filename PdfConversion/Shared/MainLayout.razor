@@ -3,7 +3,6 @@
 @using PdfConversion.Shared
 @inject NavigationManager Navigation
 @inject DevelopmentToolbarState ToolbarState
-@inject ThemeService ThemeService
 @inject IJSRuntime JSRuntime
 @implements IDisposable
 
@@ -51,12 +50,6 @@
                     <button class="btn btn-sm btn-outline-light" @onclick="ToggleHelp" title="Help (?)" data-bs-toggle="tooltip">
                         <i class="bi bi-question-circle"></i>
                     </button>
-                    <label class="theme-toggle ms-2" title="Toggle dark/light theme">
-                        <input type="checkbox" checked="@(ThemeService.CurrentTheme == "dark")" @onchange="ToggleTheme">
-                        <span class="theme-toggle-slider"></span>
-                        <i class="bi bi-sun-fill theme-toggle-icon sun"></i>
-                        <i class="bi bi-moon-fill theme-toggle-icon moon"></i>
-                    </label>
                 </div>
             </div>
         }
@@ -82,7 +75,6 @@
     {
         Navigation.LocationChanged += OnLocationChanged;
         ToolbarState.OnChange += StateHasChanged;
-        ThemeService.OnThemeChanged += StateHasChanged;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -141,17 +133,9 @@
         StateHasChanged();
     }
 
-    private async Task ToggleTheme()
-    {
-        var newTheme = await JSRuntime.InvokeAsync<string>("ThemeManager.toggleTheme");
-        ThemeService.SetTheme(newTheme);
-        StateHasChanged();
-    }
-
     public void Dispose()
     {
         Navigation.LocationChanged -= OnLocationChanged;
         ToolbarState.OnChange -= StateHasChanged;
-        ThemeService.OnThemeChanged -= StateHasChanged;
     }
 }

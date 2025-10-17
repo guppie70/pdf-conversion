@@ -390,46 +390,10 @@
         XsltFileWatcher.SetFileChangedCallback(OnXsltFileChangedExternally);
         XmlFileWatcher.SetFileChangedCallback(OnXmlFileChangedExternally);
 
-        // Subscribe to theme changes
-        ThemeService.OnThemeChanged += OnThemeChanged;
-
         await LoadProjectsAsync();
         await LoadXsltAsync();
 
         UpdateToolbarState();
-    }
-
-    private async void OnThemeChanged()
-    {
-        try
-        {
-            var theme = ThemeService.GetMonacoTheme();
-
-            // Update Monaco editor theme if initialized
-            if (monacoInitialized)
-            {
-                await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.setTheme", theme);
-                Logger.LogInformation("Updated Monaco editor theme to {Theme}", theme);
-            }
-
-            // Update Source XML viewer theme if initialized
-            if (_sourceXmlViewerInitialized)
-            {
-                await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.setTheme", "sourceXml", theme);
-                Logger.LogInformation("Updated Source XML viewer theme to {Theme}", theme);
-            }
-
-            // Update Output XML viewer theme if initialized
-            if (_outputXmlViewerInitialized)
-            {
-                await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.setTheme", "outputXml", theme);
-                Logger.LogInformation("Updated Output XML viewer theme to {Theme}", theme);
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error updating Monaco editor theme");
-        }
     }
 
     private void UpdateToolbarState()

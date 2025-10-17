@@ -63,37 +63,24 @@ window.KeyboardShortcuts = {
     }
 };
 
-// Theme Management
+// Theme Management - Application is permanently dark theme
 window.ThemeManager = {
-    initialize: function(initialTheme) {
-        const theme = initialTheme || this.getSavedTheme() || 'light';
-        this.applyTheme(theme);
+    initialize: function() {
+        // Always set dark theme
+        this.applyTheme();
     },
 
-    applyTheme: function(theme) {
-        document.documentElement.setAttribute('data-theme', theme);
-        localStorage.setItem('preferred-theme', theme);
+    applyTheme: function() {
+        document.documentElement.setAttribute('data-theme', 'dark');
 
         // Update Monaco editor theme if it exists
         if (window.MonacoEditorInterop && window.MonacoEditorInterop.editor) {
-            const monacoTheme = theme === 'dark' ? 'vs-dark' : 'vs-light';
-            window.monaco.editor.setTheme(monacoTheme);
+            window.monaco.editor.setTheme('vs-dark');
         }
     },
 
-    toggleTheme: function() {
-        const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
-        const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-        this.applyTheme(newTheme);
-        return newTheme;
-    },
-
-    getSavedTheme: function() {
-        return localStorage.getItem('preferred-theme');
-    },
-
     getCurrentTheme: function() {
-        return document.documentElement.getAttribute('data-theme') || 'light';
+        return 'dark';
     }
 };
 
