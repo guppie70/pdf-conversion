@@ -97,13 +97,17 @@ main {
 
 .nav-toolbar-actions {
     display: flex;
-    gap: 0.25rem;
+    gap: 0.5rem;
 }
 
 .nav-toolbar-actions .btn {
     height: 32px;
-    padding: 0.25rem 0.75rem;
-    font-size: 0.9rem;
+    min-width: 32px;
+    padding: 0.25rem 0.5rem;
+    font-size: 1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .nav-toolbar-actions .btn-light {
