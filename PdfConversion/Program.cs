@@ -35,7 +35,12 @@ try
 
 // Add services to the container.
 builder.Services.AddRazorPages();
-builder.Services.AddServerSideBlazor();
+builder.Services.AddServerSideBlazor().AddHubOptions(options =>
+{
+    // Increase max message size to 10MB to support large XML file content in Monaco editor callbacks
+    // Default is 32KB which is too small for Source XML editor changes
+    options.MaximumReceiveMessageSize = 10 * 1024 * 1024; // 10MB
+});
 
 // Add memory cache for service caching
 builder.Services.AddMemoryCache(options =>

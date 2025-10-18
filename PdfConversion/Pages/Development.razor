@@ -42,7 +42,7 @@
                 <div class="form-check mb-2">
                     <input class="form-check-input" type="checkbox" id="autoTransform" @bind="AutoTransform" @bind:after="OnSettingsChanged">
                     <label class="form-check-label" for="autoTransform">
-                        Auto-transform on XSLT change
+                        Auto-transform on XML or XSLT change
                     </label>
                 </div>
 
@@ -223,12 +223,28 @@
                     }
                 </div>
                 <div class="panel-header-right">
-                    <button class="btn btn-sm panel-help-btn"
-                            title="Source XML Help"
-                            data-bs-toggle="modal"
-                            data-bs-target="#xmlSteeringAttributesModal">
-                        <i class="bi bi-question-circle"></i>
-                    </button>
+                    <div class="panel-action-buttons">
+                        <button class="btn btn-sm panel-action-btn"
+                                @onclick="SaveXmlAsync"
+                                disabled="@(!CanSaveXml || IsSavingXml)"
+                                title="Save Source XML (Ctrl+S)"
+                                data-bs-toggle="tooltip">
+                            @if (IsSavingXml)
+                            {
+                                <span class="spinner-border spinner-border-sm"></span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-floppy-fill"></i>
+                            }
+                        </button>
+                        <button class="btn btn-sm panel-help-btn"
+                                title="Source XML Help"
+                                data-bs-toggle="modal"
+                                data-bs-target="#xmlSteeringAttributesModal">
+                            <i class="bi bi-question-circle"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
             <div class="panel-content">
@@ -477,11 +493,14 @@
     private bool IsLoadingXslt = false;
     private bool IsTransforming = false;
     private bool IsSaving = false;
+    private bool IsSavingXml = false;
     private bool ShowSettings = false;
     private bool ShowRendered = false; // Default to source view
     private bool ShowFormattedXml = true;
     private bool isRestoringFromStorage = false;
     private bool isUpdatingFromExternalFile = false; // Prevents Monaco from triggering auto-transform during external updates
+    private bool isUpdatingFromExternalXmlFile = false; // Prevents infinite loops when syncing XML from external file
+    private bool isSavingXmlToFile = false; // True when actively saving XML to prevent reload loop
 
     // Settings (defaults will be overridden by localStorage if available)
     private bool UseXslt3Service = true;
@@ -498,6 +517,10 @@
                                 && !string.IsNullOrEmpty(XsltContent);
 
     private bool CanSave => !string.IsNullOrEmpty(XsltContent);
+
+    private bool CanSaveXml => !string.IsNullOrEmpty(XmlContent)
+                             && !string.IsNullOrEmpty(SelectedProjectId)
+                             && !string.IsNullOrEmpty(SelectedFileName);
 
     private async Task OnRenderedToggled()
     {
@@ -569,7 +592,7 @@
         ToolbarState.Projects = Projects;
         ToolbarState.IsLoading = IsLoading;
         ToolbarState.IsTransforming = IsTransforming;
-        ToolbarState.IsSaving = IsSaving;
+        ToolbarState.IsSaving = IsSaving || IsSavingXml;
         ToolbarState.CanTransform = CanTransform;
         ToolbarState.CanSave = CanSave;
         ToolbarState.ShowSettings = ShowSettings;
@@ -729,33 +752,56 @@
             UpdateToolbarState();
             StateHasChanged();
 
-            // Initialize or update Monaco viewer
+            // Initialize or update Monaco editor
             if (!string.IsNullOrEmpty(XmlContent))
             {
+                Logger.LogInformation("OnFilePathChanged: Scheduling Source XML editor initialization/update (XmlContent length: {Length}, Editor initialized: {Initialized}, dotNetRef null: {DotNetRefNull})",
+                    XmlContent?.Length ?? 0, _sourceXmlEditorInitialized, dotNetRef == null);
+
                 _ = InvokeAsync(async () =>
                 {
                     await Task.Delay(200);
                     try
                     {
-                        if (_sourceXmlViewerInitialized)
+                        Logger.LogInformation("OnFilePathChanged: Attempting to initialize/update Source XML editor (Editor initialized: {Initialized})", _sourceXmlEditorInitialized);
+
+                        if (_sourceXmlEditorInitialized)
                         {
-                            await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.setValue", "sourceXml", XmlContent ?? "");
+                            await JSRuntime.InvokeVoidAsync("MonacoXmlEditorInterop.setValue", XmlContent ?? "");
+                            Logger.LogInformation("OnFilePathChanged: Source XML editor content updated via setValue");
                         }
                         else
                         {
+                            // Validate dotNetRef before initializing
+                            if (dotNetRef == null)
+                            {
+                                Logger.LogError("OnFilePathChanged: Cannot initialize Source XML editor - dotNetRef is null");
+                                ToastNotification.ShowError("Failed to initialize XML editor (dotNetRef null). Please refresh the page.");
+                                return;
+                            }
+
                             var sourceXmlTheme = ThemeService.GetMonacoTheme();
-                            await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.createViewer",
+                            Logger.LogInformation("OnFilePathChanged: Initializing Source XML editor (theme: {Theme})", sourceXmlTheme);
+
+                            await JSRuntime.InvokeVoidAsync("MonacoXmlEditorInterop.initialize",
                                 "source-xml-viewer",
-                                "sourceXml",
-                                new { value = XmlContent ?? "", language = "xml", theme = sourceXmlTheme });
-                            _sourceXmlViewerInitialized = true;
+                                XmlContent ?? "",
+                                dotNetRef,
+                                sourceXmlTheme);
+                            _sourceXmlEditorInitialized = true;
+                            Logger.LogInformation("OnFilePathChanged: Source XML editor initialized successfully");
                         }
                     }
                     catch (Exception ex)
                     {
-                        Logger.LogError(ex, "Error initializing/updating Source XML viewer");
+                        Logger.LogError(ex, "OnFilePathChanged: Error initializing/updating Source XML editor");
+                        ToastNotification.ShowError($"Failed to initialize XML editor: {ex.Message}");
                     }
                 });
+            }
+            else
+            {
+                Logger.LogWarning("OnFilePathChanged: XmlContent is empty, skipping Source XML editor initialization");
             }
 
             // Save selection to localStorage
@@ -853,43 +899,59 @@
             UpdateToolbarState();
             StateHasChanged();
 
-            // Initialize or update Monaco viewer
+            // Initialize or update Monaco editor
             if (!string.IsNullOrEmpty(XmlContent))
             {
+                Logger.LogInformation("OnFileChanged: Scheduling Source XML editor initialization/update (XmlContent length: {Length}, Editor initialized: {Initialized}, dotNetRef null: {DotNetRefNull})",
+                    XmlContent?.Length ?? 0, _sourceXmlEditorInitialized, dotNetRef == null);
+
                 _ = InvokeAsync(async () =>
                 {
                     await Task.Delay(200); // Give Blazor time to render the container
                     try
                     {
-                        if (_sourceXmlViewerInitialized)
+                        Logger.LogInformation("OnFileChanged: Attempting to initialize/update Source XML editor (Editor initialized: {Initialized})", _sourceXmlEditorInitialized);
+
+                        if (_sourceXmlEditorInitialized)
                         {
-                            // Update existing viewer
-                            await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.setValue",
-                                "sourceXml",
+                            // Update existing editor
+                            await JSRuntime.InvokeVoidAsync("MonacoXmlEditorInterop.setValue",
                                 XmlContent ?? "");
-                            Logger.LogInformation("Updated Source XML viewer content");
+                            Logger.LogInformation("OnFileChanged: Source XML editor content updated via setValue");
                         }
                         else
                         {
-                            // Initialize viewer for the first time
+                            // Validate dotNetRef before initializing
+                            if (dotNetRef == null)
+                            {
+                                Logger.LogError("OnFileChanged: Cannot initialize Source XML editor - dotNetRef is null");
+                                ToastNotification.ShowError("Failed to initialize XML editor (dotNetRef null). Please refresh the page.");
+                                return;
+                            }
+
+                            // Initialize editor for the first time
                             var sourceXmlTheme = ThemeService.GetMonacoTheme();
-                            await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.createViewer",
+                            Logger.LogInformation("OnFileChanged: Initializing Source XML editor (theme: {Theme})", sourceXmlTheme);
+
+                            await JSRuntime.InvokeVoidAsync("MonacoXmlEditorInterop.initialize",
                                 "source-xml-viewer",
-                                "sourceXml",
-                                new {
-                                    value = XmlContent ?? "",
-                                    language = "xml",
-                                    theme = sourceXmlTheme
-                                });
-                            _sourceXmlViewerInitialized = true;
-                            Logger.LogInformation("Source XML viewer initialized after file load");
+                                XmlContent ?? "",
+                                dotNetRef,
+                                sourceXmlTheme);
+                            _sourceXmlEditorInitialized = true;
+                            Logger.LogInformation("OnFileChanged: Source XML editor initialized successfully after file load");
                         }
                     }
                     catch (Exception ex)
                     {
-                        Logger.LogError(ex, "Error initializing/updating Source XML viewer");
+                        Logger.LogError(ex, "OnFileChanged: Error initializing/updating Source XML editor");
+                        ToastNotification.ShowError($"Failed to initialize XML editor: {ex.Message}");
                     }
                 });
+            }
+            else
+            {
+                Logger.LogWarning("OnFileChanged: XmlContent is empty, skipping Source XML editor initialization");
             }
 
             // Save selection to localStorage (unless we're restoring)
@@ -1067,16 +1129,26 @@
         {
             try
             {
+                // IGNORE file change if WE just saved the file
+                if (isSavingXmlToFile)
+                {
+                    Logger.LogInformation("XML file changed externally, but ignoring because we initiated the save");
+                    return;
+                }
+
                 Logger.LogInformation("XML file updated externally at {Path}", e.FilePath);
+
+                // Set flag to prevent Monaco from triggering auto-transform
+                isUpdatingFromExternalXmlFile = true;
 
                 // Update XML content
                 XmlContent = e.Content;
 
-                // Update Source XML viewer if initialized
-                if (_sourceXmlViewerInitialized)
+                // Update Monaco editor if initialized
+                if (_sourceXmlEditorInitialized)
                 {
-                    await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.setValue", "sourceXml", XmlContent);
-                    Logger.LogInformation("Updated Source XML viewer with external file changes");
+                    await JSRuntime.InvokeVoidAsync("MonacoXmlEditorInterop.setValue", XmlContent);
+                    Logger.LogInformation("Updated Source XML editor with external file changes");
                 }
 
                 StateHasChanged();
@@ -1095,6 +1167,11 @@
             {
                 Logger.LogError(ex, "Error handling external XML file change");
                 ToastNotification.ShowError($"Failed to reload XML: {ex.Message}");
+            }
+            finally
+            {
+                // Clear flag
+                isUpdatingFromExternalXmlFile = false;
             }
         });
     }
@@ -1257,6 +1334,57 @@
         }
     }
 
+    private async Task SaveXmlAsync()
+    {
+        if (!CanSaveXml) return;
+
+        try
+        {
+            IsSavingXml = true;
+            isSavingXmlToFile = true;  // SET FLAG BEFORE SAVE
+            UpdateToolbarState();
+            StateHasChanged();
+
+            Logger.LogInformation("SaveXmlAsync: Setting isSavingXmlToFile flag to TRUE");
+
+            // Parse project path: "org/project"
+            var parts = SelectedProjectId!.Split('/');
+            if (parts.Length != 2)
+            {
+                Logger.LogError("Invalid project ID format: {ProjectId}", SelectedProjectId);
+                ToastNotification.ShowError("Invalid project ID format");
+                return;
+            }
+
+            var organization = parts[0];
+            var projectId = parts[1];
+            var xmlFilePath = Path.Combine("/app/data/input", organization, "projects", projectId, SelectedFileName!);
+
+            await File.WriteAllTextAsync(xmlFilePath, XmlContent!);
+
+            ToastNotification.ShowSuccess($"Source XML saved: {SelectedFileName}");
+            Logger.LogInformation("Source XML saved to {Path}, waiting 2 seconds for file watcher...", xmlFilePath);
+
+            // Wait longer to ensure file watcher processes the change with flag set
+            // File watcher on macOS can have variable delays
+            await Task.Delay(2000);
+
+            Logger.LogInformation("SaveXmlAsync: Clearing isSavingXmlToFile flag to FALSE");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving Source XML file {File}", SelectedFileName);
+            ToastNotification.ShowError($"Failed to save XML: {ex.Message}");
+        }
+        finally
+        {
+            isSavingXmlToFile = false;  // CLEAR FLAG AFTER SAVE
+            IsSavingXml = false;
+            UpdateToolbarState();
+            StateHasChanged();
+        }
+    }
+
     private void ToggleSettings()
     {
         ShowSettings = !ShowSettings;
@@ -1375,7 +1503,7 @@
     private DotNetObjectReference<Development>? dotNetRef;
     private bool monacoInitialized = false;
     private bool keyboardShortcutsInitialized = false;
-    private bool _sourceXmlViewerInitialized = false;
+    private bool _sourceXmlEditorInitialized = false;
     private bool _outputXmlViewerInitialized = false;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -1469,26 +1597,24 @@
                 }
             }
 
-            // Initialize Source XML viewer
-            if (!string.IsNullOrEmpty(XmlContent) && !_sourceXmlViewerInitialized)
+            // Initialize Source XML editor
+            if (!string.IsNullOrEmpty(XmlContent) && !_sourceXmlEditorInitialized)
             {
                 try
                 {
                     var sourceXmlTheme = ThemeService.GetMonacoTheme();
-                    await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.createViewer",
+                    await JSRuntime.InvokeVoidAsync("MonacoXmlEditorInterop.initialize",
                         "source-xml-viewer",
-                        "sourceXml",
-                        new {
-                            value = XmlContent ?? "",
-                            language = "xml",
-                            theme = sourceXmlTheme
-                        });
-                    _sourceXmlViewerInitialized = true;
-                    Logger.LogInformation("Source XML viewer initialized successfully");
+                        XmlContent ?? "",
+                        dotNetRef,
+                        sourceXmlTheme);
+                    _sourceXmlEditorInitialized = true;
+                    Logger.LogInformation("Source XML editor initialized successfully");
                 }
                 catch (Exception ex)
                 {
-                    Logger.LogError(ex, "Failed to initialize Source XML viewer");
+                    Logger.LogError(ex, "Failed to initialize Source XML editor");
+                    ToastNotification.ShowError("Failed to initialize XML editor. Using fallback mode.");
                 }
             }
 
@@ -1552,9 +1678,51 @@
     }
 
     [JSInvokable]
+    public async Task OnXmlContentChanged(string content)
+    {
+        Logger.LogInformation("OnXmlContentChanged called - Flag: {Flag}, AutoTransform: {Auto}, CanTransform: {Can}, IsTransforming: {Trans}",
+            isUpdatingFromExternalXmlFile, AutoTransform, CanTransform, IsTransforming);
+
+        // Don't trigger updates if we're syncing from external file
+        if (isUpdatingFromExternalXmlFile)
+        {
+            Logger.LogDebug("OnXmlContentChanged: Skipping (updating from external file)");
+            return;
+        }
+
+        Logger.LogInformation("OnXmlContentChanged: Editor content changed (length: {Length})", content?.Length ?? 0);
+        XmlContent = content;
+
+        // Auto-transform if enabled
+        if (AutoTransform && CanTransform && !IsTransforming)
+        {
+            Logger.LogInformation("Auto-transform triggered by XML editor change");
+            await TransformAsync();
+        }
+        else if (!AutoTransform)
+        {
+            Logger.LogInformation("Auto-transform is DISABLED - enable it in settings to transform automatically");
+        }
+        else if (!CanTransform)
+        {
+            Logger.LogInformation("Auto-transform skipped - CanTransform is false (missing XML, XSLT, or selection)");
+        }
+        else if (IsTransforming)
+        {
+            Logger.LogInformation("Auto-transform skipped - transformation already in progress");
+        }
+    }
+
+    [JSInvokable]
     public async Task OnSaveShortcut()
     {
         await SaveXsltAsync();
+    }
+
+    [JSInvokable]
+    public async Task OnSaveXmlShortcut()
+    {
+        await SaveXmlAsync();
     }
 
     [JSInvokable]
@@ -1589,17 +1757,17 @@
         XsltFileWatcher.SetFileChangedCallback(null);
         XmlFileWatcher.SetFileChangedCallback(null);
 
-        // Dispose Source XML viewer
-        if (_sourceXmlViewerInitialized)
+        // Dispose Source XML editor
+        if (_sourceXmlEditorInitialized)
         {
             try
             {
-                await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.dispose", "sourceXml");
-                Logger.LogInformation("Disposed Source XML viewer");
+                await JSRuntime.InvokeVoidAsync("MonacoXmlEditorInterop.dispose");
+                Logger.LogInformation("Disposed Source XML editor");
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Error disposing Source XML viewer");
+                Logger.LogError(ex, "Error disposing Source XML editor");
             }
         }
 
