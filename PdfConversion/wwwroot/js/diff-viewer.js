@@ -8,6 +8,9 @@ let isScrolling = false;
 let scrollTimeout = null;
 let finalAlignmentTimeout = null;
 
+// Track the current anchor line for navigation
+let currentAnchorLine = 0;
+
 /**
  * Initialize synchronized scrolling for two panels
  * @param {string} leftPanelId - ID of the left panel element
@@ -24,6 +27,9 @@ export function initializeSyncScroll(leftPanelId, rightPanelId) {
 
     // Enable synchronized scrolling by default
     enableSyncScroll(leftPanelId, rightPanelId);
+
+    // Initialize line click handlers for anchor navigation
+    initializeLineClickHandlers(leftPanelId, rightPanelId);
 }
 
 /**
@@ -71,6 +77,35 @@ function scrollToLineIndex(panel, lineIndex) {
 
     if (targetLine) {
         const targetScrollTop = targetLine.offsetTop;
+        panel.scrollTop = targetScrollTop;
+    }
+}
+
+/**
+ * Scroll panel to show the line at the specified index, centered or near the top
+ * @param {HTMLElement} panel - The scrollable panel element
+ * @param {number} lineIndex - The 0-based line index to scroll to
+ */
+function scrollToLineIndexCentered(panel, lineIndex) {
+    const lines = panel.querySelectorAll('.diff-line');
+    if (lines.length === 0 || lineIndex < 0) {
+        return;
+    }
+
+    // Clamp lineIndex to valid range
+    const targetIndex = Math.min(lineIndex, lines.length - 1);
+    const targetLine = lines[targetIndex];
+
+    if (targetLine) {
+        // Get panel height and target line position
+        const panelHeight = panel.clientHeight;
+        const lineTop = targetLine.offsetTop;
+        const lineHeight = targetLine.offsetHeight;
+
+        // Try to center the line, but keep it near top if at beginning
+        const offset = Math.max(0, (panelHeight / 3) - (lineHeight / 2));
+        const targetScrollTop = Math.max(0, lineTop - offset);
+
         panel.scrollTop = targetScrollTop;
     }
 }
@@ -234,7 +269,7 @@ function getDifferenceLineIndices(panel) {
 }
 
 /**
- * Jump to the next difference from the current scroll position
+ * Jump to the next difference from the current anchor line
  * @param {string} leftPanelId - ID of the left panel element
  * @param {string} rightPanelId - ID of the right panel element
  * @returns {boolean} True if a difference was found and scrolled to, false otherwise
@@ -248,9 +283,6 @@ export function jumpToNextDifference(leftPanelId, rightPanelId) {
         return false;
     }
 
-    // Get current scroll position (use left panel as reference)
-    const currentLineIndex = findLineIndexAtScroll(leftPanel);
-
     // Get all difference indices
     const differenceIndices = getDifferenceLineIndices(leftPanel);
 
@@ -258,24 +290,28 @@ export function jumpToNextDifference(leftPanelId, rightPanelId) {
         return false;
     }
 
-    // Find the next difference after current position
-    const nextDifferenceIndex = differenceIndices.find(index => index > currentLineIndex);
+    // Find the next difference after current anchor line
+    const nextDifferenceIndex = differenceIndices.find(index => index > currentAnchorLine);
 
     if (nextDifferenceIndex === undefined) {
+        console.log('No more differences after line', currentAnchorLine);
         return false;
     }
 
     // Temporarily disable sync to prevent infinite loop
     isScrolling = true;
 
-    // Scroll both panels to the next difference
-    scrollToLineIndex(leftPanel, nextDifferenceIndex);
-    scrollToLineIndex(rightPanel, nextDifferenceIndex);
+    // Scroll both panels to the next difference (centered)
+    scrollToLineIndexCentered(leftPanel, nextDifferenceIndex);
+    scrollToLineIndexCentered(rightPanel, nextDifferenceIndex);
 
     // Re-enable sync after a short delay
     setTimeout(() => {
         isScrolling = false;
     }, 100);
+
+    // Set this as the new anchor line
+    setAnchorLine(leftPanelId, rightPanelId, nextDifferenceIndex);
 
     // Highlight the difference briefly
     highlightDifference(leftPanel, nextDifferenceIndex);
@@ -285,7 +321,7 @@ export function jumpToNextDifference(leftPanelId, rightPanelId) {
 }
 
 /**
- * Jump to the previous difference from the current scroll position
+ * Jump to the previous difference from the current anchor line
  * @param {string} leftPanelId - ID of the left panel element
  * @param {string} rightPanelId - ID of the right panel element
  * @returns {boolean} True if a difference was found and scrolled to, false otherwise
@@ -299,9 +335,6 @@ export function jumpToPreviousDifference(leftPanelId, rightPanelId) {
         return false;
     }
 
-    // Get current scroll position (use left panel as reference)
-    const currentLineIndex = findLineIndexAtScroll(leftPanel);
-
     // Get all difference indices
     const differenceIndices = getDifferenceLineIndices(leftPanel);
 
@@ -309,25 +342,29 @@ export function jumpToPreviousDifference(leftPanelId, rightPanelId) {
         return false;
     }
 
-    // Find the previous difference before current position
-    // Reverse the array to find the last one that's less than current
-    const previousDifferenceIndex = [...differenceIndices].reverse().find(index => index < currentLineIndex);
+    // Find the previous difference before current anchor line
+    // Reverse the array to find the last one that's less than current anchor
+    const previousDifferenceIndex = [...differenceIndices].reverse().find(index => index < currentAnchorLine);
 
     if (previousDifferenceIndex === undefined) {
+        console.log('No more differences before line', currentAnchorLine);
         return false;
     }
 
     // Temporarily disable sync to prevent infinite loop
     isScrolling = true;
 
-    // Scroll both panels to the previous difference
-    scrollToLineIndex(leftPanel, previousDifferenceIndex);
-    scrollToLineIndex(rightPanel, previousDifferenceIndex);
+    // Scroll both panels to the previous difference (centered)
+    scrollToLineIndexCentered(leftPanel, previousDifferenceIndex);
+    scrollToLineIndexCentered(rightPanel, previousDifferenceIndex);
 
     // Re-enable sync after a short delay
     setTimeout(() => {
         isScrolling = false;
     }, 100);
+
+    // Set this as the new anchor line
+    setAnchorLine(leftPanelId, rightPanelId, previousDifferenceIndex);
 
     // Highlight the difference briefly
     highlightDifference(leftPanel, previousDifferenceIndex);
@@ -354,4 +391,80 @@ function highlightDifference(panel, lineIndex) {
     setTimeout(() => {
         line.classList.remove('diff-line-highlighted');
     }, 1000);
+}
+
+/**
+ * Set the anchor line for navigation
+ * @param {string} leftPanelId - ID of the left panel element
+ * @param {string} rightPanelId - ID of the right panel element
+ * @param {number} lineIndex - The line index to set as anchor
+ */
+export function setAnchorLine(leftPanelId, rightPanelId, lineIndex) {
+    const leftPanel = document.getElementById(leftPanelId);
+    const rightPanel = document.getElementById(rightPanelId);
+
+    if (!leftPanel || !rightPanel) {
+        console.error('Could not find panels for setting anchor');
+        return;
+    }
+
+    // Update the anchor line
+    currentAnchorLine = lineIndex;
+
+    // Remove anchor class from all lines in both panels
+    const allLines = [
+        ...leftPanel.querySelectorAll('.diff-line'),
+        ...rightPanel.querySelectorAll('.diff-line')
+    ];
+
+    allLines.forEach(line => line.classList.remove('diff-line-anchor'));
+
+    // Add anchor class to the specified line in both panels
+    const leftLines = leftPanel.querySelectorAll('.diff-line');
+    const rightLines = rightPanel.querySelectorAll('.diff-line');
+
+    if (lineIndex >= 0 && lineIndex < leftLines.length) {
+        leftLines[lineIndex].classList.add('diff-line-anchor');
+    }
+
+    if (lineIndex >= 0 && lineIndex < rightLines.length) {
+        rightLines[lineIndex].classList.add('diff-line-anchor');
+    }
+
+    console.log('Anchor line set to:', lineIndex);
+}
+
+/**
+ * Initialize click handlers on all diff lines for anchor navigation
+ * @param {string} leftPanelId - ID of the left panel element
+ * @param {string} rightPanelId - ID of the right panel element
+ */
+export function initializeLineClickHandlers(leftPanelId, rightPanelId) {
+    const leftPanel = document.getElementById(leftPanelId);
+    const rightPanel = document.getElementById(rightPanelId);
+
+    if (!leftPanel || !rightPanel) {
+        console.error('Could not find panels for click handlers');
+        return;
+    }
+
+    // Add click handlers to left panel lines
+    const leftLines = leftPanel.querySelectorAll('.diff-line');
+    leftLines.forEach((line, index) => {
+        line.style.cursor = 'pointer';
+        line.addEventListener('click', () => {
+            setAnchorLine(leftPanelId, rightPanelId, index);
+        });
+    });
+
+    // Add click handlers to right panel lines
+    const rightLines = rightPanel.querySelectorAll('.diff-line');
+    rightLines.forEach((line, index) => {
+        line.style.cursor = 'pointer';
+        line.addEventListener('click', () => {
+            setAnchorLine(leftPanelId, rightPanelId, index);
+        });
+    });
+
+    console.log('Line click handlers initialized');
 }

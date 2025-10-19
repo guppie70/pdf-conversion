@@ -172,10 +172,23 @@
     align-items: stretch;
     min-height: 1.5rem;
     border-bottom: 1px solid #2b2b2b;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
 }
 
 .diff-line:hover {
     background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Anchor line indicator */
+::deep .diff-line-anchor {
+    border-left: 3px solid var(--bs-primary);
+    background-color: rgba(13, 110, 253, 0.08);
+}
+
+::deep .diff-line-anchor .diff-line-number {
+    background-color: rgba(13, 110, 253, 0.15);
+    font-weight: 600;
 }
 
 /* Line Number Column */
