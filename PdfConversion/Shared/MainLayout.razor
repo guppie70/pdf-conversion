@@ -12,9 +12,17 @@
     <header class="top-nav">
         <nav class="nav-links">
             <NavLink href="/" class="nav-link" Match="NavLinkMatch.All">Home</NavLink>
-            <NavLink href="/development" class="nav-link">Development</NavLink>
-            <NavLink href="/convert" class="nav-link">Convert</NavLink>
-            <NavLink href="/production" class="nav-link">Production</NavLink>
+            <NavLink href="/transform" class="nav-link">Transform</NavLink>
+            <div class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle" href="#" id="developDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    Develop
+                </a>
+                <ul class="dropdown-menu" aria-labelledby="developDropdown">
+                    <li><a class="dropdown-item" href="/convert">Convert</a></li>
+                    <li><a class="dropdown-item" href="/production">Production</a></li>
+                    <li><a class="dropdown-item" href="/debug-validation">Debug Validation</a></li>
+                </ul>
+            </div>
         </nav>
 
         @if (IsOnDevelopmentPage)
@@ -47,7 +55,7 @@
 </div>
 
 @code {
-    private bool IsOnDevelopmentPage => Navigation.Uri.Contains("/development", StringComparison.OrdinalIgnoreCase);
+    private bool IsOnDevelopmentPage => Navigation.Uri.Contains("/transform", StringComparison.OrdinalIgnoreCase);
     private bool ShowHelp = false;
     private bool ShowTransformationLog = false;
 
