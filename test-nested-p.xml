@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document>
+    <!-- Test Case 1: Nested P with Reference and sub-P elements -->
+    <P>
+        <Reference>(f)Employee benefits (continued)</Reference>
+        <P>(ii) Defined contribution plans</P>
+        <P>Obligations for contributions to defined contribution plans are recognised as an employee benefit expense in profit or loss in the periods during which related services are rendered by employees.</P>
+        <P>(iii) Other long-term employee benefits</P>
+        <P>The Group's net obligation in respect of long-term employee benefits is the amount of future benefit that employees have earned in return for their service in the current and prior periods.</P>
+    </P>
+
+    <!-- Test Case 2: Normal P without nesting -->
+    <P>This is a regular paragraph that should remain as a p element.</P>
+
+    <!-- Test Case 3: P with numbering prefix (should become h4) -->
+    <P>(a) This should become a header with numbering</P>
+
+    <!-- Test Case 4: Multiple nested P elements -->
+    <P>
+        <P>First nested paragraph</P>
+        <P>Second nested paragraph</P>
+        <P>(i) Nested paragraph with numbering - should be h4</P>
+    </P>
+</Document>

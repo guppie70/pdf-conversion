@@ -185,6 +185,26 @@
 
     <!-- Pass 1: Paragraph transformation templates -->
 
+    <!-- P with nested P children: unwrap outer P, process children as siblings (priority=25) -->
+    <xsl:template match="P[P]" priority="25">
+        <!-- Process only P children and their siblings directly, skip wrapping -->
+        <xsl:for-each select="node()[not(self::Reference)]">
+            <xsl:choose>
+                <xsl:when test="self::P">
+                    <xsl:apply-templates select="."/>
+                </xsl:when>
+                <xsl:when test="self::text() and normalize-space(.) != ''">
+                    <!-- Isolated text nodes between P elements become paragraphs -->
+                    <p><xsl:value-of select="normalize-space(.)"/></p>
+                </xsl:when>
+                <xsl:otherwise>
+                    <xsl:apply-templates select="."/>
+                </xsl:otherwise>
+            </xsl:choose>
+        </xsl:for-each>
+    </xsl:template>
+
+    <!-- P without nested P children: standard transformation (priority=10) -->
     <xsl:template match="P" priority="10">
         <xsl:variable name="text" select="normalize-space(.)"/>
         <xsl:if test="$text != ''">
