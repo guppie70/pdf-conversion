@@ -74,7 +74,13 @@ window.MonacoViewerInterop = (function() {
             useShadows: false,
             verticalScrollbarSize: 10,
             horizontalScrollbarSize: 10
-        }
+        },
+        // Disable unicode highlighting to prevent warning banner
+        unicodeHighlight: {
+            ambiguousCharacters: false,
+            invisibleCharacters: false
+        },
+        renderWhitespace: 'none'
     };
 
     /**

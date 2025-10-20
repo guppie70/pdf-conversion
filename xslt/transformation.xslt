@@ -219,6 +219,12 @@
 
     <!-- Pass 1: Link transformation templates -->
 
+    <xsl:template match="Link">
+        <a href="{.}">
+            <xsl:apply-templates/>
+        </a>
+    </xsl:template>
+
     <xsl:template match="Reference">
         <a href="#">
             <xsl:apply-templates select="@*"/>
