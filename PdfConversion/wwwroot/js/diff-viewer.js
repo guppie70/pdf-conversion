@@ -250,20 +250,46 @@ export function disableSyncScroll(leftPanelId, rightPanelId) {
 
 /**
  * Get all difference line indices (modified, inserted, deleted)
- * @param {HTMLElement} panel - The panel element
- * @returns {number[]} Array of line indices that have differences
+ * Checks BOTH panels to catch all difference types:
+ * - Deleted lines only appear in left panel
+ * - Inserted lines only appear in right panel
+ * - Modified lines appear in both panels
+ * @param {string} leftPanelId - ID of the left panel element
+ * @param {string} rightPanelId - ID of the right panel element
+ * @returns {number[]} Array of line indices that have differences in either panel
  */
-function getDifferenceLineIndices(panel) {
-    const lines = panel.querySelectorAll('.diff-line');
+function getDifferenceLineIndices(leftPanelId, rightPanelId) {
+    const leftPanel = document.getElementById(leftPanelId);
+    const rightPanel = document.getElementById(rightPanelId);
+
+    if (!leftPanel || !rightPanel) {
+        console.error('Could not find panels for difference detection');
+        return [];
+    }
+
+    const leftLines = leftPanel.querySelectorAll('.diff-line');
+    const rightLines = rightPanel.querySelectorAll('.diff-line');
     const differenceIndices = [];
 
-    lines.forEach((line, index) => {
-        // Check if line has any difference class (not unchanged or imaginary)
-        if (!line.classList.contains('line-unchanged') &&
-            !line.classList.contains('line-imaginary')) {
+    // Check each line index in both panels
+    const maxLines = Math.max(leftLines.length, rightLines.length);
+    for (let index = 0; index < maxLines; index++) {
+        const leftLine = leftLines[index];
+        const rightLine = rightLines[index];
+
+        // Check if either panel has a difference at this index
+        const leftHasDiff = leftLine &&
+            !leftLine.classList.contains('line-unchanged') &&
+            !leftLine.classList.contains('line-imaginary');
+
+        const rightHasDiff = rightLine &&
+            !rightLine.classList.contains('line-unchanged') &&
+            !rightLine.classList.contains('line-imaginary');
+
+        if (leftHasDiff || rightHasDiff) {
             differenceIndices.push(index);
         }
-    });
+    }
 
     return differenceIndices;
 }
@@ -283,8 +309,8 @@ export function jumpToNextDifference(leftPanelId, rightPanelId) {
         return false;
     }
 
-    // Get all difference indices
-    const differenceIndices = getDifferenceLineIndices(leftPanel);
+    // Get all difference indices from BOTH panels
+    const differenceIndices = getDifferenceLineIndices(leftPanelId, rightPanelId);
 
     if (differenceIndices.length === 0) {
         return false;
@@ -335,8 +361,8 @@ export function jumpToPreviousDifference(leftPanelId, rightPanelId) {
         return false;
     }
 
-    // Get all difference indices
-    const differenceIndices = getDifferenceLineIndices(leftPanel);
+    // Get all difference indices from BOTH panels
+    const differenceIndices = getDifferenceLineIndices(leftPanelId, rightPanelId);
 
     if (differenceIndices.length === 0) {
         return false;
