@@ -399,6 +399,63 @@ window.MonacoViewerInterop = (function() {
         return allSuccessful;
     }
 
+    /**
+     * Navigate to a specific line in the viewer
+     * Scrolls to the line, sets cursor position, and highlights it temporarily
+     *
+     * @param {string} viewerId - The viewer instance identifier
+     * @param {number} lineNumber - The line number to navigate to (1-based)
+     * @returns {boolean} True if successful, false if viewer not found
+     *
+     * @example
+     * MonacoViewerInterop.navigateToLine('outputXml', 42);
+     */
+    function navigateToLine(viewerId, lineNumber) {
+        if (!isMonacoLoaded()) {
+            return false;
+        }
+
+        const viewer = viewers.get(viewerId);
+
+        if (!viewer) {
+            console.error(`Viewer '${viewerId}' not found.`);
+            return false;
+        }
+
+        try {
+            // Scroll to line and center it in view
+            viewer.revealLineInCenter(lineNumber);
+
+            // Set cursor to the beginning of the line
+            viewer.setPosition({ lineNumber: lineNumber, column: 1 });
+
+            // Highlight the line temporarily with gold background
+            const decorations = viewer.deltaDecorations([], [{
+                range: new monaco.Range(lineNumber, 1, lineNumber, 1000),
+                options: {
+                    isWholeLine: true,
+                    className: 'monaco-highlighted-line',
+                    glyphMarginClassName: 'monaco-highlighted-glyph'
+                }
+            }]);
+
+            // Remove highlight after 3 seconds
+            setTimeout(() => {
+                viewer.deltaDecorations(decorations, []);
+            }, 3000);
+
+            // Focus the editor
+            viewer.focus();
+
+            console.log(`Navigated to line ${lineNumber} in viewer '${viewerId}'`);
+            return true;
+
+        } catch (error) {
+            console.error(`Error navigating to line in viewer '${viewerId}':`, error);
+            return false;
+        }
+    }
+
     // Public API
     return {
         createViewer,
@@ -411,7 +468,8 @@ window.MonacoViewerInterop = (function() {
         getViewerIds,
         hasViewer,
         layout,
-        layoutAll
+        layoutAll,
+        navigateToLine
     };
 })();
 

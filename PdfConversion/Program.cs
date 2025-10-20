@@ -75,6 +75,7 @@ builder.Services.AddScoped<IDocumentReconstructionService, DocumentReconstructio
 builder.Services.AddScoped<IDiffService, DiffService>();
 builder.Services.AddScoped<IRoundTripValidationService, RoundTripValidationService>();
 builder.Services.AddScoped<DevelopmentToolbarState>();
+builder.Services.AddSingleton<IXhtmlValidationService, XhtmlValidationService>();
 builder.Services.AddSingleton<ITransformationLogService, TransformationLogService>();
 builder.Services.AddSingleton<ThemeService>();
 builder.Services.AddSingleton<IXsltFileWatcherService, XsltFileWatcherService>();

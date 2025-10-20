@@ -271,9 +271,21 @@
 
 .stats-content {
     display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+}
+
+.stats-left {
+    display: flex;
     gap: 0.5rem;
     align-items: center;
     flex-wrap: wrap;
+}
+
+.stats-right {
+    margin-left: auto;
 }
 
 .stats-content .badge {

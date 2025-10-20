@@ -14,6 +14,7 @@
 @inject ThemeService ThemeService
 @inject IXsltFileWatcherService XsltFileWatcher
 @inject IXmlFileWatcherService XmlFileWatcher
+@inject IXhtmlValidationService ValidationService
 
 <PageTitle>Development Mode</PageTitle>
 
@@ -184,6 +185,153 @@
         </div>
     </div>
 </div>
+
+<!-- Output Preview Help Modal -->
+<div class="modal fade" id="outputPreviewHelpModal" tabindex="-1" aria-labelledby="outputPreviewHelpModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="outputPreviewHelpModalLabel">
+                    <i class="bi bi-eye me-2"></i>Output Preview
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                @if (!string.IsNullOrEmpty(SavedNormalizedXmlPath))
+                {
+                    <div class="alert alert-info mb-0" role="alert">
+                        <div class="d-flex align-items-start">
+                            <i class="bi bi-folder-open me-3" style="font-size: 1.5rem;"></i>
+                            <div class="flex-grow-1">
+                                <h6 class="alert-heading mb-2">Normalized XML saved to:</h6>
+                                <code class="d-block mb-3 p-2 bg-light rounded">@SavedNormalizedXmlPath</code>
+                                <button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => CopyPathToClipboard(SavedNormalizedXmlPath)">
+                                    <i class="bi bi-clipboard me-1"></i>Copy Path
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="text-muted text-center py-3">
+                        <i class="bi bi-info-circle me-2"></i>
+                        Transform the XML to see the saved file path
+                    </div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Validation Errors Modal (Draggable) -->
+@if (ValidationResult != null)
+{
+    <div class="modal fade" id="validationErrorsModal" tabindex="-1" aria-labelledby="validationErrorsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable" style="cursor: move;" id="validation-modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header" id="validation-modal-header">
+                    <h5 class="modal-title" id="validationErrorsModalLabel">
+                        <i class="bi bi-exclamation-triangle-fill text-danger me-2"></i>XHTML Validation Errors
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    @if (ValidationResult.Issues.Any())
+                    {
+                        // Group issues by element name and first XPath occurrence
+                        var groupedIssues = ValidationResult.Issues
+                            .Where(i => i.XPaths.Any())
+                            .GroupBy(i => new { ElementName = i.ElementName, XPath = i.XPaths.First() })
+                            .Select(g => new
+                            {
+                                ElementName = g.Key.ElementName,
+                                XPath = g.Key.XPath,
+                                Issues = g.ToList(),
+                                TotalOccurrences = g.Sum(i => i.OccurrenceCount),
+                                HasInvalidElement = g.Any(i => i.Type == ValidationIssueType.InvalidElement),
+                                HasUppercase = g.Any(i => i.Type == ValidationIssueType.UppercaseInElementName)
+                            })
+                            .OrderBy(g => g.ElementName)
+                            .ToList();
+
+                        <div class="alert alert-warning mb-3" role="alert">
+                            <i class="bi bi-info-circle me-2"></i>
+                            Found <strong>@ValidationResult.TotalIssues</strong> validation @(ValidationResult.TotalIssues == 1 ? "issue" : "issues") in <strong>@groupedIssues.Count</strong> unique @(groupedIssues.Count == 1 ? "element" : "elements"). Click an error to navigate to its location.
+                        </div>
+
+                        <div class="list-group">
+                            @foreach (var group in groupedIssues)
+                            {
+                                <div class="list-group-item">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <div class="d-flex align-items-center gap-2">
+                                            @* Show all applicable icons *@
+                                            @if (group.HasInvalidElement)
+                                            {
+                                                <i class="bi bi-x-circle text-danger" title="Invalid element - not in HTML5 spec" style="font-size: 1.25rem;"></i>
+                                            }
+                                            @if (group.HasUppercase)
+                                            {
+                                                <i class="bi bi-type text-warning" title="Uppercase in element name - HTML requires lowercase" style="font-size: 1.25rem;"></i>
+                                            }
+                                            <div>
+                                                <code class="@(group.HasInvalidElement ? "text-danger" : "text-warning")">&lt;@group.ElementName&gt;</code>
+                                                <span class="badge bg-secondary ms-2">@group.TotalOccurrences @(group.TotalOccurrences == 1 ? "occurrence" : "occurrences")</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="mt-2">
+                                        <small class="text-muted d-block mb-1">First occurrence XPath:</small>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <code class="small flex-grow-1 text-muted text-break">@group.XPath</code>
+                                            <button class="btn btn-sm btn-outline-secondary"
+                                                    @onclick="() => CopyToClipboardAsync(group.XPath)"
+                                                    title="Copy XPath">
+                                                <i class="bi bi-clipboard"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-primary"
+                                                    @onclick="() => NavigateToElement(group.XPath)"
+                                                    title="Navigate to element">
+                                                <i class="bi bi-arrow-right-circle"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        <div class="mt-3 small text-muted">
+                            <div class="d-flex align-items-center gap-3">
+                                <div>
+                                    <i class="bi bi-x-circle text-danger me-1"></i>
+                                    <span>Invalid element (not in HTML5 spec)</span>
+                                </div>
+                                <div>
+                                    <i class="bi bi-type text-warning me-1"></i>
+                                    <span>Uppercase in element name</span>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-success mb-0" role="alert">
+                            <i class="bi bi-check-circle me-2"></i>
+                            No validation errors found! The XHTML output is valid.
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
 
 <!-- Three-Panel Layout -->
 <div class="development-workspace">
@@ -372,9 +520,9 @@
                         </button>
                     }
                     <button class="btn btn-sm panel-help-btn"
-                            title="Output Preview: View the transformed XHTML output in HTML or source mode"
-                            data-bs-toggle="tooltip"
-                            data-bs-placement="left">
+                            title="Output Preview Help"
+                            data-bs-toggle="modal"
+                            data-bs-target="#outputPreviewHelpModal">
                         <i class="bi bi-question-circle"></i>
                     </button>
                 </div>
@@ -416,26 +564,40 @@
                     {
                         <div class="preview-stats">
                             <div class="stats-content">
-                                <span class="badge bg-success">
-                                    <i class="bi bi-clock"></i> @TransformationStats.ProcessingTimeMs ms
-                                </span>
-                                @if (TransformationStats.HeadersNormalized > 0)
-                                {
-                                    <span class="badge bg-info">
-                                        <i class="bi bi-type-h1"></i> @TransformationStats.HeadersNormalized headers normalized
+                                <div class="stats-left">
+                                    <span class="badge bg-success">
+                                        <i class="bi bi-clock"></i> @TransformationStats.ProcessingTimeMs ms
                                     </span>
-                                }
-                                @if (TransformationStats.TablesProcessed > 0)
+                                    @if (TransformationStats.HeadersNormalized > 0)
+                                    {
+                                        <span class="badge bg-info">
+                                            <i class="bi bi-type-h1"></i> @TransformationStats.HeadersNormalized headers normalized
+                                        </span>
+                                    }
+                                    @if (TransformationStats.TablesProcessed > 0)
+                                    {
+                                        <span class="badge bg-primary">
+                                            <i class="bi bi-table"></i> @TransformationStats.TablesProcessed tables processed
+                                        </span>
+                                    }
+                                    @if (TransformationStats.WarningMessages.Any())
+                                    {
+                                        <span class="badge bg-warning text-dark">
+                                            <i class="bi bi-exclamation-triangle"></i> @TransformationStats.WarningMessages.Count warnings
+                                        </span>
+                                    }
+                                </div>
+                                @if (ValidationResult != null && ValidationResult.TotalIssues > 0)
                                 {
-                                    <span class="badge bg-primary">
-                                        <i class="bi bi-table"></i> @TransformationStats.TablesProcessed tables processed
-                                    </span>
-                                }
-                                @if (TransformationStats.WarningMessages.Any())
-                                {
-                                    <span class="badge bg-warning text-dark">
-                                        <i class="bi bi-exclamation-triangle"></i> @TransformationStats.WarningMessages.Count warnings
-                                    </span>
+                                    <div class="stats-right">
+                                        <button class="badge bg-danger text-white border-0"
+                                                style="cursor: pointer;"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#validationErrorsModal"
+                                                title="Click to view validation errors">
+                                            <i class="bi bi-exclamation-triangle-fill"></i> @ValidationResult.TotalIssues validation @(ValidationResult.TotalIssues == 1 ? "error" : "errors")
+                                        </button>
+                                    </div>
                                 }
                             </div>
                         </div>
@@ -486,6 +648,8 @@
     private string? OutputContent;
     private TransformationResult? TransformationStats;
     private string? TransformationError;
+    private XhtmlValidationResult? ValidationResult;
+    private string? SavedNormalizedXmlPath;
 
     // UI State
     private bool IsLoading = false;
@@ -1184,6 +1348,8 @@
         {
             IsTransforming = true;
             TransformationError = null; // Clear any previous error
+            ValidationResult = null; // Clear previous validation results
+            SavedNormalizedXmlPath = null; // Clear saved path
             UpdateToolbarState();
 
             // ALWAYS use transformation.xslt as the main XSLT file for transformations
@@ -1238,6 +1404,53 @@
                 OutputContent = result.OutputContent;
                 TransformationStats = result;
                 Logger.LogInformation("Transformation successful in {Time}ms. OutputContent length: {Length}", result.ProcessingTimeMs, OutputContent?.Length ?? 0);
+
+                // Save normalized XML to debug folder
+                if (!string.IsNullOrEmpty(SelectedProjectId) && !string.IsNullOrEmpty(OutputContent))
+                {
+                    try
+                    {
+                        var parts = SelectedProjectId.Split('/');
+                        if (parts.Length == 2)
+                        {
+                            var organization = parts[0];
+                            var projectId = parts[1];
+                            var debugPath = Path.Combine("/app/data/output", organization, "projects", projectId, "debug");
+
+                            // Ensure debug directory exists
+                            if (!Directory.Exists(debugPath))
+                            {
+                                Directory.CreateDirectory(debugPath);
+                            }
+
+                            var normalizedXmlPath = Path.Combine(debugPath, "normalized.xml");
+                            await File.WriteAllTextAsync(normalizedXmlPath, OutputContent);
+                            SavedNormalizedXmlPath = normalizedXmlPath;
+                            Logger.LogInformation("Saved normalized XML to {Path}", normalizedXmlPath);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError(ex, "Failed to save normalized XML to debug folder");
+                        // Non-critical error, continue
+                    }
+                }
+
+                // Run XHTML validation
+                if (!string.IsNullOrEmpty(OutputContent))
+                {
+                    try
+                    {
+                        ValidationResult = await ValidationService.ValidateXhtmlAsync(OutputContent);
+                        Logger.LogInformation("XHTML validation completed: {TotalIssues} issues found",
+                            ValidationResult.TotalIssues);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError(ex, "Failed to run XHTML validation");
+                        ValidationResult = null; // Clear on error
+                    }
+                }
 
                 // Trigger visual success feedback (green glow on Transform button)
                 await TriggerTransformSuccessEffect();
@@ -1476,6 +1689,211 @@
         }
     }
 
+    // Copy file path to clipboard
+    private async Task CopyPathToClipboard(string path)
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(path))
+            {
+                await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", path);
+                ToastNotification.ShowSuccess("Path copied to clipboard");
+                Logger.LogInformation("File path copied to clipboard: {Path}", path);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error copying path to clipboard");
+            ToastNotification.ShowError($"Failed to copy path: {ex.Message}");
+        }
+    }
+
+    // Copy XPath to clipboard
+    private async Task CopyToClipboardAsync(string text)
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(text))
+            {
+                await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", text);
+                ToastNotification.ShowSuccess("XPath copied to clipboard");
+                Logger.LogInformation("XPath copied to clipboard");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error copying XPath to clipboard");
+            ToastNotification.ShowError($"Failed to copy XPath: {ex.Message}");
+        }
+    }
+
+    // Navigate to element by XPath
+    private async Task NavigateToElement(string xpath)
+    {
+        try
+        {
+            Logger.LogInformation("Navigating to element at XPath: {XPath}", xpath);
+
+            // Close the validation modal using Bootstrap 5 API (no jQuery needed)
+            await JSRuntime.InvokeVoidAsync("eval", @"
+                const modal = document.getElementById('validationErrorsModal');
+                if (modal && bootstrap && bootstrap.Modal) {
+                    const modalInstance = bootstrap.Modal.getInstance(modal);
+                    if (modalInstance) {
+                        modalInstance.hide();
+                    }
+                }
+            ");
+
+            // Switch to XML source view if in HTML mode
+            if (ShowRendered)
+            {
+                ShowRendered = false;
+                StateHasChanged();
+                await Task.Delay(200); // Give Blazor time to update the UI
+            }
+
+            // Ensure Output XML viewer is visible
+            if (!_outputXmlViewerInitialized || string.IsNullOrEmpty(OutputContent))
+            {
+                Logger.LogWarning("Output XML viewer not initialized or no content available");
+                ToastNotification.ShowWarning("XML viewer not ready. Please try again.");
+                return;
+            }
+
+            // Find the element in the XML and get its line number
+            var lineNumber = FindElementLineNumber(xpath);
+
+            if (lineNumber > 0)
+            {
+                // Navigate to the line in Monaco editor
+                await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.navigateToLine", "outputXml", lineNumber);
+                ToastNotification.ShowSuccess($"Navigated to line {lineNumber}");
+                Logger.LogInformation("Navigated to line {LineNumber} for XPath {XPath}", lineNumber, xpath);
+            }
+            else
+            {
+                ToastNotification.ShowWarning($"Could not locate element in XML. XPath: {xpath}");
+                Logger.LogWarning("Could not find line number for XPath: {XPath}", xpath);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error navigating to element");
+            ToastNotification.ShowError($"Failed to navigate to element: {ex.Message}");
+        }
+    }
+
+    private int FindElementLineNumber(string xpath)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(OutputContent))
+            {
+                return -1;
+            }
+
+            // Parse XPath to get element name (last segment)
+            // Example: /html[1]/body[1]/div[1]/ul[7]/li[2]/L[1] -> L
+            var xpathSegments = xpath.Split('/');
+            var lastSegment = xpathSegments.LastOrDefault(s => !string.IsNullOrWhiteSpace(s));
+
+            if (string.IsNullOrEmpty(lastSegment))
+            {
+                return -1;
+            }
+
+            // Remove index notation: L[1] -> L
+            var elementName = System.Text.RegularExpressions.Regex.Replace(lastSegment, @"\[\d+\]", "");
+
+            // Parse XML with line info
+            var doc = System.Xml.Linq.XDocument.Parse(OutputContent, System.Xml.Linq.LoadOptions.SetLineInfo);
+            var element = FindElementByXPath(doc.Root, xpath);
+
+            if (element == null)
+            {
+                Logger.LogWarning("Element not found in XML for XPath: {XPath}", xpath);
+                return -1;
+            }
+
+            // Get line number from IXmlLineInfo
+            if (element is System.Xml.IXmlLineInfo lineInfo && lineInfo.HasLineInfo())
+            {
+                return lineInfo.LineNumber;
+            }
+
+            // Fallback: search for element in text
+            var lines = OutputContent.Split('\n');
+            var searchPattern = $"<{elementName}";
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (lines[i].Contains(searchPattern))
+                {
+                    return i + 1; // Line numbers are 1-based
+                }
+            }
+
+            Logger.LogWarning("Line number not found for element {ElementName}", elementName);
+            return -1;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error finding line number for XPath: {XPath}", xpath);
+            return -1;
+        }
+    }
+
+    private System.Xml.Linq.XElement? FindElementByXPath(System.Xml.Linq.XElement? root, string xpath)
+    {
+        if (root == null || string.IsNullOrEmpty(xpath))
+        {
+            return null;
+        }
+
+        try
+        {
+            // Simple XPath traversal for indexed paths like /html[1]/body[1]/div[1]/ul[7]/li[2]/L[1]
+            var segments = xpath.Split('/')
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .ToList();
+
+            var current = root;
+
+            foreach (var segment in segments.Skip(1)) // Skip first empty segment from leading /
+            {
+                // Parse segment: elementName[index]
+                var match = System.Text.RegularExpressions.Regex.Match(segment, @"^([^\[]+)(?:\[(\d+)\])?$");
+                if (!match.Success)
+                {
+                    return null;
+                }
+
+                var elementName = match.Groups[1].Value;
+                var index = match.Groups[2].Success ? int.Parse(match.Groups[2].Value) : 1;
+
+                // Find child elements with matching name
+                var children = current.Elements()
+                    .Where(e => e.Name.LocalName.Equals(elementName, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                if (children.Count < index)
+                {
+                    return null;
+                }
+
+                current = children[index - 1]; // XPath uses 1-based indexing
+            }
+
+            return current;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error traversing XPath: {XPath}", xpath);
+            return null;
+        }
+    }
+
     // Download output
     private async Task DownloadOutput()
     {
@@ -1574,6 +1992,25 @@
             catch (Exception ex)
             {
                 Logger.LogWarning(ex, "Failed to initialize Bootstrap tooltips");
+            }
+
+            // Initialize draggable validation modal
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("eval", @"
+                    if (typeof $ !== 'undefined' && $.fn.draggable) {
+                        $('#validation-modal-dialog').draggable({
+                            handle: '#validation-modal-header',
+                            cursor: 'move',
+                            containment: 'window'
+                        });
+                    }
+                ");
+                Logger.LogInformation("Validation modal draggability initialized");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to initialize validation modal draggability (jQuery UI may not be available)");
             }
 
             // Initialize Monaco Editor for XSLT
@@ -1801,3 +2238,4 @@
         dotNetRef?.Dispose();
     }
 }
+
