@@ -1,6 +1,29 @@
 using System.Xml.Linq;
+using Microsoft.Extensions.Options;
+using PdfConversion.Models;
 
 namespace PdfConversion.Services;
+
+/// <summary>
+/// Information about a section that used template content
+/// </summary>
+public class TemplateSectionInfo
+{
+    public string DataRef { get; set; } = string.Empty;
+    public string LinkName { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Result of a document reconstruction operation
+/// </summary>
+public class DocumentReconstructionResult
+{
+    public string ReconstructedXml { get; set; } = string.Empty;
+    public int TemplatesUsed { get; set; }
+    public List<TemplateSectionInfo> TemplateUsedForSections { get; set; } = new();
+    public int SectionsLoaded { get; set; }
+    public int SectionsMissing { get; set; }
+}
 
 /// <summary>
 /// Service for reconstructing the original Normalized XML from split section files and hierarchy
@@ -13,7 +36,16 @@ public interface IDocumentReconstructionService
     /// <param name="hierarchyXmlPath">Path to the hierarchy XML file</param>
     /// <param name="sectionsDirectory">Directory containing section XML files</param>
     /// <returns>The reconstructed XML as a string</returns>
+    [Obsolete("Use ReconstructNormalizedXmlWithDetailsAsync instead")]
     Task<string> ReconstructNormalizedXmlAsync(string hierarchyXmlPath, string sectionsDirectory);
+
+    /// <summary>
+    /// Reconstructs the Normalized XML by reassembling section files in hierarchy order
+    /// </summary>
+    /// <param name="hierarchyXmlPath">Path to the hierarchy XML file</param>
+    /// <param name="sectionsDirectory">Directory containing section XML files</param>
+    /// <returns>Detailed reconstruction result with template usage information</returns>
+    Task<DocumentReconstructionResult> ReconstructNormalizedXmlWithDetailsAsync(string hierarchyXmlPath, string sectionsDirectory);
 }
 
 /// <summary>
@@ -22,14 +54,26 @@ public interface IDocumentReconstructionService
 public class DocumentReconstructionService : IDocumentReconstructionService
 {
     private readonly ILogger<DocumentReconstructionService> _logger;
+    private readonly IOptions<ConversionSettings> _conversionSettings;
 
-    public DocumentReconstructionService(ILogger<DocumentReconstructionService> logger)
+    public DocumentReconstructionService(
+        ILogger<DocumentReconstructionService> logger,
+        IOptions<ConversionSettings> conversionSettings)
     {
         _logger = logger;
+        _conversionSettings = conversionSettings;
     }
 
     public async Task<string> ReconstructNormalizedXmlAsync(string hierarchyXmlPath, string sectionsDirectory)
     {
+        var result = await ReconstructNormalizedXmlWithDetailsAsync(hierarchyXmlPath, sectionsDirectory);
+        return result.ReconstructedXml;
+    }
+
+    public async Task<DocumentReconstructionResult> ReconstructNormalizedXmlWithDetailsAsync(string hierarchyXmlPath, string sectionsDirectory)
+    {
+        var result = new DocumentReconstructionResult();
+
         try
         {
             _logger.LogInformation("Starting document reconstruction from {HierarchyPath}", hierarchyXmlPath);
@@ -86,11 +130,10 @@ public class DocumentReconstructionService : IDocumentReconstructionService
                 throw new InvalidOperationException("Failed to create document-content div");
             }
 
-            // 5. Load each section file and append content to body
-            int sectionsLoaded = 0;
-            int sectionsMissing = 0;
-            int templatesUsed = 0;
+            // Get special files from configuration that should be excluded from template usage tracking
+            var specialFiles = new HashSet<string>(_conversionSettings.Value.SpecialSectionFiles);
 
+            // 5. Load each section file and append content to body
             foreach (var item in hierarchyItems)
             {
                 // Skip report-root as per user instructions
@@ -107,20 +150,73 @@ public class DocumentReconstructionService : IDocumentReconstructionService
                 {
                     // Load actual section file
                     sectionContent = await File.ReadAllTextAsync(sectionPath);
-                    sectionsLoaded++;
+                    result.SectionsLoaded++;
                 }
                 else if (!string.IsNullOrEmpty(templateContent))
                 {
-                    // Use template for missing section
-                    _logger.LogWarning("Section file not found: {DataRef}, using template", item.DataRef);
-                    sectionContent = templateContent;
-                    templatesUsed++;
+                    // Parse template and inject the linkName into the header
+                    var templateDoc = XDocument.Parse(templateContent);
+                    var templateNs = templateDoc.Root?.GetDefaultNamespace() ?? XNamespace.None;
+
+                    // Find the h1 element in the template
+                    // Structure: Root (data) → content → article → div → section → h1
+                    var contentElement = templateDoc.Root?.Element(templateNs + "content");
+                    var articleElement = contentElement?.Element(templateNs + "article");
+                    var divElement = articleElement?.Element(templateNs + "div");
+                    var sectionElement = divElement?.Element(templateNs + "section");
+                    var h1Element = sectionElement?.Element(templateNs + "h1");
+
+                    // Defensive logging
+                    if (contentElement == null)
+                        _logger.LogWarning("Template parsing: content element not found");
+                    else if (articleElement == null)
+                        _logger.LogWarning("Template parsing: article element not found");
+                    else if (divElement == null)
+                        _logger.LogWarning("Template parsing: div element not found (expected <div class='pageblock'>)");
+                    else if (sectionElement == null)
+                        _logger.LogWarning("Template parsing: section element not found");
+                    else if (h1Element == null)
+                        _logger.LogWarning("Template parsing: h1 element not found");
+
+                    if (h1Element != null && !string.IsNullOrEmpty(item.LinkName))
+                    {
+                        // Update the header to include the specific section name
+                        h1Element.Value = $"TEMPLATE PLACEHOLDER - {item.LinkName}";
+                        _logger.LogDebug("Injected linkName '{LinkName}' into template for {DataRef}", item.LinkName, item.DataRef);
+                    }
+                    else if (h1Element == null)
+                    {
+                        _logger.LogWarning("Could not inject linkName '{LinkName}' for {DataRef} - h1 element not found in template",
+                            item.LinkName, item.DataRef);
+                    }
+
+                    sectionContent = templateDoc.ToString();
+
+                    // Check if this is a special file that should be excluded from reporting
+                    if (specialFiles.Contains(item.DataRef))
+                    {
+                        _logger.LogDebug("Skipping template usage tracking for special file: {DataRef}", item.DataRef);
+                        // Use template but don't track it
+                    }
+                    else
+                    {
+                        // Use template for missing section and track it
+                        _logger.LogWarning("Section file not found: {DataRef}, using template for {LinkName}",
+                            item.DataRef, item.LinkName);
+
+                        result.TemplatesUsed++;
+                        result.TemplateUsedForSections.Add(new TemplateSectionInfo
+                        {
+                            DataRef = item.DataRef,
+                            LinkName = item.LinkName
+                        });
+                    }
                 }
                 else
                 {
                     // No template available, skip
                     _logger.LogWarning("Section file not found and no template available: {DataRef}", item.DataRef);
-                    sectionsMissing++;
+                    result.SectionsMissing++;
                     continue;
                 }
 
@@ -151,16 +247,17 @@ public class DocumentReconstructionService : IDocumentReconstructionService
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error loading section {DataRef}", item.DataRef);
-                    sectionsMissing++;
+                    result.SectionsMissing++;
                 }
             }
 
             _logger.LogInformation("Reconstruction complete: {Loaded} sections loaded, {Templates} templates used, {Missing} missing",
-                sectionsLoaded, templatesUsed, sectionsMissing);
+                result.SectionsLoaded, result.TemplatesUsed, result.SectionsMissing);
 
             // 6. Pretty print the reconstructed XML for consistent formatting
             var prettyPrintedXml = PrettyPrintXml(reconstructedDoc);
-            return prettyPrintedXml;
+            result.ReconstructedXml = prettyPrintedXml;
+            return result;
         }
         catch (Exception ex)
         {
@@ -222,6 +319,7 @@ public class DocumentReconstructionService : IDocumentReconstructionService
         {
             var dataRef = itemElement.Attribute("data-ref")?.Value;
             var id = itemElement.Attribute("id")?.Value;
+            var linkName = itemElement.Element(ns + "web_page")?.Element(ns + "linkname")?.Value ?? string.Empty;
 
             if (!string.IsNullOrEmpty(dataRef) && !string.IsNullOrEmpty(id))
             {
@@ -229,7 +327,8 @@ public class DocumentReconstructionService : IDocumentReconstructionService
                 {
                     Id = id,
                     DataRef = dataRef,
-                    Depth = depth
+                    Depth = depth,
+                    LinkName = linkName
                 });
             }
 
@@ -345,5 +444,6 @@ public class DocumentReconstructionService : IDocumentReconstructionService
         public string Id { get; set; } = string.Empty;
         public string DataRef { get; set; } = string.Empty;
         public int Depth { get; set; } = 1;
+        public string LinkName { get; set; } = string.Empty;
     }
 }

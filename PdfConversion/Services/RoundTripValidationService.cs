@@ -194,10 +194,12 @@ public class RoundTripValidationService : IRoundTripValidationService
 
             // 5. Reconstruct document from sections
             _logger.LogInformation("Reconstructing document from sections");
-            var reconstructedXml = await _reconstructionService.ReconstructNormalizedXmlAsync(
+            var reconstructionResult = await _reconstructionService.ReconstructNormalizedXmlWithDetailsAsync(
                 hierarchyXmlPath,
                 sectionsDirectory);
+            var reconstructedXml = reconstructionResult.ReconstructedXml;
             _logger.LogInformation("Document reconstruction completed, output size: {Size} characters", reconstructedXml.Length);
+            _logger.LogInformation("Template usage: {TemplatesUsed} sections used template content", reconstructionResult.TemplatesUsed);
 
             // DEBUG: Save reconstructed output
             var reconstructedPath = Path.Combine(debugOutputDirectory, "2-reconstructed-from-sections.xml");
@@ -224,7 +226,9 @@ public class RoundTripValidationService : IRoundTripValidationService
             result.TotalDifferences = diffResult.TotalDifferences;
             result.DiffResult = diffResult;
             result.Duration = DateTime.UtcNow - startTime;
-            result.DebugOutputDirectory = debugOutputDirectory; // Add this to result model
+            result.DebugOutputDirectory = debugOutputDirectory;
+            result.TemplatesUsed = reconstructionResult.TemplatesUsed;
+            result.TemplateUsedForSections = reconstructionResult.TemplateUsedForSections;
 
             _logger.LogInformation("Round-trip validation complete: {Status}, Match: {Match}%",
                 result.IsPerfectMatch ? "Perfect Match" : "Differences Found",
@@ -308,6 +312,16 @@ public class RoundTripValidationResult
     /// Path to directory containing debug output files
     /// </summary>
     public string? DebugOutputDirectory { get; set; }
+
+    /// <summary>
+    /// Number of sections that used template placeholder content
+    /// </summary>
+    public int TemplatesUsed { get; set; }
+
+    /// <summary>
+    /// List of section information that used template content
+    /// </summary>
+    public List<TemplateSectionInfo> TemplateUsedForSections { get; set; } = new();
 
     /// <summary>
     /// Returns a formatted summary of the validation results

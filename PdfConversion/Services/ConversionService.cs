@@ -2,6 +2,7 @@ using PdfConversion.Models;
 using System.Xml;
 using System.Xml.Linq;
 using System.Xml.XPath;
+using Microsoft.Extensions.Options;
 
 namespace PdfConversion.Services;
 
@@ -71,6 +72,7 @@ public class ConversionService : IConversionService
     private readonly IHeaderMatchingService _headerMatchingService;
     private readonly IContentExtractionService _contentExtractionService;
     private readonly IHeaderNormalizationService _headerNormalizationService;
+    private readonly IOptions<ConversionSettings> _conversionSettings;
     private const string TemplateFilePath = "/app/data/input/template.xml";
 
     public ConversionService(
@@ -79,7 +81,8 @@ public class ConversionService : IConversionService
         IProjectManagementService projectService,
         IHeaderMatchingService headerMatchingService,
         IContentExtractionService contentExtractionService,
-        IHeaderNormalizationService headerNormalizationService)
+        IHeaderNormalizationService headerNormalizationService,
+        IOptions<ConversionSettings> conversionSettings)
     {
         _logger = logger;
         _xsltService = xsltService;
@@ -87,6 +90,7 @@ public class ConversionService : IConversionService
         _headerMatchingService = headerMatchingService;
         _contentExtractionService = contentExtractionService;
         _headerNormalizationService = headerNormalizationService;
+        _conversionSettings = conversionSettings;
     }
 
     public async Task<List<HierarchyItem>> LoadHierarchyAsync(string path)
@@ -739,6 +743,15 @@ public class ConversionService : IConversionService
                 var match = matches[i];
                 var progress = $"[{i + 1}/{matches.Count}]";
 
+                // Check if this is a special section file that should never be generated
+                var specialFiles = new HashSet<string>(_conversionSettings.Value.SpecialSectionFiles);
+                if (specialFiles.Contains(match.HierarchyItem.DataRef))
+                {
+                    logCallback($"{progress} ℹ Skipping special section file: {match.HierarchyItem.DataRef}");
+                    result.SkippedSections++;
+                    continue;
+                }
+
                 // Handle duplicates with user selection
                 if (match.IsDuplicate)
                 {
@@ -916,6 +929,69 @@ public class ConversionService : IConversionService
                         transformedXhtml,
                         match.MatchedHeader,
                         nextHeader); // Pass the selected next header as explicit boundary
+
+                    // Check if extracted content is empty or null
+                    var xhtmlNs = XNamespace.Get("http://www.w3.org/1999/xhtml");
+                    var hasContent = extractedContent?.Root?
+                        .Descendants(xhtmlNs + "body")
+                        .FirstOrDefault()?
+                        .Elements()
+                        .Any() ?? false;
+
+                    if (!hasContent)
+                    {
+                        logCallback($"{progress} ⚠ No content extracted for section '{match.HierarchyItem.LinkName}', using template");
+
+                        // Load template file
+                        if (File.Exists(TemplateFilePath))
+                        {
+                            var templateContent = await File.ReadAllTextAsync(TemplateFilePath);
+                            var templateDoc = XDocument.Parse(templateContent);
+                            var templateNs = templateDoc.Root?.GetDefaultNamespace() ?? XNamespace.None;
+
+                            // Inject linkName into template header
+                            var h1Element = templateDoc.Root?
+                                .Element(templateNs + "content")?
+                                .Element(templateNs + "article")?
+                                .Descendants(templateNs + "section")
+                                .FirstOrDefault()?
+                                .Element(templateNs + "h1");
+
+                            if (h1Element != null)
+                            {
+                                h1Element.Value = $"TEMPLATE PLACEHOLDER - {match.HierarchyItem.LinkName}";
+                            }
+
+                            // Create XHTML wrapper for template content
+                            var templateSection = templateDoc.Root?
+                                .Element(templateNs + "content")?
+                                .Element(templateNs + "article")?
+                                .Descendants(templateNs + "section")
+                                .FirstOrDefault();
+
+                            if (templateSection != null)
+                            {
+                                // Create an XHTML document with template section content
+                                extractedContent = new XDocument(
+                                    new XDocumentType("html", null, null, null),
+                                    new XElement(xhtmlNs + "html",
+                                        new XElement(xhtmlNs + "head",
+                                            new XElement(xhtmlNs + "title", "Template Content")
+                                        ),
+                                        new XElement(xhtmlNs + "body",
+                                            // Strip namespace from template elements
+                                            templateSection.Elements().Select(e => StripNamespace(e))
+                                        )
+                                    )
+                                );
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogError("Template file not found at {TemplatePath}", TemplateFilePath);
+                            // Continue with empty content - PopulateTemplate will handle it
+                        }
+                    }
 
                     // Normalize headers
                     var normalizedContent = _headerNormalizationService.NormalizeHeaders(extractedContent);

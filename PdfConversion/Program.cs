@@ -48,6 +48,10 @@ builder.Services.AddMemoryCache(options =>
     options.SizeLimit = 1024 * 1024 * 100; // 100MB limit
 });
 
+// Register configuration settings
+builder.Services.Configure<PdfConversion.Models.ConversionSettings>(
+    builder.Configuration.GetSection("ConversionSettings"));
+
 // Add distributed cache (Redis) - optional, falls back to memory
 var redisConnection = builder.Configuration.GetValue<string>("Redis:ConnectionString");
 if (!string.IsNullOrEmpty(redisConnection))
