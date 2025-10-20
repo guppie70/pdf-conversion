@@ -1137,6 +1137,24 @@ public class ConversionService : IConversionService
         {
             // Find the section element in the article
             var articleElement = contentElement.Element(ns + "article");
+
+            // Update article attributes based on filename
+            if (articleElement != null && !string.IsNullOrEmpty(hierarchyItem.DataRef))
+            {
+                // Extract base filename (remove .xml extension)
+                var baseFilename = hierarchyItem.DataRef.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)
+                    ? hierarchyItem.DataRef.Substring(0, hierarchyItem.DataRef.Length - 4)
+                    : hierarchyItem.DataRef;
+
+                // Update attributes
+                articleElement.SetAttributeValue("id", baseFilename);
+                articleElement.SetAttributeValue("data-guid", baseFilename);
+                articleElement.SetAttributeValue("data-fact-id", baseFilename);
+                articleElement.SetAttributeValue("data-hierarchical-level", hierarchyItem.Level.ToString());
+
+                // Keep data-articletype and data-last-modified as-is from template
+            }
+
             var sectionElement = articleElement?.Descendants(ns + "section").FirstOrDefault();
 
             if (sectionElement != null)
