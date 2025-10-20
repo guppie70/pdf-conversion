@@ -9,8 +9,8 @@
 @inject IXsltTransformationService XsltService
 @inject IFileService FileService
 @inject IJSRuntime JSRuntime
-@inject ILogger<Development> Logger
-@inject DevelopmentToolbarState ToolbarState
+@inject ILogger<Transform> Logger
+@inject TransformToolbarState ToolbarState
 @inject ThemeService ThemeService
 @inject IXsltFileWatcherService XsltFileWatcher
 @inject IXmlFileWatcherService XmlFileWatcher
@@ -1918,7 +1918,7 @@
     }
 
     // Monaco Editor Integration
-    private DotNetObjectReference<Development>? dotNetRef;
+    private DotNetObjectReference<Transform>? dotNetRef;
     private bool monacoInitialized = false;
     private bool keyboardShortcutsInitialized = false;
     private bool _sourceXmlEditorInitialized = false;

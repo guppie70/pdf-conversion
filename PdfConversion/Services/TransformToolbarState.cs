@@ -3,10 +3,10 @@ using PdfConversion.Models;
 namespace PdfConversion.Services;
 
 /// <summary>
-/// Shared state service for the Development page toolbar
-/// Allows toolbar controls in the navigation bar to communicate with the Development page
+/// Shared state service for the Transform page toolbar
+/// Allows toolbar controls in the navigation bar to communicate with the Transform page
 /// </summary>
-public class DevelopmentToolbarState
+public class TransformToolbarState
 {
     // State
     public List<Project>? Projects { get; set; }
@@ -20,7 +20,7 @@ public class DevelopmentToolbarState
     public bool CanTransform { get; set; }
     public bool CanSave { get; set; }
 
-    // Callbacks - Development page sets these
+    // Callbacks - Transform page sets these
     public Func<Task>? OnTransform { get; set; }
     public Func<Task>? OnSave { get; set; }
     public Action? OnToggleSettings { get; set; }

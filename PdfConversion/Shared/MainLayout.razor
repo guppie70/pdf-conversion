@@ -2,7 +2,7 @@
 @using PdfConversion.Services
 @using PdfConversion.Shared
 @inject NavigationManager Navigation
-@inject DevelopmentToolbarState ToolbarState
+@inject TransformToolbarState ToolbarState
 @inject IJSRuntime JSRuntime
 @implements IDisposable
 
@@ -25,7 +25,7 @@
             </div>
         </nav>
 
-        @if (IsOnDevelopmentPage)
+        @if (IsOnTransformPage)
         {
             <div class="nav-toolbar">
                 <div class="nav-toolbar-actions">
@@ -55,7 +55,7 @@
 </div>
 
 @code {
-    private bool IsOnDevelopmentPage => Navigation.Uri.Contains("/transform", StringComparison.OrdinalIgnoreCase);
+    private bool IsOnTransformPage => Navigation.Uri.Contains("/transform", StringComparison.OrdinalIgnoreCase);
     private bool ShowHelp = false;
     private bool ShowTransformationLog = false;
 

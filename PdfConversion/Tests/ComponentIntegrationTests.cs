@@ -16,27 +16,27 @@ public class ComponentIntegrationTests : TestContext
 {
     private readonly Mock<IProjectManagementService> _mockProjectService;
     private readonly Mock<IXsltTransformationService> _mockXsltService;
-    private readonly Mock<Microsoft.Extensions.Logging.ILogger<Development>> _mockLogger;
+    private readonly Mock<Microsoft.Extensions.Logging.ILogger<Transform>> _mockLogger;
     private readonly Mock<IFileService> _mockFileService;
     private readonly Mock<ITransformationLogService> _mockLogService;
     private readonly Mock<IDistributedCacheService> _mockCacheService;
     private readonly Mock<IPerformanceMonitoringService> _mockPerfService;
     private readonly Mock<IMemoryPoolManager> _mockMemoryPool;
     private readonly Mock<IBatchTransformationService> _mockBatchService;
-    private readonly DevelopmentToolbarState _toolbarState;
+    private readonly TransformToolbarState _toolbarState;
 
     public ComponentIntegrationTests()
     {
         _mockProjectService = new Mock<IProjectManagementService>();
         _mockXsltService = new Mock<IXsltTransformationService>();
-        _mockLogger = new Mock<Microsoft.Extensions.Logging.ILogger<Development>>();
+        _mockLogger = new Mock<Microsoft.Extensions.Logging.ILogger<Transform>>();
         _mockFileService = new Mock<IFileService>();
         _mockLogService = new Mock<ITransformationLogService>();
         _mockCacheService = new Mock<IDistributedCacheService>();
         _mockPerfService = new Mock<IPerformanceMonitoringService>();
         _mockMemoryPool = new Mock<IMemoryPoolManager>();
         _mockBatchService = new Mock<IBatchTransformationService>();
-        _toolbarState = new DevelopmentToolbarState();
+        _toolbarState = new TransformToolbarState();
 
         // Register services
         Services.AddSingleton(_mockProjectService.Object);
@@ -54,10 +54,10 @@ public class ComponentIntegrationTests : TestContext
     #region Service Integration Tests (Tests 1-8)
 
     /// <summary>
-    /// Test 1: Development component loads projects from service on initialization
+    /// Test 1: Transform component loads projects from service on initialization
     /// </summary>
     [Fact]
-    public void Development_OnInit_LoadsProjectsFromService()
+    public void Transform_OnInit_LoadsProjectsFromService()
     {
         // Arrange
         var projects = new List<Project>
@@ -68,7 +68,7 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(projects);
 
         // Act
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
 
         // Assert
         _mockProjectService.Verify(s => s.GetProjectsAsync(), Times.Once);
@@ -76,17 +76,17 @@ public class ComponentIntegrationTests : TestContext
     }
 
     /// <summary>
-    /// Test 2: Development component loads XSLT on initialization
+    /// Test 2: Transform component loads XSLT on initialization
     /// </summary>
     [Fact]
-    public void Development_OnInit_LoadsXSLT()
+    public void Transform_OnInit_LoadsXSLT()
     {
         // Arrange
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         JSInterop.Mode = JSRuntimeMode.Loose; // Allow JS calls to succeed
 
         // Act
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
 
         // Assert
         // Component should attempt to read XSLT file (verified through logs or state)
@@ -104,7 +104,7 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         _mockProjectService.Setup(s => s.GetProjectFilesAsync("ar24-1")).ReturnsAsync(projectFiles);
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
 
         // Act
         await _toolbarState.OnProjectChanged!("ar24-1");
@@ -125,7 +125,7 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         _mockProjectService.Setup(s => s.ReadInputFileAsync("ar24-1", "file.xml")).ReturnsAsync(xmlContent);
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
         await _toolbarState.OnProjectChanged!("ar24-1");
 
         // Act
@@ -155,7 +155,7 @@ public class ComponentIntegrationTests : TestContext
         _mockXsltService.Setup(s => s.TransformAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TransformationOptions>()))
             .ReturnsAsync(transformResult);
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
         await _toolbarState.OnProjectChanged!("ar24-1");
         await _toolbarState.OnFileChanged!("file.xml");
 
@@ -182,7 +182,7 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         JSInterop.Mode = JSRuntimeMode.Loose;
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
 
         // Act
         if (_toolbarState.OnSave != null)
@@ -205,11 +205,11 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         JSInterop.Mode = JSRuntimeMode.Loose;
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
         await _toolbarState.OnProjectChanged!("ar24-1");
 
         // Act
-        // TODO: Implement OnReset method in DevelopmentToolbarState
+        // TODO: Implement OnReset method in TransformToolbarState
         // if (_toolbarState.OnReset != null)
         // {
         //     await _toolbarState.OnReset();
@@ -230,7 +230,7 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ThrowsAsync(new Exception("Service error"));
 
         // Act
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
 
         // Assert
         // Component should handle error gracefully and show error message
@@ -251,7 +251,7 @@ public class ComponentIntegrationTests : TestContext
         // Arrange
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
 
         // Act
         _toolbarState.IsLoading = true;
@@ -270,7 +270,7 @@ public class ComponentIntegrationTests : TestContext
         // Arrange
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
 
         // Act & Assert - Initially cannot transform
         Assert.False(_toolbarState.CanTransform);
@@ -288,7 +288,7 @@ public class ComponentIntegrationTests : TestContext
         // Arrange
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
 
         // Act
         _toolbarState.OnToggleSettings?.Invoke();
@@ -306,7 +306,7 @@ public class ComponentIntegrationTests : TestContext
         // Arrange
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
 
         // Assert
         Assert.False(_toolbarState.CanTransform);
@@ -322,7 +322,7 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         JSInterop.Mode = JSRuntimeMode.Loose;
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
 
         // Assert
         Assert.True(_toolbarState.CanSave); // XSLT is loaded on init
@@ -337,7 +337,7 @@ public class ComponentIntegrationTests : TestContext
         // Arrange
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
 
         // Act
         _toolbarState.IsTransforming = true;
@@ -362,7 +362,7 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         _mockProjectService.Setup(s => s.GetProjectFilesAsync("ar24-1")).ReturnsAsync(new List<string>());
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
 
         // Act
         await _toolbarState.OnProjectChanged!("ar24-1");
@@ -381,7 +381,7 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         _mockProjectService.Setup(s => s.ReadInputFileAsync(It.IsAny<string>(), "test.xml")).ReturnsAsync("<root/>");
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
         await _toolbarState.OnProjectChanged!("ar24-1");
 
         // Act
@@ -401,7 +401,7 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         _mockProjectService.Setup(s => s.ReadInputFileAsync(It.IsAny<string>(), "test.xml")).ReturnsAsync("<root/>");
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
 
         // Act - Perform successful operation after error
         await _toolbarState.OnFileChanged!("test.xml");
@@ -422,7 +422,7 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         JSInterop.Mode = JSRuntimeMode.Loose;
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
 
         // Act
         if (_toolbarState.OnSave != null)
@@ -445,7 +445,7 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
 
         // Act
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
         _toolbarState.OnToggleSettings?.Invoke();
         cut.Render(); // Re-render to show settings panel
 
@@ -465,7 +465,7 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         _mockProjectService.Setup(s => s.ReadInputFileAsync(It.IsAny<string>(), "test.xml")).ReturnsAsync(xmlContent);
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
         await _toolbarState.OnProjectChanged!("ar24-1");
 
         // Act
@@ -491,7 +491,7 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         _mockProjectService.Setup(s => s.GetProjectFilesAsync("ar24-1")).ReturnsAsync(new List<string>());
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
 
         // Act
         await _toolbarState.OnProjectChanged!("ar24-1");
@@ -511,7 +511,7 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         _mockProjectService.Setup(s => s.GetProjectFilesAsync(It.IsAny<string>())).ReturnsAsync(new List<string>());
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
 
         // Act - Simulate rapid project changes
         await _toolbarState.OnProjectChanged!("ar24-1");
@@ -536,7 +536,7 @@ public class ComponentIntegrationTests : TestContext
         _mockXsltService.Setup(s => s.TransformAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TransformationOptions>()))
             .ReturnsAsync(transformResult);
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
 
         // Enable auto-transform (would be done through settings panel)
         // Then load a file
@@ -559,7 +559,7 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         JSInterop.Mode = JSRuntimeMode.Loose;
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
 
         // Act
         cut.Dispose();
@@ -597,7 +597,7 @@ public class ComponentIntegrationTests : TestContext
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         // Act
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
 
         // Assert
         // Monaco editor should be initialized
@@ -618,7 +618,7 @@ public class ComponentIntegrationTests : TestContext
         // Arrange
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
         _toolbarState.OnToggleSettings?.Invoke();
         cut.Render();
 
@@ -640,7 +640,7 @@ public class ComponentIntegrationTests : TestContext
         // Arrange
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
         _toolbarState.OnToggleSettings?.Invoke();
         cut.Render();
 
@@ -673,7 +673,7 @@ public class ComponentIntegrationTests : TestContext
         _mockXsltService.Setup(s => s.TransformAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TransformationOptions>()))
             .ReturnsAsync(transformResult);
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
         await _toolbarState.OnProjectChanged!("ar24-1");
         await _toolbarState.OnFileChanged!("test.xml");
 
@@ -711,7 +711,7 @@ public class ComponentIntegrationTests : TestContext
         _mockXsltService.Setup(s => s.TransformAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TransformationOptions>()))
             .ReturnsAsync(transformResult);
 
-        var cut = RenderComponent<Development>();
+        var cut = RenderComponent<Transform>();
         await _toolbarState.OnProjectChanged!("ar24-1");
         await _toolbarState.OnFileChanged!("test.xml");
 
