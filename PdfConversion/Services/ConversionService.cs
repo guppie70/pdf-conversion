@@ -1,4 +1,5 @@
 using PdfConversion.Models;
+using PdfConversion.Helpers;
 using System.Xml;
 using System.Xml.Linq;
 using System.Xml.XPath;
@@ -1001,7 +1002,8 @@ public class ConversionService : IConversionService
 
                     // Write to file (always complete current file write before cancelling)
                     var outputPath = Path.Combine("/app/data/output/optiver/projects", projectId, "data", match.HierarchyItem.DataRef);
-                    await File.WriteAllTextAsync(outputPath, sectionXml.ToString(), cancellationToken);
+                    var xhtmlContent = XhtmlSerializationHelper.SerializeXhtmlDocument(sectionXml);
+                    await File.WriteAllTextAsync(outputPath, xhtmlContent, cancellationToken);
 
                     result.CreatedFiles.Add(match.HierarchyItem.DataRef);
                     result.SuccessfulSections++;

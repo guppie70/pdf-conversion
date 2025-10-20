@@ -67,6 +67,9 @@
                     <xsl:apply-templates select="$singleP/@xml:lang"/>
                     <xsl:apply-templates select="$singleP/node()"/>
                 </xsl:when>
+                <xsl:when test="normalize-space(.) = ''">
+                    <xsl:text>&#160;</xsl:text>
+                </xsl:when>
                 <xsl:otherwise>
                     <xsl:apply-templates/>
                 </xsl:otherwise>
@@ -88,6 +91,10 @@
                     <!-- Render P's content without p wrapper -->
                     <xsl:apply-templates select="$singleP/node()"/>
                 </xsl:when>
+                <!-- Empty cell: insert non-breaking space to prevent self-closing -->
+                <xsl:when test="normalize-space(.) = ''">
+                    <xsl:text>&#160;</xsl:text>
+                </xsl:when>
                 <!-- Multiple P elements or mixed content: normal processing -->
                 <xsl:otherwise>
                     <xsl:apply-templates/>
@@ -106,6 +113,9 @@
                     <xsl:variable name="singleP" select="P[normalize-space(.) != '']"/>
                     <xsl:apply-templates select="$singleP/@xml:lang"/>
                     <xsl:apply-templates select="$singleP/node()"/>
+                </xsl:when>
+                <xsl:when test="normalize-space(.) = ''">
+                    <xsl:text>&#160;</xsl:text>
                 </xsl:when>
                 <xsl:otherwise>
                     <xsl:apply-templates/>

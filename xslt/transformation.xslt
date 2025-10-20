@@ -8,11 +8,13 @@
                 xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
                 exclude-result-prefixes="xs hdr lst x rdf">
 
-    <!-- Output settings: indent="no" prevents unwanted line breaks in inline elements like <p> -->
+    <!-- Output settings: XHTML5 serialization ensures proper handling of void vs non-void elements -->
     <xsl:output method="xhtml"
                 encoding="UTF-8"
                 indent="no"
-                omit-xml-declaration="no"/>
+                omit-xml-declaration="no"
+                html-version="5.0"
+                include-content-type="no"/>
 
     <!-- Strip whitespace-only text nodes from structural elements to keep output clean -->
     <xsl:strip-space elements="Document Sect Table TR thead tbody TOC L"/>

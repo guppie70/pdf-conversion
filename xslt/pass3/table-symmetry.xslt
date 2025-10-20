@@ -80,7 +80,7 @@
         <xsl:if test="$count gt 0">
             <xsl:element name="{$element-name}">
                 <xsl:attribute name="data-cell-added">true</xsl:attribute>
-                <xsl:text> </xsl:text>
+                <xsl:text>&#160;</xsl:text>
             </xsl:element>
 
             <!-- Recursively create remaining cells -->

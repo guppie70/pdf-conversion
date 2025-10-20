@@ -1,6 +1,7 @@
 using System.Xml.Linq;
 using Microsoft.Extensions.Options;
 using PdfConversion.Models;
+using PdfConversion.Helpers;
 
 namespace PdfConversion.Services;
 
@@ -100,31 +101,30 @@ public class DocumentReconstructionService : IDocumentReconstructionService
                 _logger.LogInformation("Template file loaded for missing sections");
             }
 
-            // 4. Create the root XHTML document structure
-            XNamespace xhtmlNs = "http://www.w3.org/1999/xhtml";
+            // 4. Create the root XHTML document structure (without namespace declarations)
             var reconstructedDoc = new XDocument(
                 new XDocumentType("html", null, null, null),
-                new XElement(xhtmlNs + "html",
+                new XElement("html",
                     new XAttribute("lang", "en"),
-                    new XElement(xhtmlNs + "head",
-                        new XElement(xhtmlNs + "meta", new XAttribute("charset", "UTF-8")),
-                        new XElement(xhtmlNs + "title", "Reconstructed Document")
+                    new XElement("head",
+                        new XElement("meta", new XAttribute("charset", "UTF-8")),
+                        new XElement("title", "Reconstructed Document")
                     ),
-                    new XElement(xhtmlNs + "body",
-                        new XElement(xhtmlNs + "div",
+                    new XElement("body",
+                        new XElement("div",
                             new XAttribute("class", "document-content")
                         )
                     )
                 )
             );
 
-            var bodyElement = reconstructedDoc.Root?.Element(xhtmlNs + "body");
+            var bodyElement = reconstructedDoc.Root?.Element("body");
             if (bodyElement == null)
             {
                 throw new InvalidOperationException("Failed to create body element");
             }
 
-            var documentContentDiv = bodyElement.Element(xhtmlNs + "div");
+            var documentContentDiv = bodyElement.Element("div");
             if (documentContentDiv == null)
             {
                 throw new InvalidOperationException("Failed to create document-content div");
@@ -240,8 +240,8 @@ public class DocumentReconstructionService : IDocumentReconstructionService
                     // Extract all child elements from section and add to document-content div
                     foreach (var element in sectionElement.Elements())
                     {
-                        // Add namespace to elements and shift headers based on hierarchy depth
-                        documentContentDiv.Add(AddXhtmlNamespace(element, xhtmlNs, item.Depth));
+                        // Remove namespace and shift headers based on hierarchy depth
+                        documentContentDiv.Add(RemoveNamespaceAndShiftHeaders(element, item.Depth));
                     }
                 }
                 catch (Exception ex)
@@ -342,13 +342,13 @@ public class DocumentReconstructionService : IDocumentReconstructionService
     }
 
     /// <summary>
-    /// Recursively adds XHTML namespace to an element and all its descendants
+    /// Removes namespaces from elements and shifts header levels based on hierarchy depth.
+    /// Returns clean XHTML elements without any xmlns attributes.
     /// </summary>
-    /// <param name="element">Source element to transform</param>
-    /// <param name="xhtmlNs">XHTML namespace to apply</param>
+    /// <param name="element">Source element to process</param>
     /// <param name="hierarchyDepth">Hierarchy depth for header level shifting (1-based)</param>
-    /// <returns>New element with XHTML namespace and shifted header levels</returns>
-    private XElement AddXhtmlNamespace(XElement element, XNamespace xhtmlNs, int hierarchyDepth = 1)
+    /// <returns>New element without namespaces and with shifted header levels</returns>
+    private XElement RemoveNamespaceAndShiftHeaders(XElement element, int hierarchyDepth = 1)
     {
         var elementName = element.Name.LocalName;
 
@@ -364,13 +364,13 @@ public class DocumentReconstructionService : IDocumentReconstructionService
             {
                 elementName = "h6";
                 var shiftedElement = new XElement(
-                    xhtmlNs + elementName,
+                    elementName,
                     element.Attributes().Where(a => !a.IsNamespaceDeclaration),
                     new XAttribute("data-targetheader", $"h{targetLevel}"),
                     element.Nodes().Select(n =>
                     {
                         if (n is XElement e)
-                            return AddXhtmlNamespace(e, xhtmlNs, hierarchyDepth);
+                            return RemoveNamespaceAndShiftHeaders(e, hierarchyDepth);
                         return n;
                     })
                 );
@@ -383,12 +383,12 @@ public class DocumentReconstructionService : IDocumentReconstructionService
         }
 
         var newElement = new XElement(
-            xhtmlNs + elementName,
+            elementName,
             element.Attributes().Where(a => !a.IsNamespaceDeclaration),
             element.Nodes().Select(n =>
             {
                 if (n is XElement e)
-                    return AddXhtmlNamespace(e, xhtmlNs, hierarchyDepth);
+                    return RemoveNamespaceAndShiftHeaders(e, hierarchyDepth);
                 return n;
             })
         );
@@ -414,26 +414,11 @@ public class DocumentReconstructionService : IDocumentReconstructionService
     }
 
     /// <summary>
-    /// Pretty prints an XML document with consistent formatting
+    /// Pretty prints an XML document with consistent XHTML formatting
     /// </summary>
     private string PrettyPrintXml(XDocument doc)
     {
-        var settings = new System.Xml.XmlWriterSettings
-        {
-            Indent = true,
-            IndentChars = "  ",
-            NewLineChars = "\n",
-            NewLineHandling = System.Xml.NewLineHandling.Replace,
-            OmitXmlDeclaration = false,
-            Encoding = System.Text.Encoding.UTF8
-        };
-
-        using var stringWriter = new System.IO.StringWriter();
-        using (var xmlWriter = System.Xml.XmlWriter.Create(stringWriter, settings))
-        {
-            doc.Save(xmlWriter);
-        }
-        return stringWriter.ToString();
+        return XhtmlSerializationHelper.SerializeXhtmlDocument(doc);
     }
 
     /// <summary>
