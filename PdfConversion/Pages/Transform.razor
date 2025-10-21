@@ -15,6 +15,7 @@
 @inject IXsltFileWatcherService XsltFileWatcher
 @inject IXmlFileWatcherService XmlFileWatcher
 @inject IXhtmlValidationService ValidationService
+@inject IUserSelectionService UserSelectionService
 
 <PageTitle>Transform</PageTitle>
 
@@ -972,6 +973,15 @@
             if (!isRestoringFromStorage)
             {
                 await JSRuntime.InvokeVoidAsync("developmentStorage.saveSelection", SelectedProjectId, SelectedFileName, SelectedXsltFile);
+
+                // Save to server-side UserSelectionService
+                // Extract project ID from "optiver/ar24-3" format
+                var projectIdOnly = SelectedProjectId?.Split('/').LastOrDefault();
+                await UserSelectionService.UpdateSelectionAsync(
+                    projectId: projectIdOnly,
+                    sourceXml: SelectedFileName,
+                    xslt: SelectedXsltFile
+                );
             }
         }
     }
@@ -1010,6 +1020,15 @@
             if (!isRestoringFromStorage)
             {
                 await JSRuntime.InvokeVoidAsync("developmentStorage.saveSelection", SelectedProjectId, SelectedFileName, SelectedXsltFile);
+
+                // Save to server-side UserSelectionService
+                // Extract project ID from "optiver/ar24-3" format
+                var projectIdOnly = SelectedProjectId?.Split('/').LastOrDefault();
+                await UserSelectionService.UpdateSelectionAsync(
+                    projectId: projectIdOnly,
+                    sourceXml: SelectedFileName,
+                    xslt: SelectedXsltFile
+                );
             }
         }
     }
@@ -1122,6 +1141,15 @@
             if (!isRestoringFromStorage)
             {
                 await JSRuntime.InvokeVoidAsync("developmentStorage.saveSelection", SelectedProjectId, SelectedFileName, SelectedXsltFile);
+
+                // Save to server-side UserSelectionService
+                // Extract project ID from "optiver/ar24-3" format
+                var projectIdOnly = SelectedProjectId?.Split('/').LastOrDefault();
+                await UserSelectionService.UpdateSelectionAsync(
+                    projectId: projectIdOnly,
+                    sourceXml: SelectedFileName,
+                    xslt: SelectedXsltFile
+                );
             }
         }
     }
@@ -1160,6 +1188,15 @@
 
                 // Save selection to localStorage
                 await JSRuntime.InvokeVoidAsync("developmentStorage.saveSelection", SelectedProjectId, SelectedFileName, SelectedXsltFile);
+
+                // Save to server-side UserSelectionService
+                // Extract project ID from "optiver/ar24-3" format
+                var projectIdOnly = SelectedProjectId?.Split('/').LastOrDefault();
+                await UserSelectionService.UpdateSelectionAsync(
+                    projectId: projectIdOnly,
+                    sourceXml: SelectedFileName,
+                    xslt: SelectedXsltFile
+                );
             }
             else
             {
@@ -2055,11 +2092,42 @@
                 }
             }
 
-            // Load saved selections from localStorage and restore them
+            // Load saved selections from UserSelectionService JSON first, with localStorage as fallback
 
             try
             {
-                var savedSelection = await JSRuntime.InvokeAsync<SavedSelection>("developmentStorage.loadSelection");
+                // First, try to load from UserSelectionService (server-side JSON)
+                var selection = await UserSelectionService.GetSelectionAsync();
+                SavedSelection savedSelection = null;
+
+                if (selection != null && !string.IsNullOrEmpty(selection.LastSelectedProject))
+                {
+                    Logger.LogInformation("Loading selection from UserSelectionService JSON: Project={Project}, SourceXml={SourceXml}, Xslt={Xslt}",
+                        selection.LastSelectedProject, selection.LastSelectedSourceXml, selection.LastSelectedXslt);
+
+                    // Convert from UserSelection format to SavedSelection format
+                    // UserSelection uses just project name (e.g., "ar24-3")
+                    // Transform page needs full path format (e.g., "optiver/ar24-3")
+                    savedSelection = new SavedSelection
+                    {
+                        ProjectId = $"optiver/{selection.LastSelectedProject}",
+                        FileName = selection.LastSelectedSourceXml ?? string.Empty,
+                        XsltFile = selection.LastSelectedXslt ?? "transformation.xslt"
+                    };
+                }
+                else
+                {
+                    // Fallback to localStorage if UserSelectionService has no data
+                    Logger.LogInformation("No selection found in UserSelectionService JSON, falling back to localStorage");
+                    savedSelection = await JSRuntime.InvokeAsync<SavedSelection>("developmentStorage.loadSelection");
+
+                    if (savedSelection != null && !string.IsNullOrEmpty(savedSelection.ProjectId))
+                    {
+                        Logger.LogInformation("Loaded selection from localStorage: Project={Project}, File={File}, XsltFile={XsltFile}",
+                            savedSelection.ProjectId, savedSelection.FileName, savedSelection.XsltFile);
+                    }
+                }
+
                 if (savedSelection != null && !string.IsNullOrEmpty(savedSelection.ProjectId))
                 {
                     Logger.LogInformation("Restoring saved selection: Project={Project}, File={File}, XsltFile={XsltFile}",
@@ -2095,12 +2163,12 @@
                 }
                 else
                 {
-                    Logger.LogInformation("No saved selection found in localStorage");
+                    Logger.LogInformation("No saved selection found in UserSelectionService JSON or localStorage");
                 }
             }
             catch (Exception ex)
             {
-                Logger.LogWarning(ex, "Could not restore saved selection from localStorage");
+                Logger.LogWarning(ex, "Could not restore saved selection");
                 isRestoringFromStorage = false;
             }
         }

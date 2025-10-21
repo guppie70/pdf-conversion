@@ -80,6 +80,7 @@ builder.Services.AddSingleton<ITransformationLogService, TransformationLogServic
 builder.Services.AddSingleton<ThemeService>();
 builder.Services.AddSingleton<IXsltFileWatcherService, XsltFileWatcherService>();
 builder.Services.AddSingleton<IXmlFileWatcherService, XmlFileWatcherService>();
+builder.Services.AddSingleton<IUserSelectionService, UserSelectionService>();
 
 // Register performance optimization services
 builder.Services.AddSingleton<IDistributedCacheService, DistributedCacheService>();
@@ -142,12 +143,13 @@ app.MapBlazorHub();
 app.MapFallbackToPage("/_Host");
 
 // Map transform-test endpoint for rapid XSLT testing
-app.MapGet("/transform-test", async (HttpContext context, IXsltTransformationService xsltService, ILogger<Program> logger) =>
+app.MapGet("/transform-test", async (HttpContext context, IXsltTransformationService xsltService, IUserSelectionService selectionService, ILogger<Program> logger) =>
 {
     try
     {
-        // Get XSLT file from query string (default to transformation.xslt)
-        var xsltFile = context.Request.Query["xslt"].FirstOrDefault() ?? "transformation.xslt";
+        // Get XSLT file from query string, or use last selected from JSON storage
+        var selection = await selectionService.GetSelectionAsync();
+        var xsltFile = context.Request.Query["xslt"].FirstOrDefault() ?? selection.LastSelectedXslt ?? "transformation.xslt";
 
         // Fixed test XML path
         var testXmlPath = "/app/data/input/_test.xml";
