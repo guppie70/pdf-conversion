@@ -32,19 +32,23 @@
     <!-- General list template for regular lists -->
     <xsl:template match="L" priority="10">
         <xsl:choose>
+            <!-- L contains only nested L elements (no LI children): unwrap and process children -->
             <xsl:when test="L and not(LI)">
                 <xsl:apply-templates/>
             </xsl:when>
+            <!-- L with LI children (possibly also with nested L siblings): create list wrapper -->
             <xsl:when test="@ListType='Ordered'">
                 <ol>
                     <xsl:apply-templates select="@* except @ListType"/>
-                    <xsl:apply-templates/>
+                    <!-- Process both direct LI children and flatten any sibling L/LI children -->
+                    <xsl:apply-templates select="L/LI | LI"/>
                 </ol>
             </xsl:when>
             <xsl:otherwise>
                 <ul>
                     <xsl:apply-templates select="@* except @ListType"/>
-                    <xsl:apply-templates/>
+                    <!-- Process both direct LI children and flatten any sibling L/LI children -->
+                    <xsl:apply-templates select="L/LI | LI"/>
                 </ul>
             </xsl:otherwise>
         </xsl:choose>
@@ -69,6 +73,11 @@
         <xsl:if test="$stripped != ''">
             <xsl:value-of select="$stripped"/>
         </xsl:if>
+    </xsl:template>
+
+    <!-- Nested L elements within LBody: switch back to default mode for proper transformation -->
+    <xsl:template match="L" mode="strip-prefix" priority="20">
+        <xsl:apply-templates select="." mode="#default"/>
     </xsl:template>
 
     <!-- Pass through other nodes in strip-prefix mode -->
