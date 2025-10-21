@@ -141,6 +141,72 @@ app.UseRouting();
 app.MapBlazorHub();
 app.MapFallbackToPage("/_Host");
 
+// Map transform-test endpoint for rapid XSLT testing
+app.MapGet("/transform-test", async (HttpContext context, IXsltTransformationService xsltService, ILogger<Program> logger) =>
+{
+    try
+    {
+        // Get XSLT file from query string (default to transformation.xslt)
+        var xsltFile = context.Request.Query["xslt"].FirstOrDefault() ?? "transformation.xslt";
+
+        // Fixed test XML path
+        var testXmlPath = "/app/data/input/_test.xml";
+
+        if (!File.Exists(testXmlPath))
+        {
+            context.Response.StatusCode = 404;
+            context.Response.ContentType = "text/plain";
+            await context.Response.WriteAsync($"Test file not found: {testXmlPath}");
+            return;
+        }
+
+        // Read test XML content
+        var xmlContent = await File.ReadAllTextAsync(testXmlPath);
+
+        // Construct full XSLT path
+        var xsltPath = Path.Combine("/app/xslt", xsltFile);
+
+        if (!File.Exists(xsltPath))
+        {
+            context.Response.StatusCode = 404;
+            context.Response.ContentType = "text/plain";
+            await context.Response.WriteAsync($"XSLT file not found: {xsltPath}");
+            return;
+        }
+
+        // Read XSLT content
+        var xsltContent = await File.ReadAllTextAsync(xsltPath);
+
+        logger.LogInformation("Transform test: using XSLT {XsltFile}", xsltFile);
+
+        // Perform transformation (using XSLT3Service by default)
+        var options = new PdfConversion.Models.TransformationOptions
+        {
+            UseXslt3Service = true
+        };
+        var result = await xsltService.TransformAsync(xmlContent, xsltContent, options);
+
+        if (!result.IsSuccess)
+        {
+            context.Response.StatusCode = 500;
+            context.Response.ContentType = "text/plain";
+            await context.Response.WriteAsync($"Transformation failed: {result.ErrorMessage}");
+            return;
+        }
+
+        // Return transformed XML
+        context.Response.ContentType = "text/xml; charset=utf-8";
+        await context.Response.WriteAsync(result.OutputContent ?? "");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Error in transform-test endpoint");
+        context.Response.StatusCode = 500;
+        context.Response.ContentType = "text/plain";
+        await context.Response.WriteAsync($"Error: {ex.Message}");
+    }
+});
+
 // Add health check endpoints
 app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
 {

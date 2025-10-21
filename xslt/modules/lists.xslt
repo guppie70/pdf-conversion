@@ -36,29 +36,57 @@
             <xsl:when test="L and not(LI)">
                 <xsl:apply-templates/>
             </xsl:when>
-            <!-- L with LI children (possibly also with nested L siblings): create list wrapper -->
-            <xsl:when test="@ListType='Ordered'">
-                <ol>
-                    <xsl:apply-templates select="@* except @ListType"/>
-                    <!-- Process both direct LI children and flatten any sibling L/LI children -->
-                    <xsl:apply-templates select="L/LI | LI"/>
-                </ol>
-            </xsl:when>
+            <!-- L with LI children: render as simple list (Pass 2 will extract headers) -->
             <xsl:otherwise>
-                <ul>
-                    <xsl:apply-templates select="@* except @ListType"/>
-                    <!-- Process both direct LI children and flatten any sibling L/LI children -->
-                    <xsl:apply-templates select="L/LI | LI"/>
-                </ul>
+                <xsl:choose>
+                    <xsl:when test="@ListType='Ordered'">
+                        <ol>
+                            <xsl:apply-templates select="@* except @ListType"/>
+                            <xsl:apply-templates select="LI"/>
+                        </ol>
+                    </xsl:when>
+                    <xsl:otherwise>
+                        <ul>
+                            <xsl:apply-templates select="@* except @ListType"/>
+                            <xsl:apply-templates select="LI"/>
+                        </ul>
+                    </xsl:otherwise>
+                </xsl:choose>
             </xsl:otherwise>
         </xsl:choose>
     </xsl:template>
 
+    <!-- LI template: check for forced headers and transform to header element with marker -->
     <xsl:template match="LI" priority="10">
-        <li>
-            <xsl:apply-templates select="@*"/>
-            <xsl:apply-templates/>
-        </li>
+        <xsl:choose>
+            <!-- LI contains LBody with data-forceheader: transform to header element -->
+            <xsl:when test="LBody/@data-forceheader">
+                <li>
+                    <xsl:apply-templates select="@*"/>
+                    <!-- Process preceding content (if any) -->
+                    <xsl:apply-templates select="LBody/preceding-sibling::node()"/>
+                    <!-- Create header element with extraction marker -->
+                    <xsl:variable name="header-level" select="string(LBody/@data-forceheader)"/>
+                    <xsl:element name="{$header-level}">
+                        <xsl:attribute name="data-extracted-header">true</xsl:attribute>
+                        <xsl:attribute name="data-debug-level"><xsl:value-of select="$header-level"/></xsl:attribute>
+                        <!-- Copy other attributes from LBody except data-forceheader -->
+                        <xsl:apply-templates select="LBody/@* except LBody/@data-forceheader"/>
+                        <!-- Process content with prefix stripping -->
+                        <xsl:apply-templates select="LBody/node()" mode="strip-prefix"/>
+                    </xsl:element>
+                    <!-- Process following content (if any) -->
+                    <xsl:apply-templates select="LBody/following-sibling::node()"/>
+                </li>
+            </xsl:when>
+            <!-- Regular LI: process normally -->
+            <xsl:otherwise>
+                <li>
+                    <xsl:apply-templates select="@*"/>
+                    <xsl:apply-templates/>
+                </li>
+            </xsl:otherwise>
+        </xsl:choose>
     </xsl:template>
 
     <!-- LBody: Output content directly, strip list prefixes from text -->
@@ -75,9 +103,42 @@
         </xsl:if>
     </xsl:template>
 
-    <!-- Nested L elements within LBody: switch back to default mode for proper transformation -->
+    <!-- Nested L elements within LBody: unwrap all wrapper L elements and forced headers -->
     <xsl:template match="L" mode="strip-prefix" priority="20">
-        <xsl:apply-templates select="." mode="#default"/>
+        <xsl:choose>
+            <!-- L contains only nested L elements (wrapper): unwrap and continue in strip-prefix mode -->
+            <xsl:when test="L and not(LI)">
+                <xsl:apply-templates mode="strip-prefix"/>
+            </xsl:when>
+            <!-- L has LI children but contains forced headers: unwrap completely (no list, just content) -->
+            <xsl:when test="LI and .//LBody/@data-forceheader">
+                <xsl:apply-templates select="LI" mode="strip-prefix"/>
+            </xsl:when>
+            <!-- L has LI children and no forced headers: this is a real nested list -->
+            <xsl:otherwise>
+                <xsl:apply-templates select="." mode="#default"/>
+            </xsl:otherwise>
+        </xsl:choose>
+    </xsl:template>
+
+    <!-- LI in strip-prefix mode: check for forced headers and extract directly (no li wrapper) -->
+    <xsl:template match="LI" mode="strip-prefix" priority="20">
+        <xsl:choose>
+            <!-- LI contains forced header: extract header directly without li wrapper -->
+            <xsl:when test="LBody/@data-forceheader">
+                <xsl:variable name="header-level" select="string(LBody/@data-forceheader)"/>
+                <xsl:element name="{$header-level}">
+                    <xsl:attribute name="data-extracted-header">true</xsl:attribute>
+                    <xsl:attribute name="data-debug-level"><xsl:value-of select="$header-level"/></xsl:attribute>
+                    <xsl:apply-templates select="LBody/@* except LBody/@data-forceheader"/>
+                    <xsl:apply-templates select="LBody/node()" mode="strip-prefix"/>
+                </xsl:element>
+            </xsl:when>
+            <!-- Regular LI in strip-prefix: just output content (shouldn't happen in normal flow) -->
+            <xsl:otherwise>
+                <xsl:apply-templates mode="strip-prefix"/>
+            </xsl:otherwise>
+        </xsl:choose>
     </xsl:template>
 
     <!-- Pass through other nodes in strip-prefix mode -->
