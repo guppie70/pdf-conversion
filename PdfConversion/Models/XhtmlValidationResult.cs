@@ -69,12 +69,33 @@ public class ValidationIssue
     public List<string> XPaths { get; set; } = new();
 
     /// <summary>
+    /// Detailed schema validation error message (for SchemaValidationError type)
+    /// </summary>
+    public string? SchemaMessage { get; set; }
+
+    /// <summary>
+    /// Line numbers where this issue occurs (for SchemaValidationError type)
+    /// </summary>
+    public List<int> LineNumbers { get; set; } = new();
+
+    /// <summary>
+    /// Column positions where this issue occurs (for SchemaValidationError type)
+    /// </summary>
+    public List<int> LinePositions { get; set; } = new();
+
+    /// <summary>
+    /// Severity of the schema validation issue (Error or Warning)
+    /// </summary>
+    public System.Xml.Schema.XmlSeverityType? Severity { get; set; }
+
+    /// <summary>
     /// Human-readable description of the issue
     /// </summary>
     public string Description => Type switch
     {
         ValidationIssueType.InvalidElement => $"'{ElementName}' is not a valid HTML element",
         ValidationIssueType.UppercaseInElementName => $"'{ElementName}' contains uppercase characters (HTML elements must be lowercase)",
+        ValidationIssueType.SchemaValidationError => SchemaMessage ?? $"Schema validation error for '{ElementName}'",
         _ => $"Unknown issue with '{ElementName}'"
     };
 }
@@ -92,5 +113,10 @@ public enum ValidationIssueType
     /// <summary>
     /// Element name contains uppercase characters
     /// </summary>
-    UppercaseInElementName
+    UppercaseInElementName,
+
+    /// <summary>
+    /// W3C XHTML 1.0 Strict schema validation error
+    /// </summary>
+    SchemaValidationError
 }

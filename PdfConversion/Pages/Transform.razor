@@ -243,8 +243,12 @@
                 <div class="modal-body">
                     @if (ValidationResult.Issues.Any())
                     {
-                        // Group issues by element name and first XPath occurrence
-                        var groupedIssues = ValidationResult.Issues
+                        // Group issues by type for better organization
+                        var schemaIssues = ValidationResult.Issues.Where(i => i.Type == ValidationIssueType.SchemaValidationError).ToList();
+                        var elementIssues = ValidationResult.Issues.Where(i => i.Type != ValidationIssueType.SchemaValidationError).ToList();
+
+                        // Group element issues by element name and first XPath occurrence
+                        var groupedElementIssues = elementIssues
                             .Where(i => i.XPaths.Any())
                             .GroupBy(i => new { ElementName = i.ElementName, XPath = i.XPaths.First() })
                             .Select(g => new
@@ -261,11 +265,90 @@
 
                         <div class="alert alert-warning mb-3" role="alert">
                             <i class="bi bi-info-circle me-2"></i>
-                            Found <strong>@ValidationResult.TotalIssues</strong> validation @(ValidationResult.TotalIssues == 1 ? "issue" : "issues") in <strong>@groupedIssues.Count</strong> unique @(groupedIssues.Count == 1 ? "element" : "elements"). Click an error to navigate to its location.
+                            Found <strong>@ValidationResult.TotalIssues</strong> validation @(ValidationResult.TotalIssues == 1 ? "issue" : "issues"):
+                            @if (schemaIssues.Any())
+                            {
+                                <span class="ms-2"><strong>@schemaIssues.Sum(i => i.OccurrenceCount)</strong> schema validation errors</span>
+                            }
+                            @if (elementIssues.Any())
+                            {
+                                <span class="ms-2"><strong>@elementIssues.Sum(i => i.OccurrenceCount)</strong> element name issues</span>
+                            }
                         </div>
 
-                        <div class="list-group">
-                            @foreach (var group in groupedIssues)
+                        @* Schema Validation Errors Section *@
+                        @if (schemaIssues.Any())
+                        {
+                            <h6 class="text-danger mb-3">
+                                <i class="bi bi-shield-exclamation me-2"></i>W3C XHTML 1.0 Strict Schema Validation
+                            </h6>
+                            <div class="list-group mb-4">
+                                @foreach (var issue in schemaIssues.OrderByDescending(i => i.OccurrenceCount))
+                                {
+                                    <div class="list-group-item">
+                                        <div class="d-flex justify-content-between align-items-start mb-2">
+                                            <div class="flex-grow-1">
+                                                <div class="d-flex align-items-center gap-2 mb-2">
+                                                    <i class="bi bi-@(issue.Severity == System.Xml.Schema.XmlSeverityType.Error ? "x-circle text-danger" : "exclamation-triangle text-warning")"
+                                                       style="font-size: 1.25rem;"
+                                                       title="@issue.Severity"></i>
+                                                    <div>
+                                                        <code class="text-danger">@issue.ElementName</code>
+                                                        <span class="badge bg-secondary ms-2">@issue.OccurrenceCount @(issue.OccurrenceCount == 1 ? "occurrence" : "occurrences")</span>
+                                                    </div>
+                                                </div>
+                                                <div class="text-muted small mb-2">
+                                                    @issue.SchemaMessage
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        @if (issue.LineNumbers != null && issue.LineNumbers.Any())
+                                        {
+                                            <div class="mt-2">
+                                                <small class="text-muted d-block mb-1">
+                                                    @(issue.LineNumbers.Count == 1 ? "Location:" : $"First {Math.Min(5, issue.LineNumbers.Count)} locations:")
+                                                </small>
+                                                @for (int i = 0; i < Math.Min(5, issue.LineNumbers.Count); i++)
+                                                {
+                                                    var lineNum = issue.LineNumbers[i];
+                                                    var linePos = issue.LinePositions != null && i < issue.LinePositions.Count ? issue.LinePositions[i] : 0;
+                                                    var locationText = $"Line {lineNum}, Column {linePos}";
+
+                                                    <div class="d-flex align-items-center gap-2 mb-1">
+                                                        <code class="small text-muted">@locationText</code>
+                                                        <button class="btn btn-sm btn-outline-secondary"
+                                                                @onclick="() => CopyToClipboardAsync(locationText)"
+                                                                title="Copy location">
+                                                            <i class="bi bi-clipboard"></i>
+                                                        </button>
+                                                        <button class="btn btn-sm btn-primary"
+                                                                @onclick="() => NavigateToLine(lineNum)"
+                                                                title="Navigate to line">
+                                                            <i class="bi bi-arrow-right-circle"></i>
+                                                        </button>
+                                                    </div>
+                                                }
+
+                                                @if (issue.LineNumbers.Count > 5)
+                                                {
+                                                    <small class="text-muted">+ @(issue.LineNumbers.Count - 5) more occurrence(s)</small>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        @* Element Name Issues Section *@
+                        @if (groupedElementIssues.Any())
+                        {
+                            <h6 class="text-warning mb-3">
+                                <i class="bi bi-code-slash me-2"></i>Element Name Issues
+                            </h6>
+                            <div class="list-group">
+                            @foreach (var group in groupedElementIssues)
                             {
                                 <div class="list-group-item">
                                     <div class="d-flex justify-content-between align-items-center mb-2">
@@ -303,18 +386,33 @@
                                     </div>
                                 </div>
                             }
-                        </div>
+                            </div>
+                        }
 
+                        @* Legend *@
                         <div class="mt-3 small text-muted">
-                            <div class="d-flex align-items-center gap-3">
-                                <div>
-                                    <i class="bi bi-x-circle text-danger me-1"></i>
-                                    <span>Invalid element (not in HTML5 spec)</span>
-                                </div>
-                                <div>
-                                    <i class="bi bi-type text-warning me-1"></i>
-                                    <span>Uppercase in element name</span>
-                                </div>
+                            <div class="d-flex align-items-center gap-3 flex-wrap">
+                                @if (schemaIssues.Any())
+                                {
+                                    <div>
+                                        <i class="bi bi-shield-exclamation text-danger me-1"></i>
+                                        <span>W3C XHTML schema validation error</span>
+                                    </div>
+                                }
+                                @if (groupedElementIssues.Any(g => g.HasInvalidElement))
+                                {
+                                    <div>
+                                        <i class="bi bi-x-circle text-danger me-1"></i>
+                                        <span>Invalid element (not in HTML5 spec)</span>
+                                    </div>
+                                }
+                                @if (groupedElementIssues.Any(g => g.HasUppercase))
+                                {
+                                    <div>
+                                        <i class="bi bi-type text-warning me-1"></i>
+                                        <span>Uppercase in element name</span>
+                                    </div>
+                                }
                             </div>
                         </div>
                     }
@@ -1438,7 +1536,19 @@
             if (result.IsSuccess)
             {
                 TransformationError = null; // Clear error on success
-                OutputContent = result.OutputContent;
+
+                // Strip DOCTYPE declaration from output (user doesn't want it anywhere)
+                var outputContent = result.OutputContent;
+                if (!string.IsNullOrEmpty(outputContent))
+                {
+                    outputContent = System.Text.RegularExpressions.Regex.Replace(
+                        outputContent,
+                        @"<!DOCTYPE[^>]*>\s*",
+                        string.Empty,
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                }
+
+                OutputContent = outputContent;
                 TransformationStats = result;
                 Logger.LogInformation("Transformation successful in {Time}ms. OutputContent length: {Length}", result.ProcessingTimeMs, OutputContent?.Length ?? 0);
 
@@ -1805,7 +1915,6 @@
             {
                 // Navigate to the line in Monaco editor
                 await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.navigateToLine", "outputXml", lineNumber);
-                ToastNotification.ShowSuccess($"Navigated to line {lineNumber}");
                 Logger.LogInformation("Navigated to line {LineNumber} for XPath {XPath}", lineNumber, xpath);
             }
             else
@@ -1818,6 +1927,51 @@
         {
             Logger.LogError(ex, "Error navigating to element");
             ToastNotification.ShowError($"Failed to navigate to element: {ex.Message}");
+        }
+    }
+
+    // Navigate to a specific line number in the output XML viewer
+    private async Task NavigateToLine(int lineNumber)
+    {
+        try
+        {
+            Logger.LogInformation("Navigating to line: {LineNumber}", lineNumber);
+
+            // Close the validation modal using Bootstrap 5 API
+            await JSRuntime.InvokeVoidAsync("eval", @"
+                const modal = document.getElementById('validationErrorsModal');
+                if (modal && bootstrap && bootstrap.Modal) {
+                    const modalInstance = bootstrap.Modal.getInstance(modal);
+                    if (modalInstance) {
+                        modalInstance.hide();
+                    }
+                }
+            ");
+
+            // Switch to XML source view if in HTML mode
+            if (ShowRendered)
+            {
+                ShowRendered = false;
+                StateHasChanged();
+                await Task.Delay(200); // Give Blazor time to update the UI
+            }
+
+            // Ensure Output XML viewer is visible and initialized
+            if (!_outputXmlViewerInitialized || string.IsNullOrEmpty(OutputContent))
+            {
+                Logger.LogWarning("Output XML viewer not initialized or no content available");
+                ToastNotification.ShowWarning("XML viewer not ready. Please try again.");
+                return;
+            }
+
+            // Navigate to the line in Monaco editor
+            await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.navigateToLine", "outputXml", lineNumber);
+            Logger.LogInformation("Navigated to line {LineNumber}", lineNumber);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error navigating to line");
+            ToastNotification.ShowError($"Failed to navigate to line: {ex.Message}");
         }
     }
 
