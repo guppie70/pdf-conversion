@@ -141,6 +141,14 @@
         </xsl:choose>
     </xsl:template>
 
+    <!-- Reference elements in strip-prefix mode: transform to <a> tags -->
+    <xsl:template match="Reference" mode="strip-prefix" priority="25">
+        <a href="#">
+            <xsl:apply-templates select="@* except @xml:lang"/>
+            <xsl:apply-templates mode="strip-prefix"/>
+        </a>
+    </xsl:template>
+
     <!-- Pass through other nodes in strip-prefix mode -->
     <xsl:template match="*" mode="strip-prefix">
         <xsl:copy>
