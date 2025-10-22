@@ -95,14 +95,14 @@ public class XhtmlValidationService : IXhtmlValidationService
             var elementValidation = await Task.Run(() => ValidateXhtmlInternal(xhtmlContent));
             var schemaValidation = await ValidateAgainstXhtmlSchemaAsync(xhtmlContent);
 
-            // Combine issues from both validations
-            var allIssues = new List<ValidationIssue>();
-            allIssues.AddRange(elementValidation.Issues);
-            allIssues.AddRange(schemaValidation.Issues);
+            // Merge and deduplicate issues intelligently
+            var mergedIssues = MergeValidationIssues(
+                elementValidation.Issues,
+                schemaValidation.Issues);
 
-            if (allIssues.Any())
+            if (mergedIssues.Any())
             {
-                return XhtmlValidationResult.WithIssues(allIssues);
+                return XhtmlValidationResult.WithIssues(mergedIssues);
             }
 
             return XhtmlValidationResult.Success();
@@ -123,6 +123,127 @@ public class XhtmlValidationService : IXhtmlValidationService
                 }
             });
         }
+    }
+
+    /// <summary>
+    /// Merges validation issues from element and schema validation, removing duplicates
+    /// and combining information intelligently
+    /// </summary>
+    private List<ValidationIssue> MergeValidationIssues(
+        List<ValidationIssue> elementIssues,
+        List<ValidationIssue> schemaIssues)
+    {
+        _logger.LogDebug("Merging validation issues: {ElementCount} element issues, {SchemaCount} schema issues",
+            elementIssues.Count, schemaIssues.Count);
+
+        var mergedIssues = new List<ValidationIssue>();
+        var processedElements = new HashSet<string>();
+
+        // Process element issues first (InvalidElement and UppercaseInElementName)
+        foreach (var elementIssue in elementIssues)
+        {
+            // Extract clean element names (handle comma-separated lists from schema issues)
+            var elementNames = elementIssue.ElementName
+                .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(e => e.Trim())
+                .ToList();
+
+            foreach (var elementName in elementNames)
+            {
+                if (processedElements.Contains(elementName))
+                    continue;
+
+                // Find related schema issues for this element
+                var relatedSchemaIssues = schemaIssues
+                    .Where(si => si.ElementName.Contains(elementName, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                if (relatedSchemaIssues.Any())
+                {
+                    // Merge element issue with schema issues
+                    var mergedIssue = new ValidationIssue
+                    {
+                        Type = elementIssue.Type, // Keep original type (InvalidElement or Uppercase)
+                        ElementName = elementName,
+                        OccurrenceCount = elementIssue.OccurrenceCount,
+                        XPaths = elementIssue.XPaths,
+                        // Add schema validation details
+                        SchemaMessage = string.Join(" | ", relatedSchemaIssues
+                            .Select(si => si.SchemaMessage)
+                            .Where(m => !string.IsNullOrEmpty(m))
+                            .Distinct()),
+                        LineNumbers = relatedSchemaIssues.SelectMany(si => si.LineNumbers).Take(5).ToList(),
+                        LinePositions = relatedSchemaIssues.SelectMany(si => si.LinePositions).Take(5).ToList(),
+                        Severity = relatedSchemaIssues.FirstOrDefault()?.Severity
+                    };
+
+                    mergedIssues.Add(mergedIssue);
+                    processedElements.Add(elementName);
+
+                    _logger.LogDebug("Merged element '{Element}' with {SchemaCount} schema issues",
+                        elementName, relatedSchemaIssues.Count);
+                }
+                else
+                {
+                    // No schema issue for this element, keep element issue as-is
+                    mergedIssues.Add(elementIssue);
+                    processedElements.Add(elementName);
+                }
+            }
+        }
+
+        // Add schema issues that weren't related to any element issues
+        foreach (var schemaIssue in schemaIssues)
+        {
+            var elementNames = schemaIssue.ElementName
+                .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(e => e.Trim())
+                .ToList();
+
+            // Check if any element in this schema issue hasn't been processed
+            var unprocessedElements = elementNames
+                .Where(e => !processedElements.Contains(e))
+                .ToList();
+
+            if (unprocessedElements.Any())
+            {
+                // Create a schema-only issue for unprocessed elements
+                var schemaOnlyIssue = new ValidationIssue
+                {
+                    Type = ValidationIssueType.SchemaValidationError,
+                    ElementName = string.Join(", ", unprocessedElements),
+                    SchemaMessage = schemaIssue.SchemaMessage,
+                    OccurrenceCount = schemaIssue.OccurrenceCount,
+                    LineNumbers = schemaIssue.LineNumbers,
+                    LinePositions = schemaIssue.LinePositions,
+                    Severity = schemaIssue.Severity,
+                    XPaths = schemaIssue.XPaths
+                };
+
+                mergedIssues.Add(schemaOnlyIssue);
+
+                foreach (var elem in unprocessedElements)
+                {
+                    processedElements.Add(elem);
+                }
+
+                _logger.LogDebug("Added schema-only issue for elements: {Elements}",
+                    string.Join(", ", unprocessedElements));
+            }
+        }
+
+        // Sort by occurrence count (descending), then by element name
+        var sortedIssues = mergedIssues
+            .OrderByDescending(i => i.OccurrenceCount)
+            .ThenBy(i => i.ElementName)
+            .ToList();
+
+        _logger.LogInformation(
+            "Merged validation issues: {TotalIssues} unique issues, {TotalOccurrences} total occurrences",
+            sortedIssues.Count,
+            sortedIssues.Sum(i => i.OccurrenceCount));
+
+        return sortedIssues;
     }
 
     private XhtmlValidationResult ValidateXhtmlInternal(string xhtmlContent)

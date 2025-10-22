@@ -47,7 +47,7 @@ public class ValidatingReader : XmlReader
             reader.NameTable,
             schemaSet,
             (IXmlNamespaceResolver)reader,
-            XmlSchemaValidationFlags.None)
+            XmlSchemaValidationFlags.ReportValidationWarnings)
         {
             LineInfoProvider = reader as IXmlLineInfo
         };
@@ -69,7 +69,7 @@ public class ValidatingReader : XmlReader
             reader.NameTable,
             schemaSet,
             (IXmlNamespaceResolver)reader,
-            XmlSchemaValidationFlags.None)
+            XmlSchemaValidationFlags.ReportValidationWarnings)
         {
             LineInfoProvider = reader as IXmlLineInfo
         };
