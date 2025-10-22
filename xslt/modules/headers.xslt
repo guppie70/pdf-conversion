@@ -37,6 +37,36 @@
         </h3>
     </xsl:template>
 
+    <xsl:template match="H4" priority="10">
+        <xsl:variable name="text" select="normalize-space(.)"/>
+        <h4>
+            <xsl:call-template name="add-numbering-attributes">
+                <xsl:with-param name="text" select="$text"/>
+            </xsl:call-template>
+            <xsl:apply-templates/>
+        </h4>
+    </xsl:template>
+
+    <xsl:template match="H5" priority="10">
+        <xsl:variable name="text" select="normalize-space(.)"/>
+        <h5>
+            <xsl:call-template name="add-numbering-attributes">
+                <xsl:with-param name="text" select="$text"/>
+            </xsl:call-template>
+            <xsl:apply-templates/>
+        </h5>
+    </xsl:template>
+
+    <xsl:template match="H6" priority="10">
+        <xsl:variable name="text" select="normalize-space(.)"/>
+        <h6>
+            <xsl:call-template name="add-numbering-attributes">
+                <xsl:with-param name="text" select="$text"/>
+            </xsl:call-template>
+            <xsl:apply-templates/>
+        </h6>
+    </xsl:template>
+
 
     <!-- Deeply nested lists (6 levels): L>L>L>L>L>L>LI → h4 with auto-detected numberscheme -->
     <xsl:template match="L[L[L[L[L[L[LI]]]]]]" priority="35">

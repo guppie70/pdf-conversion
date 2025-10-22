@@ -176,4 +176,6 @@
         </xsl:if>
     </xsl:template>
 
+     <xsl:template match="Lbl"></xsl:template>
+
 </xsl:stylesheet>

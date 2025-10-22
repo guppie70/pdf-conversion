@@ -148,7 +148,7 @@
                 </head>
                 <body>
                     <div class="document-content">
-                        <xsl:apply-templates select="//Document"/>
+                        <xsl:apply-templates select="//Document|TaggedPDF-doc"/>
                     </div>
                 </body>
             </html>
@@ -170,11 +170,11 @@
 
     <!-- Pass 1: Adobe XML to intermediate XHTML (default mode) -->
 
-    <xsl:template match="Document">
+    <xsl:template match="Document|TaggedPDF-doc">
         <xsl:apply-templates/>
     </xsl:template>
 
-    <xsl:template match="Sect">
+    <xsl:template match="Sect|Part">
         <xsl:apply-templates/>
     </xsl:template>
 
@@ -237,6 +237,29 @@
             <xsl:apply-templates select="@*"/>
             <xsl:apply-templates/>
         </a>
+    </xsl:template>
+
+    <!-- Pass 1: Figure transformation templates -->
+
+    <xsl:template match="Figure" priority="10">
+        <!-- Process ImageData child as img element -->
+        <xsl:apply-templates select="ImageData"/>
+        <!-- Process any text content as paragraph -->
+        <xsl:variable name="text-content">
+            <xsl:for-each select="text()">
+                <xsl:value-of select="normalize-space(.)"/>
+                <xsl:if test="position() != last()">
+                    <xsl:text> </xsl:text>
+                </xsl:if>
+            </xsl:for-each>
+        </xsl:variable>
+        <xsl:if test="normalize-space($text-content) != ''">
+            <p><xsl:value-of select="normalize-space($text-content)"/></p>
+        </xsl:if>
+    </xsl:template>
+
+    <xsl:template match="ImageData" priority="10">
+        <img src="{@src}" alt=""/>
     </xsl:template>
 
 </xsl:stylesheet>
