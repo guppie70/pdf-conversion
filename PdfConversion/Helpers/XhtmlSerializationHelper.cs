@@ -5,6 +5,15 @@ using System.Xml.Linq;
 namespace PdfConversion.Helpers;
 
 /// <summary>
+/// StringWriter that reports UTF-8 encoding instead of UTF-16.
+/// This ensures XML declarations use the correct encoding attribute.
+/// </summary>
+internal class Utf8StringWriter : StringWriter
+{
+    public override Encoding Encoding => Encoding.UTF8;
+}
+
+/// <summary>
 /// Utility class for serializing XML documents as proper XHTML
 /// with correct void element handling.
 /// </summary>
@@ -24,9 +33,9 @@ public static class XhtmlSerializationHelper
     /// Serializes an XDocument to XHTML format with proper void element handling.
     /// </summary>
     /// <param name="document">The XML document to serialize</param>
-    /// <param name="omitXmlDeclaration">Whether to omit the XML declaration (default: false)</param>
+    /// <param name="omitXmlDeclaration">Whether to omit the XML declaration (default: true)</param>
     /// <returns>XHTML string with proper element closing</returns>
-    public static string SerializeXhtmlDocument(XDocument document, bool omitXmlDeclaration = false)
+    public static string SerializeXhtmlDocument(XDocument document, bool omitXmlDeclaration = true)
     {
         var settings = new XmlWriterSettings
         {
@@ -39,7 +48,7 @@ public static class XhtmlSerializationHelper
             ConformanceLevel = ConformanceLevel.Document
         };
 
-        using var stringWriter = new StringWriter();
+        using var stringWriter = new Utf8StringWriter();
         using var xmlWriter = XmlWriter.Create(stringWriter, settings);
 
         // Write the document
@@ -70,7 +79,7 @@ public static class XhtmlSerializationHelper
             ConformanceLevel = ConformanceLevel.Fragment
         };
 
-        using var stringWriter = new StringWriter();
+        using var stringWriter = new Utf8StringWriter();
         using var xmlWriter = XmlWriter.Create(stringWriter, settings);
 
         element.Save(xmlWriter);
