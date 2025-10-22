@@ -22,6 +22,11 @@ public interface IUserSelectionService
     /// Update specific fields in user selection
     /// </summary>
     Task UpdateSelectionAsync(string? projectId = null, string? sourceXml = null, string? xslt = null, string? hierarchyXml = null);
+
+    /// <summary>
+    /// Update validation modal position
+    /// </summary>
+    Task UpdateModalPositionAsync(int? x = null, int? y = null);
 }
 
 /// <summary>
@@ -116,5 +121,16 @@ public class UserSelectionService : IUserSelectionService
         if (hierarchyXml != null) current.LastSelectedHierarchyXml = hierarchyXml;
 
         await SaveSelectionAsync(current);
+    }
+
+    public async Task UpdateModalPositionAsync(int? x = null, int? y = null)
+    {
+        var current = await GetSelectionAsync();
+
+        if (x != null) current.ValidationModalX = x;
+        if (y != null) current.ValidationModalY = y;
+
+        await SaveSelectionAsync(current);
+        _logger.LogInformation("Updated validation modal position: X={X}, Y={Y}", x, y);
     }
 }

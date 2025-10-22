@@ -232,7 +232,7 @@
 @if (ValidationResult != null)
 {
     <div class="modal fade" id="validationErrorsModal" tabindex="-1" aria-labelledby="validationErrorsModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-lg modal-dialog-scrollable" style="cursor: move;" id="validation-modal-dialog">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable" id="validation-modal-dialog">
             <div class="modal-content">
                 <div class="modal-header" id="validation-modal-header">
                     <h5 class="modal-title" id="validationErrorsModalLabel">
@@ -1591,6 +1591,64 @@
                         ValidationResult = await ValidationService.ValidateXhtmlAsync(OutputContent);
                         Logger.LogInformation("XHTML validation completed: {TotalIssues} issues found",
                             ValidationResult.TotalIssues);
+
+                        // If validation found issues, initialize draggable modal after render
+                        if (ValidationResult != null && ValidationResult.TotalIssues > 0)
+                        {
+                            try
+                            {
+                                // Use JavaScript to poll for modal existence and initialize when found
+                                await JSRuntime.InvokeVoidAsync("eval", @"
+                                    let pollCount = 0;
+                                    const maxPolls = 20; // Try for 2 seconds (20 * 100ms)
+
+                                    const pollForModal = () => {
+                                        pollCount++;
+                                        const modal = document.getElementById('validationErrorsModal');
+
+                                        if (modal) {
+                                            // Check if already initialized
+                                            if (!modal.dataset.dragInitialized) {
+                                                modal.dataset.dragInitialized = 'true';
+
+                                                // Try the normal initialization first
+                                                if (window.initValidationModalDraggable) {
+                                                    window.initValidationModalDraggable();
+                                                }
+
+                                                // Also directly initialize dragging
+                                                setTimeout(() => {
+                                                    const dotNetRef = window.transformPageDotNetRef;
+                                                    if (dotNetRef) {
+                                                        window.initDraggableModal('validation-modal-dialog', 'validation-modal-header', dotNetRef);
+
+                                                        // Load saved position
+                                                        dotNetRef.invokeMethodAsync('GetSavedModalPosition')
+                                                            .then(position => {
+                                                                if (position && position.x !== null && position.y !== null) {
+                                                                    window.setModalPosition('validation-modal-dialog', position.x, position.y);
+                                                                }
+                                                            })
+                                                            .catch(err => {
+                                                                // Silently fail - position restoration is non-critical
+                                                            });
+                                                    }
+                                                }, 100); // Small delay to ensure modal is fully rendered
+                                            }
+                                        } else if (pollCount < maxPolls) {
+                                            setTimeout(pollForModal, 100);
+                                        }
+                                    };
+
+                                    // Start polling
+                                    pollForModal();
+                                ");
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.LogWarning(ex, "Failed to initialize draggable modal polling");
+                            }
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -2185,23 +2243,18 @@
                 Logger.LogWarning(ex, "Failed to initialize Bootstrap tooltips");
             }
 
-            // Initialize draggable validation modal
+            // Store .NET reference globally for modal draggable init (called by Bootstrap modal shown event)
             try
             {
-                await JSRuntime.InvokeVoidAsync("eval", @"
-                    if (typeof $ !== 'undefined' && $.fn.draggable) {
-                        $('#validation-modal-dialog').draggable({
-                            handle: '#validation-modal-header',
-                            cursor: 'move',
-                            containment: 'window'
-                        });
-                    }
-                ");
-                Logger.LogInformation("Validation modal draggability initialized");
+                await JSRuntime.InvokeVoidAsync("storeDotNetReference", dotNetRef);
+                Logger.LogInformation("Stored .NET reference for validation modal draggability");
+
+                // Try to initialize draggable modal now (in case modal already rendered)
+                await JSRuntime.InvokeVoidAsync("initValidationModalDraggable");
             }
             catch (Exception ex)
             {
-                Logger.LogWarning(ex, "Failed to initialize validation modal draggability (jQuery UI may not be available)");
+                Logger.LogWarning(ex, "Failed to store .NET reference for validation modal");
             }
 
             // Initialize Monaco Editor for XSLT
@@ -2459,5 +2512,195 @@
 
         dotNetRef?.Dispose();
     }
+
+    [JSInvokable]
+    public async Task SaveModalPosition(int x, int y)
+    {
+        try
+        {
+            await UserSelectionService.UpdateModalPositionAsync(x, y);
+            Logger.LogInformation("Saved modal position: X={X}, Y={Y}", x, y);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save modal position");
+        }
+    }
+
+    [JSInvokable]
+    public async Task<object> GetSavedModalPosition()
+    {
+        try
+        {
+            var selection = await UserSelectionService.GetSelectionAsync();
+            return new
+            {
+                x = selection.ValidationModalX,
+                y = selection.ValidationModalY
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to get saved modal position");
+            return new { x = (int?)null, y = (int?)null };
+        }
+    }
 }
+
+<script>
+    window.initDraggableModal = (dialogId, handleId, dotNetRef) => {
+        const dialog = document.getElementById(dialogId);
+        const handle = document.getElementById(handleId);
+
+        if (!dialog || !handle) {
+            return;
+        }
+
+        // Prevent duplicate initialization
+        if (dialog.dataset.dragHandlersAttached === 'true') {
+            return;
+        }
+        dialog.dataset.dragHandlersAttached = 'true';
+
+        let isDragging = false;
+        let currentX, currentY, initialX, initialY;
+
+        const onMouseDown = (e) => {
+            // Don't drag if clicking close button or button elements
+            if (e.target.closest('.btn-close') || e.target.closest('button')) {
+                return;
+            }
+
+            isDragging = true;
+
+            // Get current position or calculate from center
+            const rect = dialog.getBoundingClientRect();
+            initialX = e.clientX - rect.left;
+            initialY = e.clientY - rect.top;
+
+            dialog.style.position = 'fixed';
+            dialog.classList.add('dragging');
+            e.preventDefault();
+        };
+
+        const onMouseMove = (e) => {
+            if (!isDragging) return;
+
+            e.preventDefault();
+            currentX = e.clientX - initialX;
+            currentY = e.clientY - initialY;
+
+            // Keep within viewport
+            const maxX = window.innerWidth - dialog.offsetWidth;
+            const maxY = window.innerHeight - dialog.offsetHeight;
+            currentX = Math.max(0, Math.min(currentX, maxX));
+            currentY = Math.max(0, Math.min(currentY, maxY));
+
+            dialog.style.left = currentX + 'px';
+            dialog.style.top = currentY + 'px';
+            dialog.style.transform = 'none';
+            dialog.style.margin = '0';
+        };
+
+        const onMouseUp = (e) => {
+            if (isDragging) {
+                isDragging = false;
+                dialog.classList.remove('dragging');
+
+                // Save position to server
+                if (currentX !== undefined && currentY !== undefined) {
+                    dotNetRef.invokeMethodAsync('SaveModalPosition', Math.round(currentX), Math.round(currentY))
+                        .catch(err => {
+                            // Silently fail - position saving is non-critical
+                        });
+                }
+            }
+        };
+
+        // Remove existing listeners if any
+        handle.removeEventListener('mousedown', onMouseDown);
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+
+        // Attach new listeners
+        handle.addEventListener('mousedown', onMouseDown);
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    };
+
+    window.setModalPosition = (dialogId, x, y) => {
+        const dialog = document.getElementById(dialogId);
+        if (!dialog) {
+            return;
+        }
+
+        // Ensure position is within viewport
+        const maxX = window.innerWidth - dialog.offsetWidth;
+        const maxY = window.innerHeight - dialog.offsetHeight;
+        const safeX = Math.max(0, Math.min(x, maxX));
+        const safeY = Math.max(0, Math.min(y, maxY));
+
+        dialog.style.position = 'fixed';
+        dialog.style.left = safeX + 'px';
+        dialog.style.top = safeY + 'px';
+        dialog.style.transform = 'none';
+        dialog.style.margin = '0';
+    };
+
+    window.storeDotNetReference = (dotNetRef) => {
+        window.transformPageDotNetRef = dotNetRef;
+    };
+
+    // Initialize draggable modal when it's shown (modal exists in DOM)
+    // Use a function that can be called multiple times
+    window.initValidationModalDraggable = () => {
+        const modal = document.getElementById('validationErrorsModal');
+        if (!modal) {
+            // Modal not in DOM yet, will retry when modal is shown
+            return false;
+        }
+
+        // Check if already initialized
+        if (modal.dataset.draggableInitialized === 'true') {
+            return true;
+        }
+
+        // Mark as initialized to avoid duplicate listeners
+        modal.dataset.draggableInitialized = 'true';
+
+        modal.addEventListener('shown.bs.modal', () => {
+            // Get .NET reference from window if available
+            const dotNetRef = window.transformPageDotNetRef;
+
+            if (!dotNetRef) {
+                return;
+            }
+
+            initDraggableModal('validation-modal-dialog', 'validation-modal-header', dotNetRef);
+
+            // Load and restore saved position
+            dotNetRef.invokeMethodAsync('GetSavedModalPosition')
+                .then(position => {
+                    if (position && position.x !== null && position.y !== null) {
+                        setModalPosition('validation-modal-dialog', position.x, position.y);
+                    }
+                })
+                .catch(err => {
+                    // Silently fail - position restoration is non-critical
+                });
+        });
+
+        return true;
+    };
+
+    // Try to initialize immediately (if modal already exists)
+    document.addEventListener('DOMContentLoaded', () => {
+        window.initValidationModalDraggable();
+    });
+
+    // Also try after a short delay to catch Blazor-rendered modals
+    setTimeout(() => {
+        window.initValidationModalDraggable();
+    }, 500);
+</script>
 

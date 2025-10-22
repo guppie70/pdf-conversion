@@ -24,4 +24,14 @@ public class UserSelection
     /// Last selected hierarchy XML filename for Convert page (e.g., "hierarchy.xml")
     /// </summary>
     public string LastSelectedHierarchyXml { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Last saved X position of validation modal (null = centered by Bootstrap)
+    /// </summary>
+    public int? ValidationModalX { get; set; }
+
+    /// <summary>
+    /// Last saved Y position of validation modal (null = centered by Bootstrap)
+    /// </summary>
+    public int? ValidationModalY { get; set; }
 }

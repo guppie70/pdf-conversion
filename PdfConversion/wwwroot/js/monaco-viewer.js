@@ -80,7 +80,11 @@ window.MonacoViewerInterop = (function() {
             ambiguousCharacters: false,
             invisibleCharacters: false
         },
-        renderWhitespace: 'none'
+        renderWhitespace: 'none',
+        // Add bottom padding to prevent content from being hidden behind stats bar
+        padding: {
+            bottom: 50 // Height of stats bar (44px) + small buffer
+        }
     };
 
     /**

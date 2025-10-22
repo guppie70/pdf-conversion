@@ -212,11 +212,24 @@
 
 .preview-rendered {
     padding: 2rem;
+    padding-bottom: calc(2rem + 44px); /* Normal padding + stats bar height */
     height: 100%;
     overflow: auto;
     background: var(--panel-bg);
     color: var(--text-primary);
 }
+
+/* Monaco editor containers - ensure dark background matches editor theme */
+#source-xml-viewer,
+#output-xml-viewer {
+    background-color: #1e1e1e; /* Match Monaco editor dark background */
+    width: 100%;
+    height: 100%;
+    position: relative;
+}
+
+/* Note: Bottom padding for Monaco editor is configured in monaco-viewer.js
+   via the padding.bottom option to prevent content overlap with stats bar */
 
 /* Transformation overlay */
 .transformation-overlay {
@@ -911,4 +924,29 @@
 
 ::deep .btn-close:hover {
     opacity: 1;
+}
+
+/* Validation modal - draggable header styling */
+::deep #validation-modal-header {
+    cursor: move;
+    user-select: none;
+}
+
+::deep #validation-modal-header .btn-close {
+    cursor: pointer;
+}
+
+::deep #validation-modal-dialog {
+    will-change: transform;
+    transition: none;
+}
+
+::deep #validation-modal-dialog.dragging {
+    transition: none;
+}
+
+/* Ensure modal body and dialog don't override cursor */
+::deep #validation-modal-dialog .modal-body,
+::deep #validation-modal-dialog .modal-content {
+    cursor: default;
 }
