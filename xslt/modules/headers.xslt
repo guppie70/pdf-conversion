@@ -10,7 +10,6 @@
     <xsl:template match="H1" priority="10">
         <xsl:variable name="text" select="normalize-space(.)"/>
         <h1>
-            <xsl:apply-templates select="@*"/>
             <xsl:call-template name="add-numbering-attributes">
                 <xsl:with-param name="text" select="$text"/>
             </xsl:call-template>
@@ -21,7 +20,6 @@
     <xsl:template match="H2" priority="10">
         <xsl:variable name="text" select="normalize-space(.)"/>
         <h2>
-            <xsl:apply-templates select="@*"/>
             <xsl:call-template name="add-numbering-attributes">
                 <xsl:with-param name="text" select="$text"/>
             </xsl:call-template>
@@ -32,7 +30,6 @@
     <xsl:template match="H3" priority="10">
         <xsl:variable name="text" select="normalize-space(.)"/>
         <h3>
-            <xsl:apply-templates select="@*"/>
             <xsl:call-template name="add-numbering-attributes">
                 <xsl:with-param name="text" select="$text"/>
             </xsl:call-template>
@@ -229,7 +226,6 @@
         <xsl:variable name="header-level" select="@data-forceheader"/>
 
         <xsl:element name="{$header-level}">
-            <xsl:apply-templates select="@* except @data-forceheader"/>
             <xsl:attribute name="data-numberscheme">(a),(b),(c)</xsl:attribute>
             <xsl:attribute name="data-number"></xsl:attribute>
             <xsl:value-of select="$text"/>
@@ -244,7 +240,6 @@
         <xsl:variable name="text" select="normalize-space(.)"/>
         <xsl:variable name="text-without-prefix" select="hdr:get-text-without-prefix($text)"/>
         <h4>
-            <xsl:apply-templates select="@*"/>
             <xsl:call-template name="add-numbering-attributes">
                 <xsl:with-param name="text" select="$text"/>
             </xsl:call-template>
