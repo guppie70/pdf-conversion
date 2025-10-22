@@ -25,11 +25,13 @@
     <xsl:include href="modules/lists.xslt"/>
     <xsl:include href="pass2/postprocess.xslt"/>
     <xsl:include href="pass3/table-symmetry.xslt"/>
+    <xsl:include href="pass4/tbody-normalize.xslt"/>
 
-    <!-- Three-pass transformation:
+    <!-- Four-pass transformation:
          Pass 1 (Adobe XML → XHTML, default mode)
          Pass 2 (cleanup, mode="pass2" in pass2/postprocess.xslt)
-         Pass 3 (table symmetry, mode="pass3" in pass3/table-symmetry.xslt) -->
+         Pass 3 (table symmetry, mode="pass3" in pass3/table-symmetry.xslt)
+         Pass 4 (tbody normalization, mode="pass4" in pass4/tbody-normalize.xslt) -->
 
     <!-- Identity transform base templates (mode="#all" - works in both passes) -->
 
@@ -158,7 +160,12 @@
         </xsl:variable>
 
         <!-- Pass 3: Fix asymmetric tables by adding missing cells -->
-        <xsl:apply-templates select="$pass2-result" mode="pass3"/>
+        <xsl:variable name="pass3-result">
+            <xsl:apply-templates select="$pass2-result" mode="pass3"/>
+        </xsl:variable>
+
+        <!-- Pass 4: Normalize tbody cells (convert <th> to <td>) -->
+        <xsl:apply-templates select="$pass3-result" mode="pass4"/>
     </xsl:template>
 
     <!-- Pass 1: Adobe XML to intermediate XHTML (default mode) -->

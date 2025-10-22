@@ -11,7 +11,7 @@
         <xsl:variable name="position" select="count(preceding::Table) + 1"/>
         <xsl:variable name="tableId" select="concat('d', $position * 1677, 'e', $position * 846)"/>
         <div id="tablewrapper_{$tableId}"
-             class="table-wrapper structured-data-table"
+             class="table-wrapper c-table structured-data-table"
              data-instanceid="{$tableId}-wrapper">
             <div class="tablegraph-header-wrapper">
                 <div class="table-title">tabletitle</div>
