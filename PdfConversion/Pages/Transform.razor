@@ -244,6 +244,48 @@
                     </div>
                 </div>
 
+                <!-- Sanitize Document Tool -->
+                <div class="attribute-section mt-4">
+                    <h6 class="attribute-title">
+                        <i class="bi bi-shield-lock me-2"></i>Sanitize Document
+                    </h6>
+
+                    <div class="attribute-details">
+                        <p class="attribute-description">
+                            Create a lorem ipsum version with bogus data for safe sharing.
+                        </p>
+
+                        <div class="attribute-usage">
+                            <strong>What it does:</strong> Creates a copy of the XML file with all text replaced by lorem ipsum placeholder text while preserving the document structure. The sanitized file will be saved as [filename]-lorem.xml in the same directory.
+                        </div>
+
+                        <div class="mt-3">
+                            <button class="btn btn-primary"
+                                    @onclick="OnSanitizeXmlClickedAsync"
+                                    disabled="@(IsSanitizing || string.IsNullOrEmpty(SelectedFileName))">
+                                @if (IsSanitizing)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                    <span>Sanitizing...</span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-play-fill me-2"></i>
+                                    <span>Run Sanitize</span>
+                                }
+                            </button>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(SanitizeResult))
+                        {
+                            <div class="alert @(SanitizeSuccess ? "alert-success" : "alert-danger") mt-3 mb-0" role="alert">
+                                <i class="bi @(SanitizeSuccess ? "bi-check-circle" : "bi-exclamation-triangle") me-2"></i>
+                                @SanitizeResult
+                            </div>
+                        }
+                    </div>
+                </div>
+
                 <div class="alert alert-info mt-4" role="alert">
                     <i class="bi bi-info-circle me-2"></i>
                     <strong>Note:</strong> After running any tool, the XML file will be automatically reloaded to reflect the changes.
@@ -460,7 +502,7 @@
                 <div class="panel-header-left">
                     @if (Projects != null && Projects.Any())
                     {
-                        <select class="form-select form-select-sm xslt-file-select" @onchange="OnFilePathChangedFromDropdown">
+                        <select class="form-select form-select-sm xslt-file-select" @onchange="OnFilePathChangedFromDropdown" @onfocus="OnFileDropdownFocusedAsync">
                             <option value="">Select a file...</option>
                             @foreach (var project in Projects)
                             {
@@ -795,6 +837,11 @@
     private string? FixCharactersResult = null;
     private bool FixCharactersSuccess = false;
 
+    // Sanitization State
+    private bool IsSanitizing = false;
+    private string? SanitizeResult = null;
+    private bool SanitizeSuccess = false;
+
     // Settings (defaults will be overridden by localStorage if available)
     private bool UseXslt3Service = true;
     private bool NormalizeHeaders = true;
@@ -981,6 +1028,13 @@
         {
             IsLoadingXslt = false;
         }
+    }
+
+    private async Task OnFileDropdownFocusedAsync()
+    {
+        // Reload projects to reflect any file changes (added/deleted files)
+        Logger.LogInformation("File dropdown focused - reloading projects to refresh file list");
+        await LoadProjectsAsync();
     }
 
     private async Task OnFilePathChangedFromDropdown(ChangeEventArgs e)
@@ -1889,6 +1943,61 @@
         finally
         {
             IsFixingCharacters = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnSanitizeXmlClickedAsync()
+    {
+        if (string.IsNullOrEmpty(SelectedProjectId) || string.IsNullOrEmpty(SelectedFileName))
+        {
+            SanitizeResult = "No file selected";
+            SanitizeSuccess = false;
+            StateHasChanged();
+            return;
+        }
+
+        try
+        {
+            IsSanitizing = true;
+            SanitizeResult = null;
+            StateHasChanged();
+
+            Logger.LogInformation("Running Sanitize tool on {FileName} in project {ProjectId}", SelectedFileName, SelectedProjectId);
+
+            var (success, message) = await FileService.SanitizeXmlFileAsync(SelectedProjectId, SelectedFileName);
+
+            SanitizeResult = message;
+            SanitizeSuccess = success;
+
+            if (success)
+            {
+                ToastNotification.ShowSuccess(message);
+                Logger.LogInformation("Sanitize completed: {Message}", message);
+
+                // Brief delay to ensure file is written to disk
+                await Task.Delay(500);
+
+                // Reload all projects to make new lorem file available in dropdown
+                Logger.LogInformation("Reloading projects to show new lorem file");
+                await LoadProjectsAsync();
+            }
+            else
+            {
+                ToastNotification.ShowError(message);
+                Logger.LogError("Sanitize failed: {Message}", message);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error running Sanitize tool");
+            SanitizeResult = $"Error: {ex.Message}";
+            SanitizeSuccess = false;
+            ToastNotification.ShowError($"Failed to sanitize document: {ex.Message}");
+        }
+        finally
+        {
+            IsSanitizing = false;
             StateHasChanged();
         }
     }

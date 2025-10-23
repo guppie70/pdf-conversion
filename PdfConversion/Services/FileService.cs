@@ -15,18 +15,21 @@ public interface IFileService
     bool ValidateXsltFile(Stream fileStream);
     IEnumerable<string> GetXsltFiles();
     Task<(bool Success, string Message, int AmpersandCount, int LessThanCount, int GreaterThanCount)> FixInvalidXmlCharactersAsync(string projectId, string fileName);
+    Task<(bool Success, string Message)> SanitizeXmlFileAsync(string projectId, string fileName);
 }
 
 public class FileService : IFileService
 {
     private readonly IProjectManagementService _projectService;
     private readonly ILogger<FileService> _logger;
+    private readonly IXslt3ServiceClient? _xslt3Client;
     private const long MaxFileSize = 10 * 1024 * 1024; // 10MB
 
-    public FileService(IProjectManagementService projectService, ILogger<FileService> logger)
+    public FileService(IProjectManagementService projectService, ILogger<FileService> logger, IXslt3ServiceClient? xslt3Client = null)
     {
         _projectService = projectService;
         _logger = logger;
+        _xslt3Client = xslt3Client;
     }
 
     public async Task<(bool Success, string Message)> UploadXmlFileAsync(string projectId, string fileName, Stream fileStream)
@@ -345,6 +348,96 @@ public class FileService : IFileService
             _logger.LogError(ex, "Error fixing invalid XML characters in {FileName} for project {ProjectId}", fileName, projectId);
             return (false, $"Error: {ex.Message}", 0, 0, 0);
         }
+    }
+
+    /// <summary>
+    /// Creates a sanitized version of an XML file with lorem ipsum placeholder text.
+    /// </summary>
+    /// <param name="projectId">The project identifier</param>
+    /// <param name="fileName">The source XML file name</param>
+    /// <returns>Success status and result message</returns>
+    public async Task<(bool Success, string Message)> SanitizeXmlFileAsync(string projectId, string fileName)
+    {
+        try
+        {
+            _logger.LogInformation("Starting sanitization for {FileName} in project {ProjectId}", fileName, projectId);
+
+            // Check if XSLT3Service is available
+            if (_xslt3Client == null)
+            {
+                var message = "XSLT3Service is not available - cannot perform sanitization";
+                _logger.LogWarning(message);
+                return (false, message);
+            }
+
+            // Build source file path
+            var (organization, id) = ParseProjectId(projectId);
+            var sourcePath = Path.Combine("/app/data/input", organization, "projects", id, fileName);
+
+            if (!File.Exists(sourcePath))
+            {
+                var message = $"Source file not found: {fileName}";
+                _logger.LogWarning(message);
+                return (false, message);
+            }
+
+            // Read source XML content
+            var xmlContent = await File.ReadAllTextAsync(sourcePath);
+
+            // Read lorem ipsum XSLT content
+            var xsltPath = "/app/xslt/_system/lorem_replace_text.xsl";
+            if (!File.Exists(xsltPath))
+            {
+                var message = "Lorem ipsum XSLT template not found";
+                _logger.LogError(message);
+                return (false, message);
+            }
+
+            var xsltContent = await File.ReadAllTextAsync(xsltPath);
+
+            // Transform using lorem ipsum XSLT
+            var transformResult = await _xslt3Client.TransformAsync(
+                xmlContent,
+                xsltContent,
+                new Dictionary<string, string>() // No parameters needed
+            );
+
+            if (!transformResult.IsSuccess)
+            {
+                var message = $"Sanitization failed: {transformResult.ErrorMessage}";
+                _logger.LogError(message);
+                return (false, message);
+            }
+
+            // Generate output filename: insert -lorem before extension
+            var outputFileName = GenerateLoremFileName(fileName);
+            var outputPath = Path.Combine("/app/data/input", organization, "projects", id, outputFileName);
+
+            // Write sanitized XML
+            await File.WriteAllTextAsync(outputPath, transformResult.OutputContent ?? string.Empty);
+
+            var successMessage = $"Successfully created lorem version: {outputFileName}";
+            _logger.LogInformation(successMessage);
+            return (true, successMessage);
+        }
+        catch (Exception ex)
+        {
+            var message = $"Failed to sanitize XML: {ex.Message}";
+            _logger.LogError(ex, "Error during XML sanitization");
+            return (false, message);
+        }
+    }
+
+    /// <summary>
+    /// Generates output filename by inserting -lorem before file extension.
+    /// </summary>
+    /// <param name="fileName">Original filename (e.g., "report.xml")</param>
+    /// <returns>Lorem filename (e.g., "report-lorem.xml")</returns>
+    private string GenerateLoremFileName(string fileName)
+    {
+        var extension = Path.GetExtension(fileName); // ".xml"
+        var nameWithoutExtension = Path.GetFileNameWithoutExtension(fileName); // "report"
+        return $"{nameWithoutExtension}-lorem{extension}"; // "report-lorem.xml"
     }
 
     private (string organization, string projectId) ParseProjectId(string projectId)
