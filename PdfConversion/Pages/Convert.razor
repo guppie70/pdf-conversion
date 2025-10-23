@@ -101,6 +101,29 @@
                     </button>
                 </div>
             </div>
+
+            <!-- Validation Feedback -->
+            @if (!_config.IsValid && !IsProcessing)
+            {
+                <div class="alert alert-info mt-3" role="alert">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>Required Fields:</strong>
+                    <ul class="mb-0 mt-1">
+                        @if (string.IsNullOrEmpty(_config.ProjectId))
+                        {
+                            <li>Please select a <strong>Project</strong></li>
+                        }
+                        @if (string.IsNullOrEmpty(_config.SourceFile))
+                        {
+                            <li>Please select a <strong>Source File</strong></li>
+                        }
+                        @if (string.IsNullOrEmpty(_config.HierarchyFile))
+                        {
+                            <li>Please select a <strong>Hierarchy File</strong></li>
+                        }
+                    </ul>
+                </div>
+            }
         </div>
     </div>
 
