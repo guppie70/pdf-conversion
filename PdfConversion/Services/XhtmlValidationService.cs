@@ -112,15 +112,22 @@ public class XhtmlValidationService : IXhtmlValidationService
             // Run element name validation
             var elementValidation = await Task.Run(() => ValidateXhtmlInternal(xhtmlContent));
 
+            _logger.LogDebug("Element validation found {Count} issues", elementValidation.Issues.Count);
+
             // Run schema validation only if enabled
             var schemaValidation = enableSchemaValidation
                 ? await ValidateAgainstXhtmlSchemaAsync(xhtmlContent)
                 : XhtmlValidationResult.Success();
 
+            _logger.LogDebug("Schema validation found {Count} issues (enabled: {Enabled})",
+                schemaValidation.Issues.Count, enableSchemaValidation);
+
             // Merge and deduplicate issues intelligently
             var mergedIssues = MergeValidationIssues(
                 elementValidation.Issues,
                 schemaValidation.Issues);
+
+            _logger.LogDebug("After merge: {Count} issues", mergedIssues.Count);
 
             if (mergedIssues.Any())
             {
@@ -159,7 +166,7 @@ public class XhtmlValidationService : IXhtmlValidationService
             elementIssues.Count, schemaIssues.Count);
 
         var mergedIssues = new List<ValidationIssue>();
-        var processedElements = new HashSet<string>();
+        var processedIssues = new HashSet<(string elementName, ValidationIssueType type)>();
 
         // Process element issues first (InvalidElement and UppercaseInElementName)
         foreach (var elementIssue in elementIssues)
@@ -172,7 +179,8 @@ public class XhtmlValidationService : IXhtmlValidationService
 
             foreach (var elementName in elementNames)
             {
-                if (processedElements.Contains(elementName))
+                var issueKey = (elementName, elementIssue.Type);
+                if (processedIssues.Contains(issueKey))
                     continue;
 
                 // Find related schema issues for this element
@@ -200,21 +208,23 @@ public class XhtmlValidationService : IXhtmlValidationService
                     };
 
                     mergedIssues.Add(mergedIssue);
-                    processedElements.Add(elementName);
+                    processedIssues.Add(issueKey);
 
-                    _logger.LogDebug("Merged element '{Element}' with {SchemaCount} schema issues",
-                        elementName, relatedSchemaIssues.Count);
+                    _logger.LogDebug("Merged element '{Element}' ({Type}) with {SchemaCount} schema issues",
+                        elementName, elementIssue.Type, relatedSchemaIssues.Count);
                 }
                 else
                 {
                     // No schema issue for this element, keep element issue as-is
                     mergedIssues.Add(elementIssue);
-                    processedElements.Add(elementName);
+                    processedIssues.Add(issueKey);
                 }
             }
         }
 
         // Add schema issues that weren't related to any element issues
+        var processedElementNames = processedIssues.Select(p => p.elementName).ToHashSet();
+
         foreach (var schemaIssue in schemaIssues)
         {
             var elementNames = schemaIssue.ElementName
@@ -222,9 +232,9 @@ public class XhtmlValidationService : IXhtmlValidationService
                 .Select(e => e.Trim())
                 .ToList();
 
-            // Check if any element in this schema issue hasn't been processed
+            // Check if any element in this schema issue hasn't been processed for any issue type
             var unprocessedElements = elementNames
-                .Where(e => !processedElements.Contains(e))
+                .Where(e => !processedElementNames.Contains(e))
                 .ToList();
 
             if (unprocessedElements.Any())
@@ -246,7 +256,7 @@ public class XhtmlValidationService : IXhtmlValidationService
 
                 foreach (var elem in unprocessedElements)
                 {
-                    processedElements.Add(elem);
+                    processedElementNames.Add(elem);
                 }
 
                 _logger.LogDebug("Added schema-only issue for elements: {Elements}",
