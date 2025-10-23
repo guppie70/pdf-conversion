@@ -17,6 +17,14 @@ public interface IXhtmlValidationService
     /// <param name="xhtmlContent">The XHTML content to validate</param>
     /// <returns>Validation result with any issues found</returns>
     Task<XhtmlValidationResult> ValidateXhtmlAsync(string xhtmlContent);
+
+    /// <summary>
+    /// Validates XHTML content with optional schema validation
+    /// </summary>
+    /// <param name="xhtmlContent">The XHTML content to validate</param>
+    /// <param name="enableSchemaValidation">If false, skips W3C schema validation (useful for testing)</param>
+    /// <returns>Validation result with any issues found</returns>
+    Task<XhtmlValidationResult> ValidateXhtmlAsync(string xhtmlContent, bool enableSchemaValidation);
 }
 
 /// <summary>
@@ -89,11 +97,25 @@ public class XhtmlValidationService : IXhtmlValidationService
 
     public async Task<XhtmlValidationResult> ValidateXhtmlAsync(string xhtmlContent)
     {
+        return await ValidateXhtmlAsync(xhtmlContent, enableSchemaValidation: true);
+    }
+
+    /// <summary>
+    /// Validates XHTML content with optional schema validation
+    /// </summary>
+    /// <param name="xhtmlContent">The XHTML content to validate</param>
+    /// <param name="enableSchemaValidation">If false, skips W3C schema validation (useful for testing)</param>
+    public async Task<XhtmlValidationResult> ValidateXhtmlAsync(string xhtmlContent, bool enableSchemaValidation)
+    {
         try
         {
-            // Run both element name validation and schema validation
+            // Run element name validation
             var elementValidation = await Task.Run(() => ValidateXhtmlInternal(xhtmlContent));
-            var schemaValidation = await ValidateAgainstXhtmlSchemaAsync(xhtmlContent);
+
+            // Run schema validation only if enabled
+            var schemaValidation = enableSchemaValidation
+                ? await ValidateAgainstXhtmlSchemaAsync(xhtmlContent)
+                : XhtmlValidationResult.Success();
 
             // Merge and deduplicate issues intelligently
             var mergedIssues = MergeValidationIssues(

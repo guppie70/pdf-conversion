@@ -23,6 +23,11 @@ public class ComponentIntegrationTests : TestContext
     private readonly Mock<IPerformanceMonitoringService> _mockPerfService;
     private readonly Mock<IMemoryPoolManager> _mockMemoryPool;
     private readonly Mock<IBatchTransformationService> _mockBatchService;
+    private readonly Mock<IUserSelectionService> _mockUserSelectionService;
+    private readonly Mock<IXhtmlValidationService> _mockValidationService;
+    private readonly Mock<IXsltFileWatcherService> _mockXsltFileWatcher;
+    private readonly Mock<IXmlFileWatcherService> _mockXmlFileWatcher;
+    private readonly Mock<ThemeService> _mockThemeService;
     private readonly TransformToolbarState _toolbarState;
 
     public ComponentIntegrationTests()
@@ -36,7 +41,25 @@ public class ComponentIntegrationTests : TestContext
         _mockPerfService = new Mock<IPerformanceMonitoringService>();
         _mockMemoryPool = new Mock<IMemoryPoolManager>();
         _mockBatchService = new Mock<IBatchTransformationService>();
+        _mockUserSelectionService = new Mock<IUserSelectionService>();
+        _mockValidationService = new Mock<IXhtmlValidationService>();
+        _mockXsltFileWatcher = new Mock<IXsltFileWatcherService>();
+        _mockXmlFileWatcher = new Mock<IXmlFileWatcherService>();
+        _mockThemeService = new Mock<ThemeService>();
         _toolbarState = new TransformToolbarState();
+
+        // Setup default behavior for UserSelectionService
+        _mockUserSelectionService
+            .Setup(s => s.GetSelectionAsync())
+            .ReturnsAsync(new UserSelection());
+
+        // Setup default behavior for ValidationService
+        _mockValidationService
+            .Setup(s => s.ValidateXhtmlAsync(It.IsAny<string>()))
+            .ReturnsAsync(XhtmlValidationResult.Success());
+        _mockValidationService
+            .Setup(s => s.ValidateXhtmlAsync(It.IsAny<string>(), It.IsAny<bool>()))
+            .ReturnsAsync(XhtmlValidationResult.Success());
 
         // Register services
         Services.AddSingleton(_mockProjectService.Object);
@@ -48,6 +71,11 @@ public class ComponentIntegrationTests : TestContext
         Services.AddSingleton(_mockPerfService.Object);
         Services.AddSingleton(_mockMemoryPool.Object);
         Services.AddSingleton(_mockBatchService.Object);
+        Services.AddSingleton(_mockUserSelectionService.Object);
+        Services.AddSingleton(_mockValidationService.Object);
+        Services.AddSingleton(_mockXsltFileWatcher.Object);
+        Services.AddSingleton(_mockXmlFileWatcher.Object);
+        Services.AddSingleton(_mockThemeService.Object);
         Services.AddSingleton(_toolbarState);
     }
 
