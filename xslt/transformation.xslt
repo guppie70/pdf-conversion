@@ -197,6 +197,9 @@
 
     <!-- Pass 1: Paragraph transformation templates -->
 
+    <!-- Strip report header fragments (priority=30) -->
+    <xsl:template match="P[normalize-space(.) = 'Optiver Services BV | Annual Report 2024']" priority="30"/>
+
     <!-- P with nested P children: unwrap outer P, process children as siblings (priority=25) -->
     <xsl:template match="P[P]" priority="25">
         <!-- Process only P children and their siblings directly, skip wrapping -->
@@ -245,9 +248,9 @@
     <!-- Pass 1: Figure transformation templates -->
 
     <xsl:template match="Figure" priority="10">
-        <!-- Process ImageData child as img element -->
-        <xsl:apply-templates select="ImageData"/>
-        <!-- Process any text content as paragraph -->
+        <!-- Process all child elements (H5, ImageData, etc.) and text nodes -->
+        <xsl:apply-templates select="*"/>
+        <!-- Process any remaining text content as paragraph -->
         <xsl:variable name="text-content">
             <xsl:for-each select="text()">
                 <xsl:value-of select="normalize-space(.)"/>
