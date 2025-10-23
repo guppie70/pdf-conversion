@@ -1898,6 +1898,59 @@
         }
     }
 
+    private async Task OnSanitizeXmlClickedAsync()
+    {
+        if (string.IsNullOrEmpty(SelectedProjectId) || string.IsNullOrEmpty(SelectedFileName))
+        {
+            SanitizeResult = "No file selected";
+            SanitizeSuccess = false;
+            StateHasChanged();
+            return;
+        }
+
+        try
+        {
+            IsSanitizing = true;
+            SanitizeResult = null;
+            StateHasChanged();
+
+            Logger.LogInformation("Running Sanitize tool on {FileName} in project {ProjectId}", SelectedFileName, SelectedProjectId);
+
+            var (success, message) = await FileService.SanitizeXmlFileAsync(SelectedProjectId, SelectedFileName);
+
+            SanitizeResult = message;
+            SanitizeSuccess = success;
+
+            if (success)
+            {
+                ToastNotification.ShowSuccess(message);
+                Logger.LogInformation("Sanitize completed: {Message}", message);
+
+                // Reload project files to make new lorem file available in dropdown
+                ProjectFiles = (await ProjectService.GetProjectFilesAsync(SelectedProjectId)).ToList();
+                Logger.LogInformation("Reloaded project files after sanitization");
+                StateHasChanged();
+            }
+            else
+            {
+                ToastNotification.ShowError(message);
+                Logger.LogError("Sanitize failed: {Message}", message);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error running Sanitize tool");
+            SanitizeResult = $"Error: {ex.Message}";
+            SanitizeSuccess = false;
+            ToastNotification.ShowError($"Failed to sanitize document: {ex.Message}");
+        }
+        finally
+        {
+            IsSanitizing = false;
+            StateHasChanged();
+        }
+    }
+
     private void ToggleSettings()
     {
         ShowSettings = !ShowSettings;
