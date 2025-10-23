@@ -4,6 +4,9 @@
 # Exclude Playwright MCP screenshots and data
 .playwright-mcp/
 
+# Exclude git worktrees
+.worktrees/
+
 # Exclude data directories (input/output files)
 data/
 
