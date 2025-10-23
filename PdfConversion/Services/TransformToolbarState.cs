@@ -10,6 +10,9 @@ public class TransformToolbarState
 {
     // State
     public List<Project>? Projects { get; set; }
+    public List<string>? ProjectFiles { get; set; }
+    public string? SelectedProjectId { get; set; }
+    public string? SelectedFileName { get; set; }
     public bool IsLoading { get; set; }
     public bool IsTransforming { get; set; }
     public bool IsSaving { get; set; }
@@ -23,6 +26,8 @@ public class TransformToolbarState
     // Callbacks - Transform page sets these
     public Func<Task>? OnTransform { get; set; }
     public Func<Task>? OnSave { get; set; }
+    public Func<string, Task>? OnProjectChanged { get; set; }
+    public Func<string, Task>? OnFileChanged { get; set; }
     public Action? OnToggleSettings { get; set; }
     public Action? OnToggleTransformationLog { get; set; }
 
