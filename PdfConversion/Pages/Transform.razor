@@ -795,6 +795,11 @@
     private string? FixCharactersResult = null;
     private bool FixCharactersSuccess = false;
 
+    // Sanitization State
+    private bool IsSanitizing = false;
+    private string? SanitizeResult = null;
+    private bool SanitizeSuccess = false;
+
     // Settings (defaults will be overridden by localStorage if available)
     private bool UseXslt3Service = true;
     private bool NormalizeHeaders = true;
