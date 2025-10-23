@@ -131,11 +131,12 @@ public class ComponentIntegrationTests : TestContext
         var projectFiles = new List<string> { "file1.xml", "file2.xml" };
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         _mockProjectService.Setup(s => s.GetProjectFilesAsync("ar24-1")).ReturnsAsync(projectFiles);
+        JSInterop.Mode = JSRuntimeMode.Loose; // Allow JS calls to succeed
 
         var cut = RenderComponent<Transform>();
 
         // Act
-        await _toolbarState.OnProjectChanged!("ar24-1");
+        await cut.InvokeAsync(async () => await _toolbarState.OnProjectChanged!("ar24-1"));
 
         // Assert
         _mockProjectService.Verify(s => s.GetProjectFilesAsync("ar24-1"), Times.Once);
@@ -152,12 +153,13 @@ public class ComponentIntegrationTests : TestContext
         var xmlContent = "<?xml version=\"1.0\"?><root>test</root>";
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         _mockProjectService.Setup(s => s.ReadInputFileAsync("ar24-1", "file.xml")).ReturnsAsync(xmlContent);
+        JSInterop.Mode = JSRuntimeMode.Loose; // Allow JS calls to succeed
 
         var cut = RenderComponent<Transform>();
-        await _toolbarState.OnProjectChanged!("ar24-1");
+        await cut.InvokeAsync(async () => await _toolbarState.OnProjectChanged!("ar24-1"));
 
         // Act
-        await _toolbarState.OnFileChanged!("file.xml");
+        await cut.InvokeAsync(async () => await _toolbarState.OnFileChanged!("file.xml"));
 
         // Assert
         _mockProjectService.Verify(s => s.ReadInputFileAsync("ar24-1", "file.xml"), Times.Once);
@@ -182,15 +184,16 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.ReadInputFileAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(xmlContent);
         _mockXsltService.Setup(s => s.TransformAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TransformationOptions>()))
             .ReturnsAsync(transformResult);
+        JSInterop.Mode = JSRuntimeMode.Loose; // Allow JS calls to succeed
 
         var cut = RenderComponent<Transform>();
-        await _toolbarState.OnProjectChanged!("ar24-1");
-        await _toolbarState.OnFileChanged!("file.xml");
+        await cut.InvokeAsync(async () => await _toolbarState.OnProjectChanged!("ar24-1"));
+        await cut.InvokeAsync(async () => await _toolbarState.OnFileChanged!("file.xml"));
 
         // Act
         if (_toolbarState.OnTransform != null)
         {
-            await _toolbarState.OnTransform();
+            await cut.InvokeAsync(async () => await _toolbarState.OnTransform!());
         }
 
         // Assert
@@ -215,7 +218,7 @@ public class ComponentIntegrationTests : TestContext
         // Act
         if (_toolbarState.OnSave != null)
         {
-            await _toolbarState.OnSave();
+            await cut.InvokeAsync(async () => await _toolbarState.OnSave!());
         }
 
         // Assert
@@ -234,13 +237,13 @@ public class ComponentIntegrationTests : TestContext
         JSInterop.Mode = JSRuntimeMode.Loose;
 
         var cut = RenderComponent<Transform>();
-        await _toolbarState.OnProjectChanged!("ar24-1");
+        await cut.InvokeAsync(async () => await _toolbarState.OnProjectChanged!("ar24-1"));
 
         // Act
         // TODO: Implement OnReset method in TransformToolbarState
         // if (_toolbarState.OnReset != null)
         // {
-        //     await _toolbarState.OnReset();
+        //     await cut.InvokeAsync(async () => await _toolbarState.OnReset!());
         // }
 
         // Assert
@@ -319,7 +322,7 @@ public class ComponentIntegrationTests : TestContext
         var cut = RenderComponent<Transform>();
 
         // Act
-        _toolbarState.OnToggleSettings?.Invoke();
+        cut.InvokeAsync(() => _toolbarState.OnToggleSettings?.Invoke());
 
         // Assert
         Assert.True(_toolbarState.ShowSettings);
@@ -389,11 +392,12 @@ public class ComponentIntegrationTests : TestContext
         // Arrange
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         _mockProjectService.Setup(s => s.GetProjectFilesAsync("ar24-1")).ReturnsAsync(new List<string>());
+        JSInterop.Mode = JSRuntimeMode.Loose; // Allow JS calls to succeed
 
         var cut = RenderComponent<Transform>();
 
         // Act
-        await _toolbarState.OnProjectChanged!("ar24-1");
+        await cut.InvokeAsync(async () => await _toolbarState.OnProjectChanged!("ar24-1"));
 
         // Assert
         Assert.Equal("ar24-1", _toolbarState.SelectedProjectId);
@@ -408,12 +412,13 @@ public class ComponentIntegrationTests : TestContext
         // Arrange
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         _mockProjectService.Setup(s => s.ReadInputFileAsync(It.IsAny<string>(), "test.xml")).ReturnsAsync("<root/>");
+        JSInterop.Mode = JSRuntimeMode.Loose; // Allow JS calls to succeed
 
         var cut = RenderComponent<Transform>();
-        await _toolbarState.OnProjectChanged!("ar24-1");
+        await cut.InvokeAsync(async () => await _toolbarState.OnProjectChanged!("ar24-1"));
 
         // Act
-        await _toolbarState.OnFileChanged!("test.xml");
+        await cut.InvokeAsync(async () => await _toolbarState.OnFileChanged!("test.xml"));
 
         // Assert
         Assert.Equal("test.xml", _toolbarState.SelectedFileName);
@@ -428,11 +433,12 @@ public class ComponentIntegrationTests : TestContext
         // Arrange
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         _mockProjectService.Setup(s => s.ReadInputFileAsync(It.IsAny<string>(), "test.xml")).ReturnsAsync("<root/>");
+        JSInterop.Mode = JSRuntimeMode.Loose; // Allow JS calls to succeed
 
         var cut = RenderComponent<Transform>();
 
         // Act - Perform successful operation after error
-        await _toolbarState.OnFileChanged!("test.xml");
+        await cut.InvokeAsync(async () => await _toolbarState.OnFileChanged!("test.xml"));
 
         // Assert
         // Error messages should be cleared
@@ -455,7 +461,7 @@ public class ComponentIntegrationTests : TestContext
         // Act
         if (_toolbarState.OnSave != null)
         {
-            await _toolbarState.OnSave();
+            await cut.InvokeAsync(async () => await _toolbarState.OnSave!());
         }
 
         // Assert
@@ -474,7 +480,7 @@ public class ComponentIntegrationTests : TestContext
 
         // Act
         var cut = RenderComponent<Transform>();
-        _toolbarState.OnToggleSettings?.Invoke();
+        cut.InvokeAsync(() => _toolbarState.OnToggleSettings?.Invoke());
         cut.Render(); // Re-render to show settings panel
 
         // Assert
@@ -492,12 +498,13 @@ public class ComponentIntegrationTests : TestContext
         var xmlContent = "<?xml version=\"1.0\"?><root>test content</root>";
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         _mockProjectService.Setup(s => s.ReadInputFileAsync(It.IsAny<string>(), "test.xml")).ReturnsAsync(xmlContent);
+        JSInterop.Mode = JSRuntimeMode.Loose; // Allow JS calls to succeed
 
         var cut = RenderComponent<Transform>();
-        await _toolbarState.OnProjectChanged!("ar24-1");
+        await cut.InvokeAsync(async () => await _toolbarState.OnProjectChanged!("ar24-1"));
 
         // Act
-        await _toolbarState.OnFileChanged!("test.xml");
+        await cut.InvokeAsync(async () => await _toolbarState.OnFileChanged!("test.xml"));
         cut.Render(); // Force re-render
 
         // Assert
@@ -518,11 +525,12 @@ public class ComponentIntegrationTests : TestContext
         // Arrange
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         _mockProjectService.Setup(s => s.GetProjectFilesAsync("ar24-1")).ReturnsAsync(new List<string>());
+        JSInterop.Mode = JSRuntimeMode.Loose; // Allow JS calls to succeed
 
         var cut = RenderComponent<Transform>();
 
         // Act
-        await _toolbarState.OnProjectChanged!("ar24-1");
+        await cut.InvokeAsync(async () => await _toolbarState.OnProjectChanged!("ar24-1"));
 
         // Assert
         // Component should have re-rendered (verified through state changes)
@@ -538,13 +546,14 @@ public class ComponentIntegrationTests : TestContext
         // Arrange
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         _mockProjectService.Setup(s => s.GetProjectFilesAsync(It.IsAny<string>())).ReturnsAsync(new List<string>());
+        JSInterop.Mode = JSRuntimeMode.Loose; // Allow JS calls to succeed
 
         var cut = RenderComponent<Transform>();
 
         // Act - Simulate rapid project changes
-        await _toolbarState.OnProjectChanged!("ar24-1");
-        await _toolbarState.OnProjectChanged!("ar24-2");
-        await _toolbarState.OnProjectChanged!("ar24-3");
+        await cut.InvokeAsync(async () => await _toolbarState.OnProjectChanged!("ar24-1"));
+        await cut.InvokeAsync(async () => await _toolbarState.OnProjectChanged!("ar24-2"));
+        await cut.InvokeAsync(async () => await _toolbarState.OnProjectChanged!("ar24-3"));
 
         // Assert
         Assert.Equal("ar24-3", _toolbarState.SelectedProjectId);
@@ -563,14 +572,15 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.ReadInputFileAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync("<root/>");
         _mockXsltService.Setup(s => s.TransformAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TransformationOptions>()))
             .ReturnsAsync(transformResult);
+        JSInterop.Mode = JSRuntimeMode.Loose; // Allow JS calls to succeed
 
         var cut = RenderComponent<Transform>();
 
         // Enable auto-transform (would be done through settings panel)
         // Then load a file
 
-        await _toolbarState.OnProjectChanged!("ar24-1");
-        await _toolbarState.OnFileChanged!("test.xml");
+        await cut.InvokeAsync(async () => await _toolbarState.OnProjectChanged!("ar24-1"));
+        await cut.InvokeAsync(async () => await _toolbarState.OnFileChanged!("test.xml"));
 
         // Assert
         // If auto-transform is enabled, transformation service should be called
@@ -647,7 +657,7 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
 
         var cut = RenderComponent<Transform>();
-        _toolbarState.OnToggleSettings?.Invoke();
+        cut.InvokeAsync(() => _toolbarState.OnToggleSettings?.Invoke());
         cut.Render();
 
         // Act
@@ -669,7 +679,7 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
 
         var cut = RenderComponent<Transform>();
-        _toolbarState.OnToggleSettings?.Invoke();
+        cut.InvokeAsync(() => _toolbarState.OnToggleSettings?.Invoke());
         cut.Render();
 
         // Act
@@ -700,15 +710,16 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.ReadInputFileAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync("<root/>");
         _mockXsltService.Setup(s => s.TransformAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TransformationOptions>()))
             .ReturnsAsync(transformResult);
+        JSInterop.Mode = JSRuntimeMode.Loose; // Allow JS calls to succeed
 
         var cut = RenderComponent<Transform>();
-        await _toolbarState.OnProjectChanged!("ar24-1");
-        await _toolbarState.OnFileChanged!("test.xml");
+        await cut.InvokeAsync(async () => await _toolbarState.OnProjectChanged!("ar24-1"));
+        await cut.InvokeAsync(async () => await _toolbarState.OnFileChanged!("test.xml"));
 
         // Act
         if (_toolbarState.OnTransform != null)
         {
-            await _toolbarState.OnTransform();
+            await cut.InvokeAsync(async () => await _toolbarState.OnTransform!());
         }
 
         cut.Render();
@@ -738,15 +749,16 @@ public class ComponentIntegrationTests : TestContext
         _mockProjectService.Setup(s => s.ReadInputFileAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync("<root/>");
         _mockXsltService.Setup(s => s.TransformAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TransformationOptions>()))
             .ReturnsAsync(transformResult);
+        JSInterop.Mode = JSRuntimeMode.Loose; // Allow JS calls to succeed
 
         var cut = RenderComponent<Transform>();
-        await _toolbarState.OnProjectChanged!("ar24-1");
-        await _toolbarState.OnFileChanged!("test.xml");
+        await cut.InvokeAsync(async () => await _toolbarState.OnProjectChanged!("ar24-1"));
+        await cut.InvokeAsync(async () => await _toolbarState.OnFileChanged!("test.xml"));
 
         // Act
         if (_toolbarState.OnTransform != null)
         {
-            await _toolbarState.OnTransform();
+            await cut.InvokeAsync(async () => await _toolbarState.OnTransform!());
         }
 
         cut.Render();

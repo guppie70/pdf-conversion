@@ -915,6 +915,14 @@
         ToolbarState.OnTransform = TransformAsync;
         ToolbarState.OnSave = SaveXsltAsync;
         ToolbarState.OnToggleSettings = ToggleSettings;
+        ToolbarState.OnProjectChanged = async (projectId) =>
+        {
+            await OnProjectChanged(new ChangeEventArgs { Value = projectId });
+        };
+        ToolbarState.OnFileChanged = async (fileName) =>
+        {
+            await OnFileChanged(new ChangeEventArgs { Value = fileName });
+        };
         // Note: OnToggleTransformationLog is handled in MainLayout
 
         // Register file watcher callbacks (replaces any existing callback to prevent double subscription)
@@ -930,6 +938,9 @@
     private void UpdateToolbarState()
     {
         ToolbarState.Projects = Projects;
+        ToolbarState.ProjectFiles = ProjectFiles;
+        ToolbarState.SelectedProjectId = SelectedProjectId;
+        ToolbarState.SelectedFileName = SelectedFileName;
         ToolbarState.IsLoading = IsLoading;
         ToolbarState.IsTransforming = IsTransforming;
         ToolbarState.IsSaving = IsSaving || IsSavingXml;
