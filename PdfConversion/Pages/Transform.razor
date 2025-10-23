@@ -502,7 +502,7 @@
                 <div class="panel-header-left">
                     @if (Projects != null && Projects.Any())
                     {
-                        <select class="form-select form-select-sm xslt-file-select" @onchange="OnFilePathChangedFromDropdown">
+                        <select class="form-select form-select-sm xslt-file-select" @onchange="OnFilePathChangedFromDropdown" @onfocus="OnFileDropdownFocusedAsync">
                             <option value="">Select a file...</option>
                             @foreach (var project in Projects)
                             {
@@ -1028,6 +1028,13 @@
         {
             IsLoadingXslt = false;
         }
+    }
+
+    private async Task OnFileDropdownFocusedAsync()
+    {
+        // Reload projects to reflect any file changes (added/deleted files)
+        Logger.LogInformation("File dropdown focused - reloading projects to refresh file list");
+        await LoadProjectsAsync();
     }
 
     private async Task OnFilePathChangedFromDropdown(ChangeEventArgs e)
@@ -1971,11 +1978,9 @@
                 // Brief delay to ensure file is written to disk
                 await Task.Delay(500);
 
-                // Reload project files to make new lorem file available in dropdown
-                Logger.LogInformation("Reloading project files to show new lorem file");
-                ProjectFiles = (await ProjectService.GetProjectFilesAsync(SelectedProjectId)).ToList();
-                Logger.LogInformation("Reloaded {Count} files for project {ProjectId}", ProjectFiles?.Count ?? 0, SelectedProjectId);
-                StateHasChanged();
+                // Reload all projects to make new lorem file available in dropdown
+                Logger.LogInformation("Reloading projects to show new lorem file");
+                await LoadProjectsAsync();
             }
             else
             {
