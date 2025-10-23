@@ -9,61 +9,67 @@
 
     <xsl:template match="H1" priority="10">
         <xsl:variable name="text" select="normalize-space(.)"/>
+        <xsl:variable name="text-without-number" select="hdr:get-text-without-section-number($text)"/>
         <h1>
             <xsl:call-template name="add-numbering-attributes">
                 <xsl:with-param name="text" select="$text"/>
             </xsl:call-template>
-            <xsl:apply-templates/>
+            <xsl:value-of select="$text-without-number"/>
         </h1>
     </xsl:template>
 
     <xsl:template match="H2" priority="10">
         <xsl:variable name="text" select="normalize-space(.)"/>
+        <xsl:variable name="text-without-number" select="hdr:get-text-without-section-number($text)"/>
         <h2>
             <xsl:call-template name="add-numbering-attributes">
                 <xsl:with-param name="text" select="$text"/>
             </xsl:call-template>
-            <xsl:apply-templates/>
+            <xsl:value-of select="$text-without-number"/>
         </h2>
     </xsl:template>
 
     <xsl:template match="H3" priority="10">
         <xsl:variable name="text" select="normalize-space(.)"/>
+        <xsl:variable name="text-without-number" select="hdr:get-text-without-section-number($text)"/>
         <h3>
             <xsl:call-template name="add-numbering-attributes">
                 <xsl:with-param name="text" select="$text"/>
             </xsl:call-template>
-            <xsl:apply-templates/>
+            <xsl:value-of select="$text-without-number"/>
         </h3>
     </xsl:template>
 
     <xsl:template match="H4" priority="10">
         <xsl:variable name="text" select="normalize-space(.)"/>
+        <xsl:variable name="text-without-number" select="hdr:get-text-without-section-number($text)"/>
         <h4>
             <xsl:call-template name="add-numbering-attributes">
                 <xsl:with-param name="text" select="$text"/>
             </xsl:call-template>
-            <xsl:apply-templates/>
+            <xsl:value-of select="$text-without-number"/>
         </h4>
     </xsl:template>
 
     <xsl:template match="H5" priority="10">
         <xsl:variable name="text" select="normalize-space(.)"/>
+        <xsl:variable name="text-without-number" select="hdr:get-text-without-section-number($text)"/>
         <h5>
             <xsl:call-template name="add-numbering-attributes">
                 <xsl:with-param name="text" select="$text"/>
             </xsl:call-template>
-            <xsl:apply-templates/>
+            <xsl:value-of select="$text-without-number"/>
         </h5>
     </xsl:template>
 
     <xsl:template match="H6" priority="10">
         <xsl:variable name="text" select="normalize-space(.)"/>
+        <xsl:variable name="text-without-number" select="hdr:get-text-without-section-number($text)"/>
         <h6>
             <xsl:call-template name="add-numbering-attributes">
                 <xsl:with-param name="text" select="$text"/>
             </xsl:call-template>
-            <xsl:apply-templates/>
+            <xsl:value-of select="$text-without-number"/>
         </h6>
     </xsl:template>
 
@@ -220,17 +226,54 @@
         </xsl:choose>
     </xsl:function>
 
+    <!-- Extract section number (e.g., "3.1", "3.1.1") from text -->
+    <xsl:function name="hdr:get-section-number" as="xs:string">
+        <xsl:param name="text" as="xs:string"/>
+        <xsl:choose>
+            <xsl:when test="matches($text, '^\s*(\d+(?:\.\d+)+)\s+')">
+                <xsl:value-of select="replace($text, '^\s*(\d+(?:\.\d+)+)\s+.*', '$1')"/>
+            </xsl:when>
+            <xsl:otherwise>
+                <xsl:value-of select="''"/>
+            </xsl:otherwise>
+        </xsl:choose>
+    </xsl:function>
+
+    <!-- Get text without section number -->
+    <xsl:function name="hdr:get-text-without-section-number" as="xs:string">
+        <xsl:param name="text" as="xs:string"/>
+        <xsl:variable name="section-number" select="hdr:get-section-number($text)"/>
+        <xsl:choose>
+            <xsl:when test="$section-number != ''">
+                <xsl:value-of select="normalize-space(replace($text, '^\s*\d+(?:\.\d+)+\s+', ''))"/>
+            </xsl:when>
+            <xsl:otherwise>
+                <xsl:value-of select="$text"/>
+            </xsl:otherwise>
+        </xsl:choose>
+    </xsl:function>
+
     <!-- Add data-numberscheme and data-number attributes -->
     <xsl:template name="add-numbering-attributes">
         <xsl:param name="text"/>
-        <xsl:variable name="scheme" select="hdr:get-numberscheme($text)"/>
-        <xsl:variable name="number" select="hdr:get-number-prefix($text)"/>
-        <xsl:if test="$scheme != ''">
-            <xsl:attribute name="data-numberscheme" select="$scheme"/>
-        </xsl:if>
-        <xsl:if test="$number != ''">
-            <xsl:attribute name="data-number" select="$number"/>
-        </xsl:if>
+        <!-- First check for section numbers (e.g., "3.1", "3.1.1") -->
+        <xsl:variable name="section-number" select="hdr:get-section-number($text)"/>
+        <xsl:choose>
+            <xsl:when test="$section-number != ''">
+                <xsl:attribute name="data-number" select="$section-number"/>
+            </xsl:when>
+            <xsl:otherwise>
+                <!-- Fall back to list-style number prefixes -->
+                <xsl:variable name="scheme" select="hdr:get-numberscheme($text)"/>
+                <xsl:variable name="number" select="hdr:get-number-prefix($text)"/>
+                <xsl:if test="$scheme != ''">
+                    <xsl:attribute name="data-numberscheme" select="$scheme"/>
+                </xsl:if>
+                <xsl:if test="$number != ''">
+                    <xsl:attribute name="data-number" select="$number"/>
+                </xsl:if>
+            </xsl:otherwise>
+        </xsl:choose>
     </xsl:template>
 
     <!-- Numbered section headings: L with single LI starting with "1." → h2 -->
