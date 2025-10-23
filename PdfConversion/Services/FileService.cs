@@ -14,6 +14,7 @@ public interface IFileService
     bool ValidateXmlFile(Stream fileStream);
     bool ValidateXsltFile(Stream fileStream);
     IEnumerable<string> GetXsltFiles();
+    Task<(bool Success, string Message, int AmpersandCount, int LessThanCount, int GreaterThanCount)> FixInvalidXmlCharactersAsync(string projectId, string fileName);
 }
 
 public class FileService : IFileService
@@ -249,6 +250,100 @@ public class FileService : IFileService
         {
             _logger.LogError(ex, "Error retrieving XSLT files");
             return Enumerable.Empty<string>();
+        }
+    }
+
+    public async Task<(bool Success, string Message, int AmpersandCount, int LessThanCount, int GreaterThanCount)> FixInvalidXmlCharactersAsync(string projectId, string fileName)
+    {
+        try
+        {
+            var (organization, id) = ParseProjectId(projectId);
+            var filePath = Path.Combine("/app/data/input", organization, "projects", id, fileName);
+
+            if (!File.Exists(filePath))
+            {
+                _logger.LogWarning("File not found: {Path}", filePath);
+                return (false, "File not found", 0, 0, 0);
+            }
+
+            var content = await File.ReadAllTextAsync(filePath);
+            var originalContent = content;
+
+            // Multi-pass approach to handle each character type separately
+            // Pass 1: Fix standalone '&' not already part of an entity
+            // Matches '&' not followed by alphanumeric/# and semicolon (entity pattern)
+            var ampersandRegex = new System.Text.RegularExpressions.Regex(@"&(?![a-zA-Z0-9#]+;)");
+            var ampersandMatches = ampersandRegex.Matches(content);
+            var ampersandCount = ampersandMatches.Count;
+
+            if (ampersandCount > 0)
+            {
+                content = ampersandRegex.Replace(content, "&amp;");
+                _logger.LogInformation("Fixed {Count} standalone ampersands in {FileName}", ampersandCount, fileName);
+            }
+
+            // Pass 2: Fix standalone '<' not part of valid XML tags
+            // Matches '<' NOT followed by '?', '!', '/' or a letter (not a valid opening/closing tag, processing instruction, or comment)
+            var lessThanRegex = new System.Text.RegularExpressions.Regex(@"<(?![?!/a-zA-Z])");
+            var lessThanMatches = lessThanRegex.Matches(content);
+            var lessThanCount = lessThanMatches.Count;
+
+            if (lessThanCount > 0)
+            {
+                content = lessThanRegex.Replace(content, "&lt;");
+                _logger.LogInformation("Fixed {Count} standalone less-than signs in {FileName}", lessThanCount, fileName);
+            }
+
+            // Pass 3: Fix standalone '>' not part of valid XML tags
+            // Matches '>' NOT preceded by '?', '/', '-', letters, digits, or quotes (not a valid tag, processing instruction end, or comment end)
+            // This is more conservative to avoid breaking valid tags
+            var greaterThanRegex = new System.Text.RegularExpressions.Regex(@"(?<![?/\-a-zA-Z0-9""])>");
+            var greaterThanMatches = greaterThanRegex.Matches(content);
+            var greaterThanCount = greaterThanMatches.Count;
+
+            if (greaterThanCount > 0)
+            {
+                content = greaterThanRegex.Replace(content, "&gt;");
+                _logger.LogInformation("Fixed {Count} standalone greater-than signs in {FileName}", greaterThanCount, fileName);
+            }
+
+            var totalFixed = ampersandCount + lessThanCount + greaterThanCount;
+
+            // Only write to file if changes were made
+            if (content != originalContent)
+            {
+                await File.WriteAllTextAsync(filePath, content);
+                _logger.LogInformation(
+                    "Fixed {AmpersandCount} ampersands, {LessThanCount} less-than signs, {GreaterThanCount} greater-than signs (total: {TotalFixed}) in {FileName}",
+                    ampersandCount, lessThanCount, greaterThanCount, totalFixed, fileName);
+            }
+            else
+            {
+                _logger.LogInformation("No invalid XML characters found in {FileName}", fileName);
+            }
+
+            // Build detailed message
+            string message;
+            if (totalFixed == 0)
+            {
+                message = "No invalid characters found";
+            }
+            else
+            {
+                var parts = new List<string>();
+                if (ampersandCount > 0) parts.Add($"{ampersandCount} ampersand{(ampersandCount == 1 ? "" : "s")}");
+                if (lessThanCount > 0) parts.Add($"{lessThanCount} less-than sign{(lessThanCount == 1 ? "" : "s")}");
+                if (greaterThanCount > 0) parts.Add($"{greaterThanCount} greater-than sign{(greaterThanCount == 1 ? "" : "s")}");
+
+                message = $"Fixed {string.Join(", ", parts)} ({totalFixed} total)";
+            }
+
+            return (true, message, ampersandCount, lessThanCount, greaterThanCount);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fixing invalid XML characters in {FileName} for project {ProjectId}", fileName, projectId);
+            return (false, $"Error: {ex.Message}", 0, 0, 0);
         }
     }
 
