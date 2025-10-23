@@ -863,12 +863,14 @@ public class ConversionService : IConversionService
                             logCallback($"{progress} ℹ Multiple headers found for boundary '{nextLinkName}'");
 
                             // Try to disambiguate by looking at subsequent headers
+                            var processedMatches = matches.Take(i).ToList();
                             var disambiguatedMatch = TryDisambiguateBySequence(
                                 nextMatches,
                                 hierarchyItems,
                                 currentHierarchyIndex + 1,
                                 transformedXhtml,
                                 matches,
+                                processedMatches,
                                 logCallback,
                                 progress);
 
@@ -891,7 +893,7 @@ public class ConversionService : IConversionService
                                 {
                                     try
                                     {
-                                        var processedMatches = matches.Take(i).ToList();
+                                        // Reuse processedMatches from outer scope (line 866)
                                         selectedNextMatch = await duplicateSelectionCallback(
                                             nextMatches,
                                             transformedXhtml,
@@ -1219,6 +1221,7 @@ public class ConversionService : IConversionService
         int startHierarchyIndex,
         XDocument transformedXhtml,
         List<HeaderMatch> allMatches,
+        List<HeaderMatch> processedMatches,
         Action<string> logCallback,
         string progress)
     {
@@ -1246,9 +1249,35 @@ public class ConversionService : IConversionService
 
             // Get the XHTML namespace
             var xhtmlNs = XNamespace.Get("http://www.w3.org/1999/xhtml");
-            var allHeaders = transformedXhtml.Descendants()
+
+            // Get ALL headers first
+            var allHeadersUnfiltered = transformedXhtml.Descendants()
                 .Where(e => IsHeaderElement(e))
                 .ToList();
+
+            // Find the last processed header position
+            int lastProcessedIndex = -1;
+            if (processedMatches.Count > 0)
+            {
+                // Find the last non-null matched header in processed matches
+                var lastProcessedHeader = processedMatches
+                    .Where(m => m.MatchedHeader != null)
+                    .Select(m => m.MatchedHeader)
+                    .LastOrDefault();
+
+                if (lastProcessedHeader != null)
+                {
+                    lastProcessedIndex = allHeadersUnfiltered.IndexOf(lastProcessedHeader);
+                    logCallback($"{progress}   Last processed header found at index {lastProcessedIndex}");
+                }
+            }
+
+            // Filter to only headers AFTER the last processed position
+            var allHeaders = lastProcessedIndex >= 0
+                ? allHeadersUnfiltered.Skip(lastProcessedIndex + 1).ToList()
+                : allHeadersUnfiltered;
+
+            logCallback($"{progress}   Searching through {allHeaders.Count} unprocessed headers (filtered from {allHeadersUnfiltered.Count} total)");
 
             // Score each duplicate by how well the subsequent headers match
             var candidateScores = new Dictionary<HeaderMatch, int>();
