@@ -19,6 +19,9 @@
     <!-- Strip whitespace-only text nodes from structural elements to keep output clean -->
     <xsl:strip-space elements="Document Sect Table TR thead tbody TOC L"/>
 
+    <!-- Parameter for Taxxor project ID (used for image path prefixing) -->
+    <xsl:param name="projectid" select="'unknown'"/>
+
     <!-- Include modular XSLT files -->
     <xsl:include href="modules/headers.xslt"/>
     <xsl:include href="modules/tables.xslt"/>
@@ -259,7 +262,21 @@
     </xsl:template>
 
     <xsl:template match="ImageData" priority="10">
-        <img src="{@src}" alt=""/>
+        <xsl:variable name="original-src" select="@src"/>
+        <!-- Strip "images/" prefix if present, otherwise use original path -->
+        <xsl:variable name="filename">
+            <xsl:choose>
+                <xsl:when test="starts-with($original-src, 'images/')">
+                    <xsl:value-of select="substring-after($original-src, 'images/')"/>
+                </xsl:when>
+                <xsl:otherwise>
+                    <xsl:value-of select="$original-src"/>
+                </xsl:otherwise>
+            </xsl:choose>
+        </xsl:variable>
+        <!-- Construct Taxxor-compatible path -->
+        <xsl:variable name="taxxor-path" select="concat('/dataserviceassets/{projectid}/images/from-conversion/', $filename)"/>
+        <img src="{$taxxor-path}" alt=""/>
     </xsl:template>
 
 </xsl:stylesheet>

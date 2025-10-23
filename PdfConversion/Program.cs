@@ -181,11 +181,22 @@ app.MapGet("/transform-test", async (HttpContext context, IXsltTransformationSer
 
         logger.LogInformation("Transform test: using XSLT {XsltFile}", xsltFile);
 
+        // Get projectid from query string (optional)
+        var projectId = context.Request.Query["projectid"].FirstOrDefault();
+
         // Perform transformation (using XSLT3Service by default)
         var options = new PdfConversion.Models.TransformationOptions
         {
             UseXslt3Service = true
         };
+
+        // Add projectid parameter if provided
+        if (!string.IsNullOrEmpty(projectId))
+        {
+            options.Parameters["projectid"] = projectId;
+            logger.LogInformation("Transform test: using projectid={ProjectId}", projectId);
+        }
+
         var result = await xsltService.TransformAsync(xmlContent, xsltContent, options);
 
         if (!result.IsSuccess)
