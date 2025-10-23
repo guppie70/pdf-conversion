@@ -1968,9 +1968,13 @@
                 ToastNotification.ShowSuccess(message);
                 Logger.LogInformation("Sanitize completed: {Message}", message);
 
+                // Brief delay to ensure file is written to disk
+                await Task.Delay(500);
+
                 // Reload project files to make new lorem file available in dropdown
+                Logger.LogInformation("Reloading project files to show new lorem file");
                 ProjectFiles = (await ProjectService.GetProjectFilesAsync(SelectedProjectId)).ToList();
-                Logger.LogInformation("Reloaded project files after sanitization");
+                Logger.LogInformation("Reloaded {Count} files for project {ProjectId}", ProjectFiles?.Count ?? 0, SelectedProjectId);
                 StateHasChanged();
             }
             else
