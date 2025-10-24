@@ -39,6 +39,14 @@ window.PanelResize = {
         // Handle 2: Resize between center and right panels
         this.initializeHandle(handle2, centerPanel, rightPanel, container);
 
+        // Add window resize listener
+        window.addEventListener('resize', () => {
+            this.handleWindowResize();
+        });
+
+        // Apply initial adjustments
+        this.handleWindowResize();
+
         console.log('Panel resize initialized');
     },
 
@@ -138,6 +146,105 @@ window.PanelResize = {
             leftPanel.style.flex = '1';
             centerPanel.style.flex = '1';
             rightPanel.style.flex = '1';
+        }
+    },
+
+    handleWindowResize: function () {
+        const container = document.getElementById('panels-container');
+        if (!container) return;
+
+        // Check if panels are stacked vertically (based on CSS media query)
+        const isStacked = window.innerWidth <= 1200;
+
+        if (isStacked) {
+            // Vertical layout - ensure min heights
+            this.adjustStackedPanels();
+        } else {
+            // Horizontal layout - recalculate widths to prevent disappearing
+            this.adjustHorizontalPanels();
+        }
+    },
+
+    adjustHorizontalPanels: function () {
+        const container = document.getElementById('panels-container');
+        const leftPanel = document.getElementById('panel-left');
+        const centerPanel = document.getElementById('panel-center');
+        const rightPanel = document.getElementById('panel-right');
+
+        if (!container || !leftPanel || !centerPanel || !rightPanel) return;
+
+        const containerWidth = container.offsetWidth;
+        const minWidth = 200;
+        const totalMinWidth = minWidth * 3;
+
+        // Get current widths
+        const leftWidth = leftPanel.offsetWidth;
+        const centerWidth = centerPanel.offsetWidth;
+        const rightWidth = rightPanel.offsetWidth;
+        const currentTotal = leftWidth + centerWidth + rightWidth;
+
+        // If container is too small to fit minimum widths, scale proportionally
+        if (containerWidth < totalMinWidth) {
+            const scale = containerWidth / totalMinWidth;
+            leftPanel.style.flex = `0 0 ${minWidth * scale}px`;
+            centerPanel.style.flex = `0 0 ${minWidth * scale}px`;
+            rightPanel.style.flex = `0 0 ${minWidth * scale}px`;
+            console.log('Panel resize: Scaling down panels to fit container', { containerWidth, scale });
+            return;
+        }
+
+        // If panels exceed container width, scale down proportionally
+        if (currentTotal > containerWidth) {
+            const scale = (containerWidth - 20) / currentTotal; // -20 for some breathing room
+            const newLeftWidth = Math.max(minWidth, leftWidth * scale);
+            const newCenterWidth = Math.max(minWidth, centerWidth * scale);
+
+            leftPanel.style.flex = `0 0 ${newLeftWidth}px`;
+            centerPanel.style.flex = `0 0 ${newCenterWidth}px`;
+            rightPanel.style.flex = `1 1 auto`;
+
+            console.log('Panel resize: Scaled panels to fit container', {
+                containerWidth,
+                oldTotal: currentTotal,
+                scale
+            });
+        } else if (leftWidth < minWidth || centerWidth < minWidth || rightWidth < minWidth) {
+            // Ensure minimum widths are respected
+            leftPanel.style.flex = `0 0 ${Math.max(minWidth, leftWidth)}px`;
+            centerPanel.style.flex = `0 0 ${Math.max(minWidth, centerWidth)}px`;
+            rightPanel.style.flex = `1 1 auto`;
+
+            console.log('Panel resize: Enforced minimum widths');
+        }
+
+        // Trigger Monaco editor resize if it exists
+        if (window.MonacoEditorInterop && window.MonacoEditorInterop.resize) {
+            window.MonacoEditorInterop.resize();
+        }
+    },
+
+    adjustStackedPanels: function () {
+        const leftPanel = document.getElementById('panel-left');
+        const centerPanel = document.getElementById('panel-center');
+        const rightPanel = document.getElementById('panel-right');
+
+        if (!leftPanel || !centerPanel || !rightPanel) return;
+
+        // Ensure minimum heights when stacked vertically
+        const minHeight = 200;
+
+        [leftPanel, centerPanel, rightPanel].forEach(panel => {
+            // Only enforce if height is too small
+            if (panel.offsetHeight < minHeight) {
+                panel.style.minHeight = `${minHeight}px`;
+            }
+        });
+
+        console.log('Panel resize: Adjusted stacked panel heights');
+
+        // Trigger Monaco editor resize if it exists
+        if (window.MonacoEditorInterop && window.MonacoEditorInterop.resize) {
+            window.MonacoEditorInterop.resize();
         }
     }
 };

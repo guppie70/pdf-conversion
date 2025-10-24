@@ -51,6 +51,20 @@
 
                 <hr class="my-3" />
 
+                <div class="settings-section">
+                    <h6 class="mb-2">Layout</h6>
+                    <button class="btn btn-outline-secondary w-100"
+                            @onclick="ResetPanelLayout">
+                        <i class="oi oi-action-undo me-2"></i>
+                        Reset Panel Layout
+                    </button>
+                    <small class="text-muted d-block mt-1">
+                        Restore default panel widths and clear saved layout
+                    </small>
+                </div>
+
+                <hr class="my-3" />
+
                 <div class="mt-3">
                     <FileUpload ProjectId="@SelectedProjectId" OnFilesUploaded="OnFilesUploaded" />
                 </div>
@@ -2059,6 +2073,13 @@
     {
         ShowSettings = !ShowSettings;
         UpdateToolbarState();
+        StateHasChanged();
+    }
+
+    private async Task ResetPanelLayout()
+    {
+        await JSRuntime.InvokeVoidAsync("PanelResize.reset");
+        ShowSettings = false; // Close modal
         StateHasChanged();
     }
 
