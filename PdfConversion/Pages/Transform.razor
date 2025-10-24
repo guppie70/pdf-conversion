@@ -868,31 +868,45 @@
         // ShowRendered is already updated by @bind-value
         Logger.LogInformation("Rendered toggle changed: ShowRendered = {ShowRendered}", ShowRendered);
 
-        // If Source view is now active (Rendered OFF), ensure Monaco viewer is initialized
+        // If Source view is now active (Rendered OFF), ensure Monaco viewer is initialized or updated
         // Note: The viewer container stays in DOM (just hidden/shown with CSS), so we only
-        // need to initialize once. No need to dispose/recreate on every toggle.
-        if (!ShowRendered && !string.IsNullOrEmpty(OutputContent) && !_outputXmlViewerInitialized)
+        // need to initialize once. However, we must update content if viewer already exists,
+        // as transformations while in HTML mode don't update the Monaco viewer.
+        if (!ShowRendered && !string.IsNullOrEmpty(OutputContent))
         {
             // Give Blazor time to render and make the container visible
             await Task.Delay(100);
 
             try
             {
-                var outputTheme = ThemeService.GetMonacoTheme();
-                await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.createViewer",
-                    "output-xml-viewer",
-                    "outputXml",
-                    new {
-                        value = OutputContent ?? "",
-                        language = "xml",
-                        theme = outputTheme
-                    });
-                _outputXmlViewerInitialized = true;
-                Logger.LogInformation("Output XML viewer initialized when toggling to source view");
+                if (!_outputXmlViewerInitialized)
+                {
+                    // Initialize viewer first time
+                    var outputTheme = ThemeService.GetMonacoTheme();
+                    await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.createViewer",
+                        "output-xml-viewer",
+                        "outputXml",
+                        new {
+                            value = OutputContent ?? "",
+                            language = "xml",
+                            theme = outputTheme
+                        });
+                    _outputXmlViewerInitialized = true;
+                    Logger.LogInformation("Output XML viewer initialized when toggling to source view");
+                }
+                else
+                {
+                    // Update existing viewer content (fixes bug where switching files in HTML mode
+                    // doesn't update Monaco viewer, so toggling back to XML shows stale content)
+                    await JSRuntime.InvokeVoidAsync("MonacoViewerInterop.setValue",
+                        "outputXml",
+                        OutputContent ?? "");
+                    Logger.LogInformation("Output XML viewer content updated when toggling to source view");
+                }
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Error initializing Output XML viewer when toggling to source view");
+                Logger.LogError(ex, "Error initializing/updating Output XML viewer when toggling to source view");
                 ToastNotification.ShowError("Failed to initialize viewer. Please try again.");
             }
         }

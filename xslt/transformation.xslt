@@ -40,8 +40,8 @@
 
     <xsl:template match="*" mode="#all" priority="-1">
         <xsl:element name="{local-name()}">
-            <xsl:apply-templates select="@*"/>
-            <xsl:apply-templates select="node()"/>
+            <xsl:apply-templates select="@*" mode="#current"/>
+            <xsl:apply-templates select="node()" mode="#current"/>
         </xsl:element>
     </xsl:template>
 
@@ -60,9 +60,8 @@
         </xsl:choose>
     </xsl:template>
 
-    <xsl:template match="comment()" mode="#all" priority="-1">
-        <xsl:copy/>
-    </xsl:template>
+    <!-- Suppress comments (often contain duplicate/obsolete Adobe XML) -->
+    <xsl:template match="comment()" mode="#all" priority="-1"/>
 
     <xsl:template match="processing-instruction()" mode="#all" priority="-1">
         <xsl:copy/>
@@ -151,7 +150,7 @@
                 </head>
                 <body>
                     <div class="document-content">
-                        <xsl:apply-templates select="//Document|TaggedPDF-doc"/>
+                        <xsl:apply-templates select="/TaggedPDF-doc/Document | /Document"/>
                     </div>
                 </body>
             </html>
