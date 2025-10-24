@@ -115,6 +115,42 @@ public class ProjectMetadataService
         }
     }
 
+    public async Task UpdateProjectLabel(string tenant, string projectId, string newLabel)
+    {
+        await _lock.WaitAsync();
+        try
+        {
+            var projects = await GetAllProjects();
+
+            if (!projects.ContainsKey(tenant))
+            {
+                projects[tenant] = new Dictionary<string, ProjectMetadata>();
+            }
+
+            if (!projects[tenant].ContainsKey(projectId))
+            {
+                projects[tenant][projectId] = new ProjectMetadata
+                {
+                    Label = newLabel,
+                    Status = ProjectLifecycleStatus.Open,
+                    CreatedAt = DateTime.UtcNow,
+                    LastModified = DateTime.UtcNow
+                };
+            }
+            else
+            {
+                projects[tenant][projectId].Label = newLabel;
+                projects[tenant][projectId].LastModified = DateTime.UtcNow;
+            }
+
+            await SaveProjects(projects);
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
     private async Task SaveProjects(Dictionary<string, Dictionary<string, ProjectMetadata>> projects)
     {
         var root = new ProjectMetadataRoot

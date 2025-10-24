@@ -51,6 +51,21 @@ public class ProjectMetadataServiceTests : IDisposable
         Assert.DoesNotContain("ar24-4", active["optiver"].Keys);
     }
 
+    [Fact]
+    public async Task UpdateProjectLabel_ExistingProject_UpdatesLabelAndTimestamp()
+    {
+        await _service.UpdateProjectStatus("optiver", "ar24-1", ProjectLifecycleStatus.Open);
+        var before = await _service.GetProjectMetadata("optiver", "ar24-1");
+
+        await Task.Delay(100); // Ensure different timestamp
+        await _service.UpdateProjectLabel("optiver", "ar24-1", "New Label");
+
+        var after = await _service.GetProjectMetadata("optiver", "ar24-1");
+        Assert.NotNull(after);
+        Assert.Equal("New Label", after.Label);
+        Assert.True(after.LastModified > before!.LastModified);
+    }
+
     public void Dispose()
     {
         if (File.Exists(_testFilePath))
