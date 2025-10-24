@@ -51,6 +51,27 @@
                   mode="pass2"
                   priority="15"/>
 
+    <!-- Convert single-row tables: move row from thead to tbody and convert th to td -->
+    <xsl:template match="table[count(.//thead/tr) + count(.//tbody/tr) = 1]" mode="pass2" priority="20">
+        <xsl:variable name="single-row" select="(.//thead/tr | .//tbody/tr)[1]"/>
+
+        <xsl:copy>
+            <xsl:apply-templates select="@*" mode="pass2"/>
+
+            <!-- Create tbody with the single row, converting th elements to td -->
+            <tbody>
+                <tr>
+                    <xsl:apply-templates select="$single-row/@*" mode="pass2"/>
+                    <xsl:for-each select="$single-row/th | $single-row/td">
+                        <td>
+                            <xsl:apply-templates select="@* | node()" mode="pass2"/>
+                        </td>
+                    </xsl:for-each>
+                </tr>
+            </tbody>
+        </xsl:copy>
+    </xsl:template>
+
     <!-- Detect and mark asymmetrical table rows -->
     <!-- Asymmetrical = row has fewer cells than the maximum number of cells in the table -->
     <xsl:template match="tr" mode="pass2" priority="10">

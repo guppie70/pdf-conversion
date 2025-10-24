@@ -26,9 +26,11 @@
                         <thead>
                             <xsl:apply-templates select="TR[TH and not(TD)]" mode="table-header"/>
                         </thead>
-                        <tbody>
-                            <xsl:apply-templates select="TR[TD]" mode="table-body"/>
-                        </tbody>
+                        <xsl:if test="TR[TD]">
+                            <tbody>
+                                <xsl:apply-templates select="TR[TD]" mode="table-body"/>
+                            </tbody>
+                        </xsl:if>
                     </xsl:when>
                     <xsl:otherwise>
                         <tbody>
