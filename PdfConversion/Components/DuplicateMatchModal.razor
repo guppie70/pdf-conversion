@@ -1,12 +1,14 @@
 @using System.Xml.Linq
 @using PdfConversion.Models
 @using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@inject IJSRuntime JSRuntime
 
 <!-- Modal Backdrop -->
 @if (IsVisible)
 {
     <div class="modal-backdrop fade show"></div>
-    <div class="modal fade show d-block" tabindex="-1" role="dialog" aria-labelledby="duplicateMatchModalTitle" aria-modal="true">
+    <div class="modal fade show d-block" tabindex="-1" role="dialog" aria-labelledby="duplicateMatchModalTitle" aria-modal="true" @onkeydown="HandleKeyDown">
         <div class="modal-dialog modal-custom-wide modal-dialog-centered" role="document">
             <div class="modal-content">
                 <!-- Header -->
@@ -20,15 +22,45 @@
                     @if (DuplicateMatches != null && DuplicateMatches.Any())
                     {
                         <div class="alert alert-info mb-3" role="alert">
-                            <i class="bi bi-info-circle"></i>
-                            <strong>Section boundary unclear:</strong> Found multiple "@DuplicateMatches.First().HierarchyItem.LinkName" headers.
-                            Please select which one marks the end of the "@CurrentHierarchyItem?.LinkName" section.
-                            <button type="button" class="btn btn-sm btn-warning skip-button" @onclick="HandleSkip">
-                                <i class="bi bi-skip-forward"></i> Skip This Section
-                            </button>
-                            <button type="button" class="btn btn-sm btn-danger skip-button" @onclick="HandleStopConversion">
-                                <i class="bi bi-stop-circle"></i> Stop Conversion
-                            </button>
+                            <div class="alert-content">
+                                <i class="bi bi-info-circle"></i>
+                                <div class="alert-text">
+                                    <strong>Section boundary unclear:</strong> Found multiple "@DuplicateMatches.First().HierarchyItem.LinkName" headers.
+                                    Please select which one marks the end of the "@CurrentHierarchyItem?.LinkName" section.
+                                </div>
+                            </div>
+
+                            <!-- Navigation Controls -->
+                            <div class="navigation-controls">
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-primary"
+                                        @onclick="NavigatePrevious"
+                                        disabled="@(_selectedIndex == 0)"
+                                        aria-label="Previous option">
+                                    <i class="bi bi-arrow-left"></i> Previous
+                                </button>
+
+                                <span class="position-indicator" aria-live="polite">
+                                    Option @(_selectedIndex + 1) of @(DuplicateMatches.Count)
+                                </span>
+
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-primary"
+                                        @onclick="NavigateNext"
+                                        disabled="@(_selectedIndex >= DuplicateMatches.Count - 1)"
+                                        aria-label="Next option">
+                                    Next <i class="bi bi-arrow-right"></i>
+                                </button>
+                            </div>
+
+                            <div class="action-buttons">
+                                <button type="button" class="btn btn-sm btn-warning skip-button" @onclick="HandleSkip">
+                                    <i class="bi bi-skip-forward"></i> Skip This Section
+                                </button>
+                                <button type="button" class="btn btn-sm btn-danger skip-button" @onclick="HandleStopConversion">
+                                    <i class="bi bi-stop-circle"></i> Stop Conversion
+                                </button>
+                            </div>
                         </div>
 
                         <div class="two-column-layout">
@@ -102,8 +134,16 @@
 
                         <!-- JavaScript for handling header clicks and auto-scroll -->
                         <script>
-                            (function() {
-                                // Setup click handlers for duplicate headers
+                            // Define the setup function in global scope so it can be called multiple times
+                            window.setupDuplicateMatchModal = function() {
+                                // Remove any existing event listeners to prevent duplicates
+                                document.querySelectorAll('[data-match-index]').forEach(element => {
+                                    // Clone and replace to remove old event listeners
+                                    const newElement = element.cloneNode(true);
+                                    element.parentNode.replaceChild(newElement, element);
+                                });
+
+                                // Setup fresh click handlers for duplicate headers
                                 document.querySelectorAll('[data-match-index]').forEach(element => {
                                     element.addEventListener('click', function() {
                                         const matchIndex = parseInt(this.getAttribute('data-match-index'));
@@ -129,13 +169,16 @@
                                         }
                                     }
 
-                                    // Scroll document preview to first duplicate header
-                                    const firstDuplicate = document.querySelector('[data-match-index="0"]');
-                                    if (firstDuplicate) {
-                                        firstDuplicate.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    // Scroll document preview to current duplicate header (using _selectedIndex)
+                                    const currentDuplicate = document.querySelector('[data-match-index="' + arguments[0] + '"]');
+                                    if (currentDuplicate) {
+                                        currentDuplicate.scrollIntoView({ behavior: 'smooth', block: 'center' });
                                     }
-                                }, 100);
-                            })();
+                                }, 100, arguments[0]);
+                            };
+
+                            // Call once on initial render
+                            window.setupDuplicateMatchModal(0);
                         </script>
                     }
                 </div>
@@ -169,30 +212,78 @@
     [Parameter]
     public CancellationTokenSource? CancellationTokenSource { get; set; }
 
+    // Navigation state
+    private int _selectedIndex = 0;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender && IsVisible && DuplicateMatches != null && DuplicateMatches.Any())
+        // Re-attach event listeners after EVERY render when modal is visible
+        // This ensures click handlers work after navigation (Previous/Next buttons)
+        if (IsVisible && DuplicateMatches != null && DuplicateMatches.Any())
         {
-            // Auto-scroll to the first duplicate header
-            await ScrollToFirstDuplicate();
+            try
+            {
+                // Call the JavaScript function to setup click handlers and scroll
+                await JSRuntime.InvokeVoidAsync("setupDuplicateMatchModal", _selectedIndex);
+            }
+            catch
+            {
+                // Silently fail if JavaScript interop is not available
+            }
         }
     }
 
-    private async Task ScrollToFirstDuplicate()
+    protected override void OnParametersSet()
     {
-        // Use JavaScript interop to scroll to the first duplicate header element
-        // The first duplicate header will have a data-match-index="0" attribute
-        var script = @"
-            const preview = document.getElementById('document-preview');
-            if (preview) {
-                const firstDuplicate = preview.querySelector('[data-match-index=""0""]');
-                if (firstDuplicate) {
-                    firstDuplicate.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
-            }
-        ";
-        // Note: In a real implementation, you'd use IJSRuntime to execute this
-        // For now, we'll add the script inline in the rendered HTML
+        // Reset to first option when modal opens with new duplicates
+        if (IsVisible && DuplicateMatches != null && DuplicateMatches.Any())
+        {
+            _selectedIndex = 0;
+        }
+    }
+
+    private void NavigatePrevious()
+    {
+        if (_selectedIndex > 0)
+        {
+            _selectedIndex--;
+            StateHasChanged(); // Re-render triggers OnAfterRenderAsync which calls setupDuplicateMatchModal
+        }
+    }
+
+    private void NavigateNext()
+    {
+        if (DuplicateMatches != null && _selectedIndex < DuplicateMatches.Count - 1)
+        {
+            _selectedIndex++;
+            StateHasChanged(); // Re-render triggers OnAfterRenderAsync which calls setupDuplicateMatchModal
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "ArrowLeft":
+            case "ArrowUp":
+                NavigatePrevious();
+                break;
+            case "ArrowRight":
+            case "ArrowDown":
+                NavigateNext();
+                break;
+            case "Enter":
+                await ConfirmCurrentSelection();
+                break;
+        }
+    }
+
+    private async Task ConfirmCurrentSelection()
+    {
+        if (DuplicateMatches != null && _selectedIndex >= 0 && _selectedIndex < DuplicateMatches.Count)
+        {
+            await SelectAndConfirmMatch(_selectedIndex);
+        }
     }
 
     private async Task SelectAndConfirmMatch(int matchIndex)
@@ -440,9 +531,11 @@
         // Determine the context class for this element
         if (duplicateHeaders.Contains(element))
         {
-            cssClass = "duplicate-option-preview";
-            isClickable = true;
             matchIndex = DuplicateMatches!.FindIndex(m => m.MatchedHeader == element);
+            cssClass = matchIndex == _selectedIndex
+                ? "duplicate-option-preview current-selection"
+                : "duplicate-option-preview";
+            isClickable = true;
             shouldApplyContextStyles = true; // Always style duplicate headers
         }
         else if (shouldApplyContextStyles)
@@ -463,6 +556,10 @@
                     break;
                 case "current-section":
                     styleAttr = "color: #856404; background-color: #fff3cd; padding: 0.5rem; margin: 0.5rem 0; border-left: 4px solid #ffc107; font-weight: 500;";
+                    break;
+                case "duplicate-option-preview current-selection":
+                    // Current selection with enhanced styling and animation
+                    styleAttr = "color: #004085; background-color: #cfe2ff; padding: 0.5rem; margin: 0.5rem 0; border: 3px solid #0a58ca; border-radius: 0.25rem; font-weight: bold; cursor: pointer; box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.25);";
                     break;
                 case "duplicate-option-preview":
                     styleAttr = "color: #004085; background-color: #cfe2ff; padding: 0.5rem; margin: 0.5rem 0; border: 2px solid #0d6efd; border-radius: 0.25rem; font-weight: bold; cursor: pointer; box-shadow: 0 2px 4px rgba(13, 110, 253, 0.2);";
