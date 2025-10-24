@@ -84,6 +84,10 @@ builder.Services.AddSingleton<IUserSelectionService, UserSelectionService>();
 builder.Services.AddSingleton<IProjectLabelService, ProjectLabelService>();
 builder.Services.AddSingleton<IProjectDirectoryWatcherService, ProjectDirectoryWatcherService>();
 
+// Register ProjectMetadataService
+var metadataPath = Path.Combine(builder.Environment.ContentRootPath, "data", "project-metadata.json");
+builder.Services.AddSingleton(new ProjectMetadataService(metadataPath));
+
 // Register performance optimization services
 builder.Services.AddSingleton<IDistributedCacheService, DistributedCacheService>();
 builder.Services.AddSingleton<IPerformanceMonitoringService, PerformanceMonitoringService>();
