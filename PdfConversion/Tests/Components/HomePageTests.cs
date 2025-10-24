@@ -92,9 +92,10 @@ public class HomePageTests : TestContext
         var customerSections = cut.FindAll(".customer-section");
         Assert.Equal(2, customerSections.Count);
 
-        // Assert - Verify optiver section
-        var optiverSection = cut.Find("h2").TextContent;
-        Assert.Contains("optiver", optiverSection);
+        // Assert - Verify both customer sections are present (alphabetically sorted)
+        var customerHeaders = cut.FindAll("h2").Select(h => h.TextContent).ToList();
+        Assert.Contains(customerHeaders, h => h.Contains("optiver"));
+        Assert.Contains(customerHeaders, h => h.Contains("acme"));
 
         // Assert - Verify project IDs are displayed
         var projectIdCells = cut.FindAll(".project-id-cell code");
@@ -148,15 +149,15 @@ public class HomePageTests : TestContext
         // Wait for async initialization
         cut.WaitForAssertion(() =>
         {
-            var previewCells = cut.FindAll(".preview-cell");
-            Assert.True(previewCells.Count >= 3, "Should have at least 3 preview cells");
+            var displayCells = cut.FindAll(".display-cell");
+            Assert.True(displayCells.Count >= 3, "Should have at least 3 display cells");
         }, TimeSpan.FromSeconds(2));
 
-        // Assert - Verify display preview format
-        var displayPreviews = cut.FindAll(".display-preview");
-        Assert.Equal(3, displayPreviews.Count);
+        // Assert - Verify display format
+        var editableLabels = cut.FindAll(".editable-label");
+        Assert.Equal(3, editableLabels.Count);
 
-        var displayStrings = displayPreviews.Select(p => p.TextContent.Trim()).ToList();
+        var displayStrings = editableLabels.Select(p => p.TextContent.Trim()).ToList();
 
         // All should follow format: "{label} ({id})"
         Assert.Contains("Custom Label One (ar24-1)", displayStrings);
@@ -310,10 +311,16 @@ public class HomePageTests : TestContext
 
         // Assert
         var statusCard = cut.Find(".system-status-card");
-        var projectCountBadge = statusCard.QuerySelector(".badge.bg-success");
+
+        // Find all badges and locate the one containing the project count
+        var badges = statusCard.QuerySelectorAll(".badge");
+        var projectCountBadge = badges.FirstOrDefault(b => b.TextContent.Trim() == "3");
 
         Assert.NotNull(projectCountBadge);
-        Assert.Contains("3", projectCountBadge!.TextContent);
+
+        // Also verify the full "Projects Available" text includes the count
+        Assert.Contains("Projects Available:", statusCard.TextContent);
+        Assert.Contains("3", statusCard.TextContent);
     }
 
     [Fact]
@@ -346,7 +353,7 @@ public class HomePageTests : TestContext
     }
 
     [Fact]
-    public void LabelInput_DisplaysCorrectPlaceholder()
+    public void LabelDisplay_ShowsEditableSpanByDefault()
     {
         // Arrange
         var testProjects = new List<ProjectInfo>
@@ -356,7 +363,7 @@ public class HomePageTests : TestContext
                 Customer = "testcustomer",
                 ProjectId = "ar24-1",
                 CustomLabel = null,
-                DisplayString = "Annual Report 2024 (1) (ar24-1)",
+                DisplayString = "ar24-1",
                 FolderPath = "/test"
             }
         };
@@ -371,16 +378,18 @@ public class HomePageTests : TestContext
         // Wait for async initialization
         cut.WaitForAssertion(() =>
         {
-            var inputs = cut.FindAll("input.label-input");
-            Assert.NotEmpty(inputs);
+            var editableLabels = cut.FindAll(".editable-label");
+            Assert.NotEmpty(editableLabels);
         }, TimeSpan.FromSeconds(2));
 
-        // Assert
-        var labelInput = cut.Find("input.label-input");
-        Assert.NotNull(labelInput);
+        // Assert - Verify editable label is displayed
+        var editableLabel = cut.Find(".editable-label");
+        Assert.NotNull(editableLabel);
+        Assert.Contains("ar24-1", editableLabel.TextContent);
 
-        var placeholder = labelInput.GetAttribute("placeholder");
-        Assert.Equal("Enter custom label...", placeholder);
+        // Verify it has title attribute for double-click hint
+        var title = editableLabel.GetAttribute("title");
+        Assert.Equal("Double-click to edit", title);
     }
 
     [Fact]

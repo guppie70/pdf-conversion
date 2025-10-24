@@ -88,22 +88,37 @@ public class ComponentIntegrationTests : TestContext
     /// Test 1: Transform component loads projects from service on initialization
     /// </summary>
     [Fact]
-    public void Transform_OnInit_LoadsProjectsFromService()
+    public async Task Transform_OnInit_LoadsProjectsFromService()
     {
         // Arrange
         var projects = new List<Project>
         {
-            new() { ProjectId = "ar24-1", Name = "Annual Report 2024-1", FileCount = 2 },
-            new() { ProjectId = "ar24-2", Name = "Annual Report 2024-2", FileCount = 3 }
+            new() { ProjectId = "ar24-1", Organization = "optiver", Name = "Annual Report 2024-1", FileCount = 2 },
+            new() { ProjectId = "ar24-2", Organization = "optiver", Name = "Annual Report 2024-2", FileCount = 3 }
         };
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(projects);
+        _mockProjectService.Setup(s => s.GetProjectFilesAsync(It.IsAny<string>())).ReturnsAsync(new List<string>());
+
+        // Add metadata for projects with Open status so they appear in active projects
+        await _metadataService.UpdateProjectLabel("optiver", "ar24-1", "Test Project 1");
+        await _metadataService.UpdateProjectStatus("optiver", "ar24-1", ProjectLifecycleStatus.Open);
+        await _metadataService.UpdateProjectLabel("optiver", "ar24-2", "Test Project 2");
+        await _metadataService.UpdateProjectStatus("optiver", "ar24-2", ProjectLifecycleStatus.Open);
 
         // Act
         var cut = RenderComponent<Transform>();
 
+        // Wait for async initialization to complete
+        cut.WaitForAssertion(() =>
+        {
+            Assert.NotNull(_toolbarState.Projects);
+            Assert.Equal(2, _toolbarState.Projects.Count);
+        }, TimeSpan.FromSeconds(2));
+
         // Assert
         _mockProjectService.Verify(s => s.GetProjectsAsync(), Times.Once);
-        Assert.Equal(projects, _toolbarState.Projects);
+        Assert.Contains(_toolbarState.Projects, p => p.ProjectId == "ar24-1");
+        Assert.Contains(_toolbarState.Projects, p => p.ProjectId == "ar24-2");
     }
 
     /// <summary>
