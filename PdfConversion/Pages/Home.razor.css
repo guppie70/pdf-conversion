@@ -128,6 +128,11 @@
     overflow: hidden;
 }
 
+/* Remove top margin from first customer section to align with sidebar */
+.customer-section:first-child {
+    margin-top: 0;
+}
+
 .customer-header {
     background-color: #2d2d30;
     padding: 1rem 1.5rem;
@@ -161,8 +166,10 @@
 
 .projects-table {
     width: 100%;
+    /* max-width: 900px; Fixed max width for consistent alignment across customer sections */
     border-collapse: collapse;
     background-color: #252526;
+    table-layout: fixed; /* Ensure consistent column widths */
 }
 
 .projects-table thead {
@@ -200,7 +207,7 @@
 
 /* Column Widths */
 .col-project-id {
-    width: 200px;
+    width: 20%; /* Reduced width for short project IDs (e.g., ar24-3) */
 }
 
 .col-display {
@@ -274,6 +281,7 @@
     background-color: #252526;
     border: 1px solid #3e3e42;
     border-radius: 0.5rem;
+    margin-top: 0; /* Align with customer sections */
     margin-bottom: 1.5rem;
     position: sticky;
     top: 1rem;
