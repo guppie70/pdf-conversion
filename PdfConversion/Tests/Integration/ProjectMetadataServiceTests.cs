@@ -34,6 +34,23 @@ public class ProjectMetadataServiceTests : IDisposable
         Assert.Equal(ProjectLifecycleStatus.InProgress, metadata.Status);
     }
 
+    [Fact]
+    public async Task GetActiveProjects_FiltersOutReadyAndParked()
+    {
+        await _service.UpdateProjectStatus("optiver", "ar24-1", ProjectLifecycleStatus.Open);
+        await _service.UpdateProjectStatus("optiver", "ar24-2", ProjectLifecycleStatus.InProgress);
+        await _service.UpdateProjectStatus("optiver", "ar24-3", ProjectLifecycleStatus.Ready);
+        await _service.UpdateProjectStatus("optiver", "ar24-4", ProjectLifecycleStatus.Parked);
+
+        var active = await _service.GetActiveProjects();
+
+        Assert.Equal(2, active["optiver"].Count);
+        Assert.Contains("ar24-1", active["optiver"].Keys);
+        Assert.Contains("ar24-2", active["optiver"].Keys);
+        Assert.DoesNotContain("ar24-3", active["optiver"].Keys);
+        Assert.DoesNotContain("ar24-4", active["optiver"].Keys);
+    }
+
     public void Dispose()
     {
         if (File.Exists(_testFilePath))

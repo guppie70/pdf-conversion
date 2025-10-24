@@ -59,6 +59,26 @@ public class ProjectMetadataService
         return null;
     }
 
+    public async Task<Dictionary<string, Dictionary<string, ProjectMetadata>>> GetActiveProjects()
+    {
+        var allProjects = await GetAllProjects();
+        var activeProjects = new Dictionary<string, Dictionary<string, ProjectMetadata>>();
+
+        foreach (var (tenant, projects) in allProjects)
+        {
+            var activeInTenant = projects
+                .Where(p => p.Value.Status == ProjectLifecycleStatus.Open || p.Value.Status == ProjectLifecycleStatus.InProgress)
+                .ToDictionary(p => p.Key, p => p.Value);
+
+            if (activeInTenant.Any())
+            {
+                activeProjects[tenant] = activeInTenant;
+            }
+        }
+
+        return activeProjects;
+    }
+
     public async Task UpdateProjectStatus(string tenant, string projectId, ProjectLifecycleStatus newStatus)
     {
         await _lock.WaitAsync();
