@@ -27,25 +27,32 @@ public class ProjectMetadataService
         await _lock.WaitAsync();
         try
         {
-            // Check if migration is needed
-            if (!File.Exists(_filePath) && File.Exists(_oldFilePath))
-            {
-                return await MigrateFromOldFormat();
-            }
-
-            if (!File.Exists(_filePath))
-            {
-                return new Dictionary<string, Dictionary<string, ProjectMetadata>>();
-            }
-
-            var json = await File.ReadAllTextAsync(_filePath);
-            var root = JsonSerializer.Deserialize<ProjectMetadataRoot>(json, JsonOptions);
-            return root?.Projects ?? new Dictionary<string, Dictionary<string, ProjectMetadata>>();
+            return await GetAllProjectsInternal();
         }
         finally
         {
             _lock.Release();
         }
+    }
+
+    private async Task<Dictionary<string, Dictionary<string, ProjectMetadata>>> GetAllProjectsInternal()
+    {
+        // NO LOCK HERE - called by methods that already hold the lock
+
+        // Check if migration is needed
+        if (!File.Exists(_filePath) && File.Exists(_oldFilePath))
+        {
+            return await MigrateFromOldFormatInternal();
+        }
+
+        if (!File.Exists(_filePath))
+        {
+            return new Dictionary<string, Dictionary<string, ProjectMetadata>>();
+        }
+
+        var json = await File.ReadAllTextAsync(_filePath);
+        var root = JsonSerializer.Deserialize<ProjectMetadataRoot>(json, JsonOptions);
+        return root?.Projects ?? new Dictionary<string, Dictionary<string, ProjectMetadata>>();
     }
 
     public async Task<ProjectMetadata?> GetProjectMetadata(string tenant, string projectId)
@@ -81,18 +88,23 @@ public class ProjectMetadataService
 
     public async Task UpdateProjectStatus(string tenant, string projectId, ProjectLifecycleStatus newStatus)
     {
+        Console.WriteLine($"[ProjectMetadataService] UpdateProjectStatus called: tenant={tenant}, projectId={projectId}, newStatus={newStatus}");
+
         await _lock.WaitAsync();
         try
         {
-            var projects = await GetAllProjects();
+            var projects = await GetAllProjectsInternal();
+            Console.WriteLine($"[ProjectMetadataService] Loaded projects: {projects.Count} tenants");
 
             if (!projects.ContainsKey(tenant))
             {
+                Console.WriteLine($"[ProjectMetadataService] Creating new tenant: {tenant}");
                 projects[tenant] = new Dictionary<string, ProjectMetadata>();
             }
 
             if (!projects[tenant].ContainsKey(projectId))
             {
+                Console.WriteLine($"[ProjectMetadataService] Creating new project metadata for: {projectId}");
                 projects[tenant][projectId] = new ProjectMetadata
                 {
                     Label = projectId,
@@ -103,11 +115,15 @@ public class ProjectMetadataService
             }
             else
             {
+                var oldStatus = projects[tenant][projectId].Status;
+                Console.WriteLine($"[ProjectMetadataService] Updating project status: {oldStatus} -> {newStatus}");
                 projects[tenant][projectId].Status = newStatus;
                 projects[tenant][projectId].LastModified = DateTime.UtcNow;
             }
 
+            Console.WriteLine($"[ProjectMetadataService] Saving to file: {_filePath}");
             await SaveProjects(projects);
+            Console.WriteLine($"[ProjectMetadataService] Save completed");
         }
         finally
         {
@@ -120,7 +136,7 @@ public class ProjectMetadataService
         await _lock.WaitAsync();
         try
         {
-            var projects = await GetAllProjects();
+            var projects = await GetAllProjectsInternal();
 
             if (!projects.ContainsKey(tenant))
             {
@@ -163,8 +179,10 @@ public class ProjectMetadataService
         await File.WriteAllTextAsync(_filePath, json);
     }
 
-    private async Task<Dictionary<string, Dictionary<string, ProjectMetadata>>> MigrateFromOldFormat()
+    private async Task<Dictionary<string, Dictionary<string, ProjectMetadata>>> MigrateFromOldFormatInternal()
     {
+        // NO LOCK HERE - called by methods that already hold the lock
+
         if (!File.Exists(_oldFilePath))
         {
             return new Dictionary<string, Dictionary<string, ProjectMetadata>>();

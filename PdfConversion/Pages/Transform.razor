@@ -964,16 +964,27 @@
             // Get active projects from MetadataService
             var activeProjectMetadata = await MetadataService.GetActiveProjects();
 
-            // Filter to only include active projects
+            // Filter to only include active projects (must have metadata entry)
             Projects = allProjects.Where(p =>
             {
                 if (activeProjectMetadata.TryGetValue(p.Organization, out var tenantProjects))
                 {
                     return tenantProjects.ContainsKey(p.ProjectId);
                 }
-                // If no metadata exists for this project, include it (default behavior)
-                return true;
+                // If no metadata exists for this tenant/project, exclude it
+                return false;
             }).ToList();
+
+            // Merge custom labels from metadata
+            foreach (var project in Projects)
+            {
+                if (activeProjectMetadata.TryGetValue(project.Organization, out var tenantProjects) &&
+                    tenantProjects.TryGetValue(project.ProjectId, out var metadata) &&
+                    !string.IsNullOrWhiteSpace(metadata.Label))
+                {
+                    project.Name = $"{metadata.Label} ({project.ProjectId})";
+                }
+            }
 
             // Load files for each project
             foreach (var project in Projects)

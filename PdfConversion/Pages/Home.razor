@@ -230,11 +230,11 @@
             // Start watching for directory changes
             ProjectDirectoryWatcherService.StartWatching("data/input");
 
-            // Load initial projects
-            await LoadProjectsAsync();
-
-            // Load project metadata (for status)
+            // Load project metadata FIRST (needed for merging into projects)
             _projectMetadata = await MetadataService.GetAllProjects();
+
+            // Load initial projects (will merge metadata labels)
+            await LoadProjectsAsync();
 
             // Check XSLT service status
             await CheckXsltServiceStatusAsync();
@@ -273,6 +273,23 @@
 
             var projects = await ProjectLabelService.GetAllProjectsAsync("data/input");
             Console.WriteLine($"[Home.razor] Loaded {projects.Count} projects from service");
+
+            // Merge custom labels from metadata into projects
+            foreach (var project in projects)
+            {
+                if (_projectMetadata.TryGetValue(project.Customer, out var tenantProjects))
+                {
+                    if (tenantProjects.TryGetValue(project.ProjectId, out var metadata))
+                    {
+                        project.CustomLabel = metadata.Label;
+                        // Update DisplayString to reflect the custom label
+                        project.DisplayString = !string.IsNullOrWhiteSpace(metadata.Label)
+                            ? $"{metadata.Label} ({project.ProjectId})"
+                            : project.ProjectId;
+                        Console.WriteLine($"[Home.razor] Applied custom label to {project.Customer}/{project.ProjectId}: '{metadata.Label}'");
+                    }
+                }
+            }
 
             // Group by customer
             ProjectsByCustomer = projects
@@ -483,13 +500,35 @@
 
     private async Task SaveStatus(string customer, string projectId, string? statusValue)
     {
+        Console.WriteLine($"[Home.razor] SaveStatus called: customer={customer}, projectId={projectId}, statusValue={statusValue}");
+
         if (Enum.TryParse<ProjectLifecycleStatus>(statusValue, out var newStatus))
         {
+            Console.WriteLine($"[Home.razor] Parsed status: {newStatus}");
             await MetadataService.UpdateProjectStatus(customer, projectId, newStatus);
+            Console.WriteLine($"[Home.razor] UpdateProjectStatus completed");
+
             _projectMetadata = await MetadataService.GetAllProjects();
+            Console.WriteLine($"[Home.razor] Reloaded metadata, projects count: {_projectMetadata.Count}");
+
+            // Log the updated status
+            if (_projectMetadata.TryGetValue(customer, out var tenantProjects))
+            {
+                if (tenantProjects.TryGetValue(projectId, out var metadata))
+                {
+                    Console.WriteLine($"[Home.razor] Verified new status in metadata: {metadata.Status}");
+                }
+            }
         }
+        else
+        {
+            Console.WriteLine($"[Home.razor] Failed to parse status value: {statusValue}");
+        }
+
         _editingStatusTenant = null;
         _editingStatusProjectId = null;
+
+        Console.WriteLine($"[Home.razor] Calling StateHasChanged");
         StateHasChanged();
     }
 
