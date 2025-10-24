@@ -1,0 +1,442 @@
+@page "/"
+@using PdfConversion.Services
+@using PdfConversion.Models
+@inject IProjectLabelService ProjectLabelService
+@inject IProjectDirectoryWatcherService ProjectDirectoryWatcherService
+@inject Xslt3ServiceClient Xslt3Client
+@inject IJSRuntime JSRuntime
+@implements IDisposable
+
+<PageTitle>Projects</PageTitle>
+
+<div class="home-container">
+    <div class="home-header">
+        <h1>Projects</h1>
+        @if (LastUpdated.HasValue)
+        {
+            <p class="last-updated">
+                <i class="oi oi-clock"></i> Last updated: @GetTimeAgo(LastUpdated.Value)
+            </p>
+        }
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8">
+            @if (IsLoading)
+            {
+                <div class="loading-state">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading projects...</span>
+                    </div>
+                    <p>Loading projects...</p>
+                </div>
+            }
+            else if (ErrorMessage != null)
+            {
+                <div class="alert alert-danger" role="alert">
+                    <i class="oi oi-warning"></i> <strong>Error:</strong> @ErrorMessage
+                </div>
+            }
+            else if (!ProjectsByCustomer.Any())
+            {
+                <div class="empty-state">
+                    <i class="oi oi-folder" style="font-size: 3rem;"></i>
+                    <p>No projects found. Add project folders to <code>data/input/{customer}/projects/</code> to get started.</p>
+                </div>
+            }
+            else
+            {
+                @foreach (var customerGroup in ProjectsByCustomer.OrderBy(g => g.Key))
+                {
+                    <div class="customer-section">
+                        <div class="customer-header">
+                            <h2>Customer: @customerGroup.Key</h2>
+                            <span class="project-count">@customerGroup.Value.Count @(customerGroup.Value.Count == 1 ? "project" : "projects")</span>
+                        </div>
+
+                        <div class="table-responsive">
+                            <table class="projects-table">
+                                <thead>
+                                    <tr>
+                                        <th class="col-project-id">Project ID</th>
+                                        <th class="col-display">Project Name</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var project in customerGroup.Value.OrderBy(p => p.ProjectId))
+                                    {
+                                        var editKey = GetEditKey(project.Customer, project.ProjectId);
+                                        var isEditing = IsEditing(editKey);
+
+                                        <tr>
+                                            <td class="project-id-cell">
+                                                <code>@project.ProjectId</code>
+                                            </td>
+                                            <td class="display-cell">
+                                                @if (isEditing)
+                                                {
+                                                    <input
+                                                        @ref="editInputRef"
+                                                        type="text"
+                                                        class="inline-edit-input"
+                                                        value="@GetEditingValue(editKey)"
+                                                        @oninput="@(e => OnEditingValueChanged(editKey, e.Value?.ToString() ?? string.Empty))"
+                                                        @onblur="@(() => ExitEditMode(project.Customer, project.ProjectId))"
+                                                        @onkeydown="@(e => OnEditKeyDown(e, project.Customer, project.ProjectId))"
+                                                    />
+                                                }
+                                                else
+                                                {
+                                                    <span
+                                                        class="editable-label"
+                                                        @ondblclick="@(() => EnterEditMode(project.Customer, project.ProjectId, project.CustomLabel))"
+                                                        title="Double-click to edit">
+                                                        @project.DisplayString
+                                                    </span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card system-status-card">
+                <div class="card-header">
+                    <h5 class="mb-0">System Status</h5>
+                </div>
+                <div class="card-body">
+                    <p class="mb-2"><strong>Environment:</strong> @Environment</p>
+                    <p class="mb-2">
+                        <strong>XSLT Service: </strong>
+                        @if (IsCheckingService)
+                        {
+                            <span class="badge bg-secondary">Checking...</span>
+                        }
+                        else if (ServiceStatus == ServiceConnectionStatus.Connected)
+                        {
+                            <span class="badge bg-success">✓ Connected</span>
+                        }
+                        else if (ServiceStatus == ServiceConnectionStatus.Error)
+                        {
+                            <span class="badge bg-warning">Error</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-danger">✗ Not Connected</span>
+                        }
+                    </p>
+                    <p class="mb-0"><strong>Projects Available:</strong> <span class="badge bg-@(ProjectCount > 0 ? "success" : "secondary")">@ProjectCount</span></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (ShowSaveNotification)
+    {
+        <div class="toast-notification success" @key="notificationKey">
+            <i class="oi oi-check"></i>
+            <span>Label saved for @SavedProjectId</span>
+        </div>
+    }
+
+    @if (ShowErrorNotification)
+    {
+        <div class="toast-notification error" @key="notificationKey">
+            <i class="oi oi-warning"></i>
+            <span>Failed to save label: @NotificationError</span>
+        </div>
+    }
+</div>
+
+@code {
+    private enum ServiceConnectionStatus
+    {
+        Checking,
+        Connected,
+        NotConnected,
+        Error
+    }
+
+    private Dictionary<string, List<ProjectInfo>> ProjectsByCustomer { get; set; } = new();
+    private bool IsLoading { get; set; } = true;
+    private string? ErrorMessage { get; set; }
+    private DateTime? LastUpdated { get; set; }
+
+    // Edit state management
+    private Dictionary<string, string> _editingProjects = new(); // key: "customer:projectId", value: current edit value
+    private ElementReference editInputRef;
+
+    // Auto-save state
+    private readonly Dictionary<string, System.Timers.Timer> _debounceTimers = new();
+    private const int DebounceDelayMs = 500;
+
+    // Toast notification state
+    private bool ShowSaveNotification { get; set; }
+    private bool ShowErrorNotification { get; set; }
+    private string SavedProjectId { get; set; } = string.Empty;
+    private string NotificationError { get; set; } = string.Empty;
+    private int notificationKey = 0;
+
+    // System status properties
+    private string Environment => System.Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production";
+    private int ProjectCount { get; set; } = 0;
+    private ServiceConnectionStatus ServiceStatus { get; set; } = ServiceConnectionStatus.Checking;
+    private bool IsCheckingService => ServiceStatus == ServiceConnectionStatus.Checking;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // Subscribe to project directory changes
+            ProjectDirectoryWatcherService.ProjectsChanged += OnProjectsChangedAsync;
+
+            // Start watching for directory changes
+            ProjectDirectoryWatcherService.StartWatching("data/input");
+
+            // Load initial projects
+            await LoadProjectsAsync();
+
+            // Check XSLT service status
+            await CheckXsltServiceStatusAsync();
+
+            // Set project count
+            ProjectCount = ProjectsByCustomer.Values.Sum(list => list.Count);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+            IsLoading = false;
+        }
+    }
+
+    private async Task CheckXsltServiceStatusAsync()
+    {
+        try
+        {
+            ServiceStatus = ServiceConnectionStatus.Checking;
+            var isAvailable = await Xslt3Client.IsServiceAvailableAsync();
+            ServiceStatus = isAvailable ? ServiceConnectionStatus.Connected : ServiceConnectionStatus.NotConnected;
+        }
+        catch (Exception)
+        {
+            ServiceStatus = ServiceConnectionStatus.Error;
+        }
+    }
+
+    private async Task LoadProjectsAsync()
+    {
+        try
+        {
+            Console.WriteLine($"[Home.razor] LoadProjectsAsync started at {DateTime.Now:HH:mm:ss.fff}");
+            IsLoading = true;
+            ErrorMessage = null;
+
+            var projects = await ProjectLabelService.GetAllProjectsAsync("data/input");
+            Console.WriteLine($"[Home.razor] Loaded {projects.Count} projects from service");
+
+            // Group by customer
+            ProjectsByCustomer = projects
+                .GroupBy(p => p.Customer)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            // Log loaded project display strings for debugging
+            foreach (var (customer, projectList) in ProjectsByCustomer)
+            {
+                foreach (var project in projectList)
+                {
+                    Console.WriteLine($"[Home.razor] {customer}/{project.ProjectId} -> DisplayString: '{project.DisplayString}'");
+                }
+            }
+
+            LastUpdated = DateTime.Now;
+            IsLoading = false;
+
+            Console.WriteLine($"[Home.razor] LoadProjectsAsync completed, calling StateHasChanged");
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Home.razor] LoadProjectsAsync ERROR: {ex.Message}");
+            ErrorMessage = $"Failed to load projects: {ex.Message}";
+            IsLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void OnProjectsChangedAsync(object? sender, ProjectsChangedEventArgs e)
+    {
+        // Reload projects when filesystem changes detected
+        _ = LoadProjectsAsync();
+    }
+
+    private void OnLabelChanged(string customer, string projectId, string newLabel)
+    {
+        // Create a unique key for this project's timer
+        var timerKey = $"{customer}:{projectId}";
+
+        // Cancel existing timer for this project if it exists
+        if (_debounceTimers.TryGetValue(timerKey, out var existingTimer))
+        {
+            existingTimer.Stop();
+            existingTimer.Dispose();
+            _debounceTimers.Remove(timerKey);
+        }
+
+        // Create new debounce timer
+        var timer = new System.Timers.Timer(DebounceDelayMs);
+        timer.AutoReset = false;
+        timer.Elapsed += async (s, e) =>
+        {
+            await SaveLabelAsync(customer, projectId, newLabel);
+
+            // Clean up timer
+            timer.Dispose();
+            _debounceTimers.Remove(timerKey);
+        };
+
+        _debounceTimers[timerKey] = timer;
+        timer.Start();
+    }
+
+    private async Task SaveLabelAsync(string customer, string projectId, string label)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(label))
+            {
+                // Empty label = delete
+                await ProjectLabelService.DeleteProjectLabelAsync(customer, projectId);
+            }
+            else
+            {
+                await ProjectLabelService.SetProjectLabelAsync(customer, projectId, label.Trim());
+            }
+
+            // Reload projects to get updated display strings
+            await LoadProjectsAsync();
+
+            // Show success notification
+            SavedProjectId = projectId;
+            ShowSaveNotification = true;
+            ShowErrorNotification = false;
+            notificationKey++;
+            await InvokeAsync(StateHasChanged);
+
+            // Hide notification after 3 seconds
+            await Task.Delay(3000);
+            ShowSaveNotification = false;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            // Show error notification
+            NotificationError = ex.Message;
+            ShowErrorNotification = true;
+            ShowSaveNotification = false;
+            notificationKey++;
+            await InvokeAsync(StateHasChanged);
+
+            // Hide notification after 5 seconds
+            await Task.Delay(5000);
+            ShowErrorNotification = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string GetTimeAgo(DateTime timestamp)
+    {
+        var elapsed = DateTime.Now - timestamp;
+
+        if (elapsed.TotalSeconds < 60)
+            return "just now";
+        if (elapsed.TotalMinutes < 60)
+            return $"{(int)elapsed.TotalMinutes} minute{((int)elapsed.TotalMinutes == 1 ? "" : "s")} ago";
+        if (elapsed.TotalHours < 24)
+            return $"{(int)elapsed.TotalHours} hour{((int)elapsed.TotalHours == 1 ? "" : "s")} ago";
+
+        return $"{(int)elapsed.TotalDays} day{((int)elapsed.TotalDays == 1 ? "" : "s")} ago";
+    }
+
+    // Edit mode helper methods
+    private string GetEditKey(string customer, string projectId) => $"{customer}:{projectId}";
+
+    private bool IsEditing(string editKey) => _editingProjects.ContainsKey(editKey);
+
+    private string GetEditingValue(string editKey) => _editingProjects.GetValueOrDefault(editKey, string.Empty);
+
+    private void OnEditingValueChanged(string editKey, string value)
+    {
+        _editingProjects[editKey] = value;
+    }
+
+    private async Task EnterEditMode(string customer, string projectId, string? currentLabel)
+    {
+        var editKey = GetEditKey(customer, projectId);
+        _editingProjects[editKey] = currentLabel ?? string.Empty;
+        StateHasChanged();
+
+        // Focus the input field after render
+        await Task.Delay(10);
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("eval", "document.querySelector('.inline-edit-input')?.focus()");
+        }
+        catch
+        {
+            // Ignore focus errors
+        }
+    }
+
+    private void ExitEditMode(string customer, string projectId)
+    {
+        var editKey = GetEditKey(customer, projectId);
+
+        if (_editingProjects.TryGetValue(editKey, out var editedValue))
+        {
+            _editingProjects.Remove(editKey);
+
+            // Trigger save with the edited value
+            OnLabelChanged(customer, projectId, editedValue);
+        }
+
+        StateHasChanged();
+    }
+
+    private void OnEditKeyDown(KeyboardEventArgs e, string customer, string projectId)
+    {
+        if (e.Key == "Enter")
+        {
+            ExitEditMode(customer, projectId);
+        }
+        else if (e.Key == "Escape")
+        {
+            // Cancel editing without saving
+            var editKey = GetEditKey(customer, projectId);
+            _editingProjects.Remove(editKey);
+            StateHasChanged();
+        }
+    }
+
+    public void Dispose()
+    {
+        // Unsubscribe from events
+        ProjectDirectoryWatcherService.ProjectsChanged -= OnProjectsChangedAsync;
+
+        // Stop directory watcher
+        ProjectDirectoryWatcherService.StopWatching();
+
+        // Clean up all debounce timers
+        foreach (var timer in _debounceTimers.Values)
+        {
+            timer.Stop();
+            timer.Dispose();
+        }
+        _debounceTimers.Clear();
+    }
+}

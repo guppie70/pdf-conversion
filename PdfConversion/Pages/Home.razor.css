@@ -1,0 +1,518 @@
+/* Home Page - Project Labels Management - Dark Theme */
+
+.home-container {
+    padding: 2rem;
+    max-width: 1600px;
+    margin: 0 auto;
+    background-color: #1e1e1e;
+    min-height: 100vh;
+    color: #cccccc;
+}
+
+/* Header Section */
+.home-header {
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 2px solid #3e3e42;
+}
+
+/* Two-column layout */
+.home-container .row {
+    margin-top: 0;
+    margin-left: -15px;
+    margin-right: -15px;
+}
+
+.home-container .col-lg-8,
+.home-container .col-lg-4 {
+    padding-left: 15px;
+    padding-right: 15px;
+}
+
+.home-header h1 {
+    font-size: 2rem;
+    font-weight: 600;
+    color: #ffffff;
+    margin-bottom: 0.5rem;
+}
+
+.home-header .last-updated {
+    font-size: 0.85rem;
+    color: #858585;
+    margin-top: 0.5rem;
+    margin-bottom: 0;
+}
+
+.home-header .last-updated i {
+    margin-right: 0.5rem;
+}
+
+/* Loading State */
+.loading-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+    background-color: #252526;
+    border-radius: 0.5rem;
+    border: 1px solid #3e3e42;
+}
+
+.loading-state .spinner-border {
+    width: 3rem;
+    height: 3rem;
+    border-width: 0.3em;
+    margin-bottom: 1rem;
+}
+
+.loading-state p {
+    font-size: 0.95rem;
+    color: #858585;
+    margin: 0;
+}
+
+/* Empty State */
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+    background-color: #252526;
+    border-radius: 0.5rem;
+    border: 1px solid #3e3e42;
+    text-align: center;
+}
+
+.empty-state i {
+    color: #858585;
+    margin-bottom: 1.5rem;
+    opacity: 0.5;
+}
+
+.empty-state p {
+    font-size: 0.95rem;
+    color: #858585;
+    margin: 0;
+}
+
+.empty-state code {
+    background-color: #2d2d30;
+    color: #ce9178;
+    padding: 0.2rem 0.5rem;
+    border-radius: 0.25rem;
+    border: 1px solid #3e3e42;
+}
+
+/* Alert Styling */
+.alert {
+    background-color: #5a1e1e;
+    border: 1px solid #8b3a3a;
+    color: #f08080;
+    border-radius: 0.5rem;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.5rem;
+}
+
+.alert i {
+    margin-right: 0.5rem;
+}
+
+/* Customer Section */
+.customer-section {
+    margin-bottom: 2.5rem;
+    background-color: #252526;
+    border: 1px solid #3e3e42;
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+
+.customer-header {
+    background-color: #2d2d30;
+    padding: 1rem 1.5rem;
+    border-bottom: 2px solid #3e3e42;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.customer-header h2 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #ffffff;
+    margin: 0;
+    text-transform: capitalize;
+}
+
+.customer-header .project-count {
+    font-size: 0.85rem;
+    color: #858585;
+    font-weight: 500;
+    background-color: #3e3e42;
+    padding: 0.25rem 0.75rem;
+    border-radius: 1rem;
+}
+
+/* Table Styling */
+.table-responsive {
+    overflow-x: auto;
+}
+
+.projects-table {
+    width: 100%;
+    border-collapse: collapse;
+    background-color: #252526;
+}
+
+.projects-table thead {
+    background-color: #2d2d30;
+}
+
+.projects-table th {
+    padding: 0.875rem 1.25rem;
+    text-align: left;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #ffffff;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid #3e3e42;
+}
+
+.projects-table tbody tr {
+    border-bottom: 1px solid #3e3e42;
+    transition: background-color 0.15s ease;
+}
+
+.projects-table tbody tr:hover {
+    background-color: #2d2d30;
+}
+
+.projects-table tbody tr:last-child {
+    border-bottom: none;
+}
+
+.projects-table td {
+    padding: 1rem 1.25rem;
+    vertical-align: middle;
+}
+
+/* Column Widths */
+.col-project-id {
+    width: 200px;
+}
+
+.col-display {
+    width: auto;
+    min-width: 400px;
+}
+
+/* Project ID Cell */
+.project-id-cell code {
+    font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #9cdcfe;
+    background-color: #1e1e1e;
+    padding: 0.35rem 0.75rem;
+    border-radius: 0.25rem;
+    border: 1px solid #3e3e42;
+    display: inline-block;
+}
+
+/* Display Cell - Double-click to edit */
+.display-cell {
+    padding: 0.75rem 1.25rem;
+}
+
+/* Editable Label (default state) */
+.editable-label {
+    font-size: 1rem;
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    color: #cccccc;
+    font-weight: 500;
+    cursor: pointer;
+    display: block;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.25rem;
+    transition: all 0.15s ease;
+    border: 1px solid transparent;
+}
+
+.editable-label:hover {
+    background-color: #2d2d30;
+    border-color: #3e3e42;
+    color: #ffffff;
+}
+
+.editable-label:hover::after {
+    content: " (double-click to edit)";
+    font-size: 0.75rem;
+    color: #858585;
+    font-weight: 400;
+    margin-left: 0.5rem;
+}
+
+/* Inline Edit Input (edit mode) */
+.inline-edit-input {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    font-size: 1rem;
+    line-height: 1.5;
+    color: #cccccc;
+    background-color: #1e1e1e;
+    border: 2px solid #0d6efd;
+    border-radius: 0.25rem;
+    outline: none;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    font-weight: 500;
+}
+
+.inline-edit-input:focus {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+}
+
+/* System Status Card */
+.system-status-card {
+    background-color: #252526;
+    border: 1px solid #3e3e42;
+    border-radius: 0.5rem;
+    margin-bottom: 1.5rem;
+    position: sticky;
+    top: 1rem;
+}
+
+.system-status-card .card-header {
+    background-color: #2d2d30;
+    border-bottom: 2px solid #3e3e42;
+    padding: 1rem 1.25rem;
+    border-top-left-radius: 0.5rem;
+    border-top-right-radius: 0.5rem;
+}
+
+.system-status-card .card-header h5 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #ffffff;
+    margin: 0;
+}
+
+.system-status-card .card-body {
+    padding: 1.25rem;
+    color: #cccccc;
+}
+
+.system-status-card .card-body p {
+    font-size: 0.9rem;
+    line-height: 1.6;
+}
+
+.system-status-card .card-body strong {
+    color: #ffffff;
+    font-weight: 600;
+}
+
+.system-status-card .badge {
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.35rem 0.65rem;
+    border-radius: 0.25rem;
+}
+
+/* Toast Notifications */
+.toast-notification {
+    position: fixed;
+    bottom: 2rem;
+    right: 2rem;
+    padding: 1rem 1.5rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.95rem;
+    font-weight: 500;
+    z-index: 9999;
+    animation: slideInUp 0.3s ease-out, fadeOut 0.3s ease-in 2.7s;
+}
+
+@keyframes slideInUp {
+    from {
+        transform: translateY(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+@keyframes fadeOut {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
+.toast-notification.success {
+    background-color: #1e3a1e;
+    border: 1px solid #28a745;
+    color: #7fd87f;
+}
+
+.toast-notification.success i {
+    color: #28a745;
+    font-size: 1.1rem;
+}
+
+.toast-notification.error {
+    background-color: #5a1e1e;
+    border: 1px solid #dc3545;
+    color: #f08080;
+}
+
+.toast-notification.error i {
+    color: #dc3545;
+    font-size: 1.1rem;
+}
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+    .home-container {
+        padding: 1.5rem;
+        max-width: 100%;
+    }
+
+    .col-project-id,
+    .col-display {
+        width: auto;
+        min-width: auto;
+    }
+
+    .projects-table {
+        font-size: 0.875rem;
+    }
+
+    .projects-table th,
+    .projects-table td {
+        padding: 0.75rem 1rem;
+    }
+
+    .system-status-card {
+        position: static;
+        margin-top: 1.5rem;
+    }
+}
+
+@media (max-width: 992px) {
+    /* Stack sidebar below main content on medium and smaller screens */
+    .home-container .col-lg-8,
+    .home-container .col-lg-4 {
+        width: 100%;
+        max-width: 100%;
+        flex: 0 0 100%;
+    }
+
+    .system-status-card {
+        margin-top: 2rem;
+    }
+}
+
+@media (max-width: 768px) {
+    .home-container {
+        padding: 1rem;
+    }
+
+    .home-header h1 {
+        font-size: 1.5rem;
+    }
+
+    .customer-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+
+    .projects-table {
+        display: block;
+        overflow-x: auto;
+    }
+
+    .projects-table thead {
+        display: none;
+    }
+
+    .projects-table tbody,
+    .projects-table tr,
+    .projects-table td {
+        display: block;
+        width: 100%;
+    }
+
+    .projects-table tr {
+        margin-bottom: 1.5rem;
+        border: 1px solid #3e3e42;
+        border-radius: 0.5rem;
+        padding: 1rem;
+    }
+
+    .projects-table td {
+        padding: 0.5rem 0;
+        border-bottom: none;
+    }
+
+    .projects-table td::before {
+        content: attr(data-label);
+        font-weight: 600;
+        color: #ffffff;
+        display: block;
+        margin-bottom: 0.25rem;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .project-id-cell::before {
+        content: "Project ID";
+    }
+
+    .display-cell::before {
+        content: "Project Name";
+    }
+
+    .toast-notification {
+        left: 1rem;
+        right: 1rem;
+        bottom: 1rem;
+    }
+}
+
+/* Smooth transitions */
+.projects-table tbody tr,
+.editable-label,
+.inline-edit-input,
+.toast-notification {
+    will-change: auto;
+}
+
+/* Accessibility improvements */
+.inline-edit-input:focus-visible {
+    outline: 2px solid #0d6efd;
+    outline-offset: 2px;
+}
+
+.editable-label:focus-visible {
+    outline: 2px solid #0d6efd;
+    outline-offset: 2px;
+}
+
+.projects-table tbody tr:focus-within {
+    background-color: #2d2d30;
+    outline: 2px solid #0d6efd;
+    outline-offset: -2px;
+}

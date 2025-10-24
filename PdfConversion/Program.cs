@@ -81,6 +81,8 @@ builder.Services.AddSingleton<ThemeService>();
 builder.Services.AddSingleton<IXsltFileWatcherService, XsltFileWatcherService>();
 builder.Services.AddSingleton<IXmlFileWatcherService, XmlFileWatcherService>();
 builder.Services.AddSingleton<IUserSelectionService, UserSelectionService>();
+builder.Services.AddSingleton<IProjectLabelService, ProjectLabelService>();
+builder.Services.AddSingleton<IProjectDirectoryWatcherService, ProjectDirectoryWatcherService>();
 
 // Register performance optimization services
 builder.Services.AddSingleton<IDistributedCacheService, DistributedCacheService>();

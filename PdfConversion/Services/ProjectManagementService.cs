@@ -46,15 +46,20 @@ public class ProjectManagementService : IProjectManagementService
 {
     private readonly ILogger<ProjectManagementService> _logger;
     private readonly IMemoryCache _cache;
+    private readonly IProjectLabelService _labelService;
     private readonly string _inputBasePath;
     private readonly string _outputBasePath;
     private const string ProjectsCacheKey = "AllProjects";
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
 
-    public ProjectManagementService(ILogger<ProjectManagementService> logger, IMemoryCache cache)
+    public ProjectManagementService(
+        ILogger<ProjectManagementService> logger,
+        IMemoryCache cache,
+        IProjectLabelService labelService)
     {
         _logger = logger;
         _cache = cache;
+        _labelService = labelService;
 
         // Paths are relative to /app in the Docker container - scan all organizations
         _inputBasePath = "/app/data/input";
@@ -284,11 +289,14 @@ public class ProjectManagementService : IProjectManagementService
                 lastProcessedDate = File.GetLastWriteTime(outputFile);
             }
 
+            // Get display string from ProjectLabelService
+            var displayName = await _labelService.GetDisplayStringAsync(organization, projectId);
+
             return new Project
             {
                 ProjectId = projectId,
                 Organization = organization,
-                Name = FormatProjectName(organization, projectId),
+                Name = displayName,
                 InputPath = projectPath,
                 OutputPath = outputPath,
                 Status = status,
@@ -315,22 +323,5 @@ public class ProjectManagementService : IProjectManagementService
 
         // Legacy format - assume optiver for backward compatibility
         return ("optiver", projectId);
-    }
-
-    private static string FormatProjectName(string organization, string projectId)
-    {
-        // Convert "ar24-3" to "Annual Report 2024 - 3 (optiver)"
-        var baseName = projectId;
-
-        if (projectId.StartsWith("ar"))
-        {
-            var parts = projectId.Substring(2).Split('-');
-            if (parts.Length == 2)
-            {
-                baseName = $"Annual Report 20{parts[0]} - {parts[1]}";
-            }
-        }
-
-        return $"{baseName} ({organization})";
     }
 }
