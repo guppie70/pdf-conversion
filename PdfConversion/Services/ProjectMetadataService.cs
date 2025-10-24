@@ -7,6 +7,7 @@ namespace PdfConversion.Services;
 public class ProjectMetadataService
 {
     private readonly string _filePath;
+    private readonly string _oldFilePath;
     private readonly SemaphoreSlim _lock = new(1, 1);
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -15,9 +16,10 @@ public class ProjectMetadataService
         Converters = { new JsonStringEnumConverter() }
     };
 
-    public ProjectMetadataService(string filePath)
+    public ProjectMetadataService(string filePath, string? oldFilePath = null)
     {
         _filePath = filePath;
+        _oldFilePath = oldFilePath ?? Path.Combine(Path.GetDirectoryName(filePath) ?? "", "project-labels.json");
     }
 
     public async Task<Dictionary<string, Dictionary<string, ProjectMetadata>>> GetAllProjects()
@@ -25,6 +27,12 @@ public class ProjectMetadataService
         await _lock.WaitAsync();
         try
         {
+            // Check if migration is needed
+            if (!File.Exists(_filePath) && File.Exists(_oldFilePath))
+            {
+                return await MigrateFromOldFormat();
+            }
+
             if (!File.Exists(_filePath))
             {
                 return new Dictionary<string, Dictionary<string, ProjectMetadata>>();
@@ -97,6 +105,53 @@ public class ProjectMetadataService
 
         var json = JsonSerializer.Serialize(root, JsonOptions);
         await File.WriteAllTextAsync(_filePath, json);
+    }
+
+    private async Task<Dictionary<string, Dictionary<string, ProjectMetadata>>> MigrateFromOldFormat()
+    {
+        if (!File.Exists(_oldFilePath))
+        {
+            return new Dictionary<string, Dictionary<string, ProjectMetadata>>();
+        }
+
+        var json = await File.ReadAllTextAsync(_oldFilePath);
+        var oldRoot = JsonSerializer.Deserialize<OldProjectLabelsRoot>(json, JsonOptions);
+
+        if (oldRoot?.Labels == null)
+        {
+            return new Dictionary<string, Dictionary<string, ProjectMetadata>>();
+        }
+
+        var projects = new Dictionary<string, Dictionary<string, ProjectMetadata>>();
+
+        foreach (var (tenant, labels) in oldRoot.Labels)
+        {
+            projects[tenant] = new Dictionary<string, ProjectMetadata>();
+            foreach (var (projectId, label) in labels)
+            {
+                projects[tenant][projectId] = new ProjectMetadata
+                {
+                    Label = label,
+                    Status = ProjectLifecycleStatus.Open,
+                    CreatedAt = DateTime.UtcNow,
+                    LastModified = DateTime.UtcNow
+                };
+            }
+        }
+
+        // Save to new format
+        await SaveProjects(projects);
+
+        // Delete old file
+        File.Delete(_oldFilePath);
+
+        return projects;
+    }
+
+    private class OldProjectLabelsRoot
+    {
+        [JsonPropertyName("labels")]
+        public Dictionary<string, Dictionary<string, string>> Labels { get; set; } = new();
     }
 
     private class ProjectMetadataRoot
