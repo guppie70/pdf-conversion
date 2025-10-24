@@ -207,12 +207,17 @@
 
 /* Column Widths */
 .col-project-id {
-    width: 20%; /* Reduced width for short project IDs (e.g., ar24-3) */
+    width: 15%; /* Reduced width for short project IDs (e.g., ar24-3) */
 }
 
 .col-display {
-    width: auto;
-    min-width: 400px;
+    width: 55%;
+    min-width: 300px;
+}
+
+.col-status {
+    width: 30%;
+    min-width: 150px;
 }
 
 /* Project ID Cell */
@@ -274,6 +279,80 @@
 .inline-edit-input:focus {
     border-color: #0d6efd;
     box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+}
+
+/* Status Column Styling */
+.status-cell {
+    cursor: pointer;
+    position: relative;
+}
+
+.status-cell:hover::after {
+    content: '✎';
+    position: absolute;
+    right: 8px;
+    opacity: 0.4;
+    font-size: 14px;
+}
+
+.status-select {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    font-size: 1rem;
+    color: #cccccc;
+    background-color: #1e1e1e;
+    border: 2px solid #0d6efd;
+    border-radius: 0.25rem;
+    outline: none;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+    cursor: pointer;
+}
+
+.status-select:focus {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+}
+
+/* Row coloring based on status - subtle VS Code Dark Modern theme */
+.project-row.status-open {
+    background-color: rgba(0, 122, 204, 0.08);
+}
+
+.project-row.status-inprogress {
+    background-color: rgba(206, 145, 120, 0.08);
+}
+
+.project-row.status-ready {
+    background-color: rgba(78, 201, 176, 0.08);
+}
+
+.project-row.status-parked {
+    background-color: rgba(133, 133, 133, 0.08);
+}
+
+.project-row:hover {
+    filter: brightness(1.1);
+}
+
+/* Status text coloring */
+.status-text {
+    font-weight: 500;
+}
+
+.status-open .status-text {
+    color: #007acc;
+}
+
+.status-inprogress .status-text {
+    color: #ce9178;
+}
+
+.status-ready .status-text {
+    color: #4ec9b0;
+}
+
+.status-parked .status-text {
+    color: #858585;
 }
 
 /* System Status Card */

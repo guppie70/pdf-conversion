@@ -16,6 +16,7 @@
 @inject IXmlFileWatcherService XmlFileWatcher
 @inject IXhtmlValidationService ValidationService
 @inject IUserSelectionService UserSelectionService
+@inject ProjectMetadataService MetadataService
 
 <PageTitle>Transform</PageTitle>
 
@@ -956,7 +957,23 @@
         {
             IsLoading = true;
             UpdateToolbarState();
-            Projects = (await ProjectService.GetProjectsAsync()).ToList();
+
+            // Get all projects from ProjectService
+            var allProjects = (await ProjectService.GetProjectsAsync()).ToList();
+
+            // Get active projects from MetadataService
+            var activeProjectMetadata = await MetadataService.GetActiveProjects();
+
+            // Filter to only include active projects
+            Projects = allProjects.Where(p =>
+            {
+                if (activeProjectMetadata.TryGetValue(p.Organization, out var tenantProjects))
+                {
+                    return tenantProjects.ContainsKey(p.ProjectId);
+                }
+                // If no metadata exists for this project, include it (default behavior)
+                return true;
+            }).ToList();
 
             // Load files for each project
             foreach (var project in Projects)
@@ -965,7 +982,7 @@
                 project.Files = (await ProjectService.GetProjectFilesAsync(fullProjectId)).ToList();
             }
 
-            Logger.LogInformation("Loaded {Count} projects with files", Projects.Count);
+            Logger.LogInformation("Loaded {Count} active projects with files", Projects.Count);
         }
         catch (Exception ex)
         {

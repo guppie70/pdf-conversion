@@ -3,6 +3,7 @@
 @using PdfConversion.Models
 @inject IProjectLabelService ProjectLabelService
 @inject IProjectDirectoryWatcherService ProjectDirectoryWatcherService
+@inject ProjectMetadataService MetadataService
 @inject Xslt3ServiceClient Xslt3Client
 @inject IJSRuntime JSRuntime
 @implements IDisposable
@@ -60,15 +61,19 @@
                                     <tr>
                                         <th class="col-project-id">Project ID</th>
                                         <th class="col-display">Project Name</th>
+                                        <th class="col-status">Status</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     @foreach (var project in customerGroup.Value.OrderBy(p => p.ProjectId))
                                     {
                                         var editKey = GetEditKey(project.Customer, project.ProjectId);
+                                        var statusKey = GetStatusKey(project.Customer, project.ProjectId);
                                         var isEditing = IsEditing(editKey);
+                                        var isEditingStatus = IsEditingStatus(statusKey);
+                                        var projectStatus = GetProjectStatus(project.Customer, project.ProjectId);
 
-                                        <tr>
+                                        <tr class="project-row status-@projectStatus.ToString().ToLower()">
                                             <td class="project-id-cell">
                                                 <code>@project.ProjectId</code>
                                             </td>
@@ -93,6 +98,26 @@
                                                         title="Double-click to edit">
                                                         @project.DisplayString
                                                     </span>
+                                                }
+                                            </td>
+                                            <td class="status-cell" @ondblclick="@(() => StartEditingStatus(project.Customer, project.ProjectId))">
+                                                @if (isEditingStatus)
+                                                {
+                                                    <select class="status-select"
+                                                            value="@projectStatus.ToString()"
+                                                            @onchange="@(e => SaveStatus(project.Customer, project.ProjectId, e.Value?.ToString()))"
+                                                            @onblur="@(() => CancelEditingStatus())"
+                                                            @onkeydown="@(e => HandleStatusKeyDown(e))"
+                                                            @ref="@statusSelectRef">
+                                                        <option value="Open">Open</option>
+                                                        <option value="InProgress">In Progress</option>
+                                                        <option value="Ready">Ready</option>
+                                                        <option value="Parked">Parked</option>
+                                                    </select>
+                                                }
+                                                else
+                                                {
+                                                    <span class="status-text">@GetStatusDisplayText(projectStatus)</span>
                                                 }
                                             </td>
                                         </tr>
@@ -172,6 +197,12 @@
     private Dictionary<string, string> _editingProjects = new(); // key: "customer:projectId", value: current edit value
     private ElementReference editInputRef;
 
+    // Status edit state management
+    private Dictionary<string, Dictionary<string, ProjectMetadata>> _projectMetadata = new();
+    private string? _editingStatusTenant;
+    private string? _editingStatusProjectId;
+    private ElementReference statusSelectRef;
+
     // Auto-save state
     private readonly Dictionary<string, System.Timers.Timer> _debounceTimers = new();
     private const int DebounceDelayMs = 500;
@@ -201,6 +232,9 @@
 
             // Load initial projects
             await LoadProjectsAsync();
+
+            // Load project metadata (for status)
+            _projectMetadata = await MetadataService.GetAllProjects();
 
             // Check XSLT service status
             await CheckXsltServiceStatusAsync();
@@ -421,6 +455,66 @@
             _editingProjects.Remove(editKey);
             StateHasChanged();
         }
+    }
+
+    // Status editing methods
+    private string GetStatusKey(string customer, string projectId) => $"{customer}:{projectId}:status";
+
+    private bool IsEditingStatus(string statusKey) => _editingStatusTenant != null && _editingStatusProjectId != null && GetStatusKey(_editingStatusTenant, _editingStatusProjectId) == statusKey;
+
+    private ProjectLifecycleStatus GetProjectStatus(string customer, string projectId)
+    {
+        if (_projectMetadata.TryGetValue(customer, out var tenantProjects))
+        {
+            if (tenantProjects.TryGetValue(projectId, out var metadata))
+            {
+                return metadata.Status;
+            }
+        }
+        return ProjectLifecycleStatus.Open; // Default
+    }
+
+    private void StartEditingStatus(string customer, string projectId)
+    {
+        _editingStatusTenant = customer;
+        _editingStatusProjectId = projectId;
+        StateHasChanged();
+    }
+
+    private async Task SaveStatus(string customer, string projectId, string? statusValue)
+    {
+        if (Enum.TryParse<ProjectLifecycleStatus>(statusValue, out var newStatus))
+        {
+            await MetadataService.UpdateProjectStatus(customer, projectId, newStatus);
+            _projectMetadata = await MetadataService.GetAllProjects();
+        }
+        _editingStatusTenant = null;
+        _editingStatusProjectId = null;
+        StateHasChanged();
+    }
+
+    private void CancelEditingStatus()
+    {
+        _editingStatusTenant = null;
+        _editingStatusProjectId = null;
+        StateHasChanged();
+    }
+
+    private void HandleStatusKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            CancelEditingStatus();
+        }
+    }
+
+    private string GetStatusDisplayText(ProjectLifecycleStatus status)
+    {
+        return status switch
+        {
+            ProjectLifecycleStatus.InProgress => "In Progress",
+            _ => status.ToString()
+        };
     }
 
     public void Dispose()

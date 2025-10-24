@@ -11,6 +11,7 @@
 @inject IUserSelectionService UserSelectionService
 @inject ILogger<Pages.Convert> Logger
 @inject IJSRuntime JSRuntime
+@inject ProjectMetadataService MetadataService
 @implements IDisposable
 
 <PageTitle>Convert: PDF to Taxxor Sections</PageTitle>
@@ -406,8 +407,24 @@
     {
         try
         {
-            Projects = (await ProjectService.GetProjectsAsync()).ToList();
-            Logger.LogInformation("Loaded {Count} projects", Projects.Count);
+            // Get all projects from ProjectService
+            var allProjects = (await ProjectService.GetProjectsAsync()).ToList();
+
+            // Get active projects from MetadataService
+            var activeProjectMetadata = await MetadataService.GetActiveProjects();
+
+            // Filter to only include active projects
+            Projects = allProjects.Where(p =>
+            {
+                if (activeProjectMetadata.TryGetValue(p.Organization, out var tenantProjects))
+                {
+                    return tenantProjects.ContainsKey(p.ProjectId);
+                }
+                // If no metadata exists for this project, include it (default behavior)
+                return true;
+            }).ToList();
+
+            Logger.LogInformation("Loaded {Count} active projects", Projects.Count);
         }
         catch (Exception ex)
         {
