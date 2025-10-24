@@ -246,13 +246,7 @@
     color: #ffffff;
 }
 
-.editable-label:hover::after {
-    content: " (double-click to edit)";
-    font-size: 0.75rem;
-    color: #858585;
-    font-weight: 400;
-    margin-left: 0.5rem;
-}
+/* Hint text removed - using title attribute for tooltip instead to prevent layout shift */
 
 /* Inline Edit Input (edit mode) */
 .inline-edit-input {
