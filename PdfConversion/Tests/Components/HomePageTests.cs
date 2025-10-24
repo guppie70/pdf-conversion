@@ -17,12 +17,14 @@ public class HomePageTests : TestContext
     private readonly Mock<IProjectLabelService> _mockLabelService;
     private readonly Mock<IProjectDirectoryWatcherService> _mockWatcherService;
     private readonly Mock<Xslt3ServiceClient> _mockXsltClient;
+    private readonly ProjectMetadataService _metadataService;
 
     public HomePageTests()
     {
         _mockLabelService = new Mock<IProjectLabelService>();
         _mockWatcherService = new Mock<IProjectDirectoryWatcherService>();
         _mockXsltClient = new Mock<Xslt3ServiceClient>();
+        _metadataService = new ProjectMetadataService(Path.Combine(Path.GetTempPath(), $"test-metadata-{Guid.NewGuid()}.json"));
 
         // Setup default mock behavior
         _mockLabelService
@@ -37,6 +39,7 @@ public class HomePageTests : TestContext
         Services.AddSingleton(_mockLabelService.Object);
         Services.AddSingleton(_mockWatcherService.Object);
         Services.AddSingleton(_mockXsltClient.Object);
+        Services.AddSingleton(_metadataService);
     }
 
     [Fact]

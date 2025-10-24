@@ -28,6 +28,7 @@ public class ComponentIntegrationTests : TestContext
     private readonly Mock<IXsltFileWatcherService> _mockXsltFileWatcher;
     private readonly Mock<IXmlFileWatcherService> _mockXmlFileWatcher;
     private readonly Mock<ThemeService> _mockThemeService;
+    private readonly ProjectMetadataService _metadataService;
     private readonly TransformToolbarState _toolbarState;
 
     public ComponentIntegrationTests()
@@ -46,6 +47,7 @@ public class ComponentIntegrationTests : TestContext
         _mockXsltFileWatcher = new Mock<IXsltFileWatcherService>();
         _mockXmlFileWatcher = new Mock<IXmlFileWatcherService>();
         _mockThemeService = new Mock<ThemeService>();
+        _metadataService = new ProjectMetadataService(Path.Combine(Path.GetTempPath(), $"test-metadata-{Guid.NewGuid()}.json"));
         _toolbarState = new TransformToolbarState();
 
         // Setup default behavior for UserSelectionService
@@ -76,6 +78,7 @@ public class ComponentIntegrationTests : TestContext
         Services.AddSingleton(_mockXsltFileWatcher.Object);
         Services.AddSingleton(_mockXmlFileWatcher.Object);
         Services.AddSingleton(_mockThemeService.Object);
+        Services.AddSingleton(_metadataService);
         Services.AddSingleton(_toolbarState);
     }
 
