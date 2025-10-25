@@ -6,8 +6,14 @@ from pathlib import Path
 from typing import Tuple, Optional
 from fastapi import UploadFile
 
-# Note: Docling import will be added after confirming the actual API
-# For now, this is a placeholder implementation that will be completed in Phase 1.2
+try:
+    from docling.document_converter import DocumentConverter
+    from docling.datamodel.base_models import InputFormat
+    from docling.datamodel.pipeline_options import PdfPipelineOptions
+    DOCLING_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Docling not available: {e}")
+    DOCLING_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +25,14 @@ class DoclingConverter:
         """Initialize the converter."""
         self.supported_extensions = {'.pdf', '.docx', '.doc'}
         self.supported_formats = ['docbook', 'html', 'markdown']
+
+        # Initialize Docling converter if available
+        if DOCLING_AVAILABLE:
+            self.converter = DocumentConverter()
+            logger.info("Docling converter initialized successfully")
+        else:
+            self.converter = None
+            logger.warning("Docling converter not available - using placeholder mode")
 
     def validate_file(self, filename: str) -> bool:
         """
@@ -84,16 +98,22 @@ class DoclingConverter:
             output_filename = "docling-output.xml"
             output_file_path = input_dir / output_filename
 
-            # TODO: Actual Docling conversion will be implemented here
-            # For now, create a placeholder output for testing
-            logger.info(f"Converting {input_file_path} to {output_format}")
-
-            # This is a placeholder - real implementation will use Docling library
-            page_count = self._create_placeholder_output(
-                input_file_path,
-                output_file_path,
-                output_format
-            )
+            # Perform real Docling conversion if available
+            if self.converter and DOCLING_AVAILABLE:
+                logger.info(f"Converting {input_file_path} with Docling to {output_format}")
+                page_count = self._convert_with_docling(
+                    input_file_path,
+                    output_file_path,
+                    output_format
+                )
+            else:
+                # Fallback to placeholder for testing
+                logger.warning("Using placeholder conversion (Docling not available)")
+                page_count = self._create_placeholder_output(
+                    input_file_path,
+                    output_file_path,
+                    output_format
+                )
 
             # Return path relative to /app/data
             relative_path = f"input/optiver/projects/{project_id}/{output_filename}"
@@ -104,6 +124,81 @@ class DoclingConverter:
         except Exception as e:
             logger.error(f"Conversion failed: {str(e)}", exc_info=True)
             raise
+
+    def _convert_with_docling(
+        self,
+        input_path: Path,
+        output_path: Path,
+        output_format: str
+    ) -> int:
+        """
+        Convert document using Docling library.
+
+        Args:
+            input_path: Path to input file
+            output_path: Path to output file
+            output_format: Target format (docbook, html, markdown)
+
+        Returns:
+            Number of pages in document
+        """
+        try:
+            logger.info(f"Starting Docling conversion: {input_path}")
+
+            # Convert document with Docling
+            result = self.converter.convert(str(input_path))
+
+            # Get page count from result
+            page_count = len(result.document.pages) if hasattr(result.document, 'pages') else 1
+            logger.info(f"Docling conversion complete: {page_count} pages")
+
+            # Export based on format
+            if output_format == "markdown":
+                content = result.document.export_to_markdown()
+            elif output_format == "html":
+                content = result.document.export_to_html()
+            else:  # docbook format
+                # Docling doesn't directly support DocBook, so we export to HTML
+                # and wrap it in a basic DocBook structure
+                html_content = result.document.export_to_html()
+                content = self._wrap_html_in_docbook(html_content, input_path.name)
+
+            # Save output
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(content)
+
+            logger.info(f"Output saved to {output_path}")
+            return page_count
+
+        except Exception as e:
+            logger.error(f"Docling conversion failed: {str(e)}", exc_info=True)
+            raise
+
+    def _wrap_html_in_docbook(self, html_content: str, source_filename: str) -> str:
+        """
+        Wrap HTML content in a basic DocBook XML structure.
+
+        Args:
+            html_content: HTML content from Docling
+            source_filename: Name of source file
+
+        Returns:
+            DocBook XML string
+        """
+        return f"""<?xml version="1.0" encoding="UTF-8"?>
+<book xmlns="http://docbook.org/ns/docbook" version="5.0">
+    <info>
+        <title>Document Conversion</title>
+        <subtitle>Converted from {source_filename}</subtitle>
+    </info>
+    <chapter>
+        <title>Content</title>
+        <section>
+            <title>Document Body</title>
+            {html_content}
+        </section>
+    </chapter>
+</book>"""
 
     def _create_placeholder_output(
         self,
