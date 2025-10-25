@@ -53,6 +53,7 @@ services:
       start_period: 5s
 
   docling-service:
+    platform: linux/amd64  # Force x86_64 for ML library compatibility
     image: python:3.11
     container_name: taxxor-docling-service
     volumes:
