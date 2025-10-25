@@ -5,6 +5,7 @@
 @inject IProjectDirectoryWatcherService ProjectDirectoryWatcherService
 @inject ProjectMetadataService MetadataService
 @inject IXslt3ServiceClient Xslt3Client
+@inject HttpClient Http
 @inject IJSRuntime JSRuntime
 @implements IDisposable
 
@@ -156,6 +157,25 @@
                             <span class="badge bg-danger">✗ Not Connected</span>
                         }
                     </p>
+                    <p class="mb-2">
+                        <strong>Docling Service: </strong>
+                        @if (IsCheckingDoclingService)
+                        {
+                            <span class="badge bg-secondary">Checking...</span>
+                        }
+                        else if (DoclingServiceStatus == ServiceConnectionStatus.Connected)
+                        {
+                            <span class="badge bg-success">✓ Connected</span>
+                        }
+                        else if (DoclingServiceStatus == ServiceConnectionStatus.Error)
+                        {
+                            <span class="badge bg-warning">Error</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-danger">✗ Not Connected</span>
+                        }
+                    </p>
                     <p class="mb-0"><strong>Projects Available:</strong> <span class="badge bg-@(ProjectCount > 0 ? "success" : "secondary")">@ProjectCount</span></p>
                 </div>
             </div>
@@ -219,6 +239,8 @@
     private int ProjectCount { get; set; } = 0;
     private ServiceConnectionStatus ServiceStatus { get; set; } = ServiceConnectionStatus.Checking;
     private bool IsCheckingService => ServiceStatus == ServiceConnectionStatus.Checking;
+    private ServiceConnectionStatus DoclingServiceStatus { get; set; } = ServiceConnectionStatus.Checking;
+    private bool IsCheckingDoclingService => DoclingServiceStatus == ServiceConnectionStatus.Checking;
 
     protected override async Task OnInitializedAsync()
     {
@@ -236,8 +258,9 @@
             // Load initial projects (will merge metadata labels)
             await LoadProjectsAsync();
 
-            // Check XSLT service status
+            // Check service statuses
             await CheckXsltServiceStatusAsync();
+            await CheckDoclingServiceStatusAsync();
 
             // Set project count
             ProjectCount = ProjectsByCustomer.Values.Sum(list => list.Count);
@@ -260,6 +283,20 @@
         catch (Exception)
         {
             ServiceStatus = ServiceConnectionStatus.Error;
+        }
+    }
+
+    private async Task CheckDoclingServiceStatusAsync()
+    {
+        try
+        {
+            DoclingServiceStatus = ServiceConnectionStatus.Checking;
+            var response = await Http.GetAsync("http://localhost:4808/health");
+            DoclingServiceStatus = response.IsSuccessStatusCode ? ServiceConnectionStatus.Connected : ServiceConnectionStatus.NotConnected;
+        }
+        catch (Exception)
+        {
+            DoclingServiceStatus = ServiceConnectionStatus.NotConnected;
         }
     }
 
