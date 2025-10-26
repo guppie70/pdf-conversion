@@ -6,7 +6,7 @@ namespace PdfConversion.Models;
 public class UserSelection
 {
     /// <summary>
-    /// Last selected project ID (e.g., "ar24-3")
+    /// Last selected project in "customer/project-id" format (e.g., "optiver/ar24-3" or "taxxor/ar25-1")
     /// </summary>
     public string LastSelectedProject { get; set; } = string.Empty;
 
@@ -46,7 +46,7 @@ public class UserSelection
     public string LastDoclingFileMode { get; set; } = "NewUpload";
 
     /// <summary>
-    /// Last selected project ID on DoclingConvert page
+    /// Last selected project on DoclingConvert page in "customer/project-id" format (e.g., "optiver/ar24-3" or "taxxor/ar25-1")
     /// </summary>
     public string LastDoclingProject { get; set; } = string.Empty;
 

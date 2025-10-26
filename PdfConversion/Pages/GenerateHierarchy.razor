@@ -1,0 +1,155 @@
+@page "/generate-hierarchy"
+@using PdfConversion.Models
+@using PdfConversion.Services
+@inject IHierarchyService HierarchyService
+@inject ILogger<GenerateHierarchy> Logger
+
+<PageTitle>Generate Hierarchy</PageTitle>
+
+<div class="generate-hierarchy-page">
+    <div class="page-header">
+        <h3>Document Hierarchy Editor</h3>
+        <div class="header-actions">
+            <button class="btn btn-primary" @onclick="LoadHierarchyAsync">
+                <i class="bi bi-folder-open"></i> Load
+            </button>
+            <button class="btn btn-success" @onclick="SaveHierarchyAsync" disabled="@(!HasChanges)">
+                <i class="bi bi-save"></i> Save
+            </button>
+            <button class="btn btn-secondary" disabled="true">
+                <i class="bi bi-magic"></i> Generate with AI (Coming Soon)
+            </button>
+        </div>
+    </div>
+
+    <div class="hierarchy-workspace">
+        <div class="left-panel">
+            <div class="panel-header">
+                <h5>Hierarchy Tree</h5>
+            </div>
+            <div class="panel-content">
+                @if (CurrentHierarchy != null)
+                {
+                    <HierarchyTreeView RootItem="CurrentHierarchy.Root"
+                                     OnItemSelected="HandleItemSelected"
+                                     OnItemEdited="HandleItemEdited" />
+                }
+                else
+                {
+                    <div class="text-center p-5 text-muted">
+                        <i class="bi bi-file-earmark-text" style="font-size: 3rem;"></i>
+                        <p class="mt-3">Load a hierarchy file to get started</p>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="right-panel">
+            <div class="panel-header">
+                <h5>Item Details</h5>
+            </div>
+            <div class="panel-content">
+                @if (SelectedItem != null)
+                {
+                    <div class="item-details">
+                        <div class="mb-3">
+                            <label class="form-label"><strong>ID:</strong></label>
+                            <input type="text" class="form-control" @bind="SelectedItem.Id" readonly />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label"><strong>Link Name:</strong></label>
+                            <input type="text" class="form-control" @bind="SelectedItem.LinkName" @oninput="@(() => HasChanges = true)" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label"><strong>Level:</strong></label>
+                            <input type="number" class="form-control" @bind="SelectedItem.Level" readonly />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label"><strong>Data Ref:</strong></label>
+                            <input type="text" class="form-control" @bind="SelectedItem.DataRef" @oninput="@(() => HasChanges = true)" />
+                        </div>
+                        @if (SelectedItem.Confidence.HasValue)
+                        {
+                            <div class="mb-3">
+                                <label class="form-label"><strong>Confidence:</strong></label>
+                                <div class="progress">
+                                    <div class="progress-bar bg-@GetConfidenceColor(SelectedItem.Confidence.Value)"
+                                         style="width: @SelectedItem.Confidence%">
+                                        @SelectedItem.Confidence%
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(SelectedItem.Reasoning))
+                        {
+                            <div class="mb-3">
+                                <label class="form-label"><strong>AI Reasoning:</strong></label>
+                                <textarea class="form-control" rows="4" readonly>@SelectedItem.Reasoning</textarea>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="text-center p-5 text-muted">
+                        <p>Select an item to view details</p>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private HierarchyStructure? CurrentHierarchy { get; set; }
+    private HierarchyItem? SelectedItem { get; set; }
+    private bool HasChanges { get; set; }
+
+    private async Task LoadHierarchyAsync()
+    {
+        try
+        {
+            // For now, load the example hierarchy
+            var filePath = "/app/data/input/optiver/projects/ar24-3/metadata/hierarchy-ar-pdf-en.xml";
+            CurrentHierarchy = await HierarchyService.LoadHierarchyAsync(filePath);
+            HasChanges = false;
+            Logger.LogInformation("Loaded hierarchy from {Path}", filePath);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load hierarchy");
+        }
+    }
+
+    private async Task SaveHierarchyAsync()
+    {
+        try
+        {
+            if (CurrentHierarchy == null) return;
+
+            var filePath = "/app/data/output/hierarchy-edited.xml";
+            await HierarchyService.SaveHierarchyAsync(filePath, CurrentHierarchy);
+            HasChanges = false;
+            Logger.LogInformation("Saved hierarchy to {Path}", filePath);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save hierarchy");
+        }
+    }
+
+    private void HandleItemSelected(HierarchyItem item)
+    {
+        SelectedItem = item;
+    }
+
+    private void HandleItemEdited(HierarchyItem item)
+    {
+        HasChanges = true;
+    }
+
+    private string GetConfidenceColor(int confidence)
+    {
+        return confidence >= 80 ? "success" : confidence >= 70 ? "warning" : "danger";
+    }
+}

@@ -1227,10 +1227,9 @@
                 await JSRuntime.InvokeVoidAsync("developmentStorage.saveSelection", SelectedProjectId, SelectedFileName, SelectedXsltFile);
 
                 // Save to server-side UserSelectionService
-                // Extract project ID from "optiver/ar24-3" format
-                var projectIdOnly = SelectedProjectId?.Split('/').LastOrDefault();
+                // SelectedProjectId is already in "customer/project-id" format
                 await UserSelectionService.UpdateSelectionAsync(
-                    projectId: projectIdOnly,
+                    projectId: SelectedProjectId,
                     sourceXml: SelectedFileName,
                     xslt: SelectedXsltFile
                 );
@@ -1274,10 +1273,9 @@
                 await JSRuntime.InvokeVoidAsync("developmentStorage.saveSelection", SelectedProjectId, SelectedFileName, SelectedXsltFile);
 
                 // Save to server-side UserSelectionService
-                // Extract project ID from "optiver/ar24-3" format
-                var projectIdOnly = SelectedProjectId?.Split('/').LastOrDefault();
+                // SelectedProjectId is already in "customer/project-id" format
                 await UserSelectionService.UpdateSelectionAsync(
-                    projectId: projectIdOnly,
+                    projectId: SelectedProjectId,
                     sourceXml: SelectedFileName,
                     xslt: SelectedXsltFile
                 );
@@ -1395,10 +1393,9 @@
                 await JSRuntime.InvokeVoidAsync("developmentStorage.saveSelection", SelectedProjectId, SelectedFileName, SelectedXsltFile);
 
                 // Save to server-side UserSelectionService
-                // Extract project ID from "optiver/ar24-3" format
-                var projectIdOnly = SelectedProjectId?.Split('/').LastOrDefault();
+                // SelectedProjectId is already in "customer/project-id" format
                 await UserSelectionService.UpdateSelectionAsync(
-                    projectId: projectIdOnly,
+                    projectId: SelectedProjectId,
                     sourceXml: SelectedFileName,
                     xslt: SelectedXsltFile
                 );
@@ -1442,10 +1439,9 @@
                 await JSRuntime.InvokeVoidAsync("developmentStorage.saveSelection", SelectedProjectId, SelectedFileName, SelectedXsltFile);
 
                 // Save to server-side UserSelectionService
-                // Extract project ID from "optiver/ar24-3" format
-                var projectIdOnly = SelectedProjectId?.Split('/').LastOrDefault();
+                // SelectedProjectId is already in "customer/project-id" format
                 await UserSelectionService.UpdateSelectionAsync(
-                    projectId: projectIdOnly,
+                    projectId: SelectedProjectId,
                     sourceXml: SelectedFileName,
                     xslt: SelectedXsltFile
                 );
@@ -2614,12 +2610,11 @@
                     Logger.LogInformation("Loading selection from UserSelectionService JSON: Project={Project}, SourceXml={SourceXml}, Xslt={Xslt}",
                         selection.LastSelectedProject, selection.LastSelectedSourceXml, selection.LastSelectedXslt);
 
-                    // Convert from UserSelection format to SavedSelection format
-                    // UserSelection uses just project name (e.g., "ar24-3")
-                    // Transform page needs full path format (e.g., "optiver/ar24-3")
+                    // UserSelection now stores full path format (e.g., "customer/project-id")
+                    // Transform page uses the same format, so use it directly
                     savedSelection = new SavedSelection
                     {
-                        ProjectId = $"optiver/{selection.LastSelectedProject}",
+                        ProjectId = selection.LastSelectedProject,
                         FileName = selection.LastSelectedSourceXml ?? string.Empty,
                         XsltFile = selection.LastSelectedXslt ?? "transformation.xslt"
                     };

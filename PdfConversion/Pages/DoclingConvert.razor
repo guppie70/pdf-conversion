@@ -339,6 +339,7 @@
         public string FilePath { get; set; } = string.Empty;
         public string FileName { get; set; } = string.Empty;
         public string ProjectId { get; set; } = string.Empty;
+        public string Customer { get; set; } = string.Empty;
         public string ProjectLabel { get; set; } = string.Empty;
         public string DisplayString { get; set; } = string.Empty;
     }
@@ -544,6 +545,7 @@
                                 FilePath = filePath,
                                 FileName = fileName,
                                 ProjectId = project.ProjectId,
+                                Customer = project.Customer,
                                 ProjectLabel = project.CustomLabel ?? project.ProjectId,
                                 DisplayString = $"{project.CustomLabel ?? project.ProjectId} - {fileName}"
                             });
@@ -588,15 +590,38 @@
             // Restore project selection (for NewUpload mode)
             if (!string.IsNullOrEmpty(selection.LastDoclingProject))
             {
-                var projectExists = Projects.Any(p => p.ProjectId == selection.LastDoclingProject);
-                if (projectExists)
+                // Parse "customer/project-id" format
+                var parts = selection.LastDoclingProject.Split('/');
+                if (parts.Length == 2)
                 {
-                    SelectedProject = selection.LastDoclingProject;
-                    Logger.LogInformation($"Restored project: {SelectedProject}");
+                    var customer = parts[0];
+                    var projectId = parts[1];
+
+                    // Find matching project by customer and project ID
+                    var project = Projects.FirstOrDefault(p => p.Customer == customer && p.ProjectId == projectId);
+                    if (project != null)
+                    {
+                        SelectedProject = project.ProjectId;
+                        Logger.LogInformation($"Restored project: {customer}/{projectId}");
+                    }
+                    else
+                    {
+                        Logger.LogWarning($"Saved project '{selection.LastDoclingProject}' no longer exists");
+                    }
                 }
                 else
                 {
-                    Logger.LogWarning($"Saved project '{selection.LastDoclingProject}' no longer exists");
+                    // Legacy format (just project ID) - try to find first matching project
+                    var project = Projects.FirstOrDefault(p => p.ProjectId == selection.LastDoclingProject);
+                    if (project != null)
+                    {
+                        SelectedProject = project.ProjectId;
+                        Logger.LogInformation($"Restored project using legacy format: {SelectedProject}");
+                    }
+                    else
+                    {
+                        Logger.LogWarning($"Saved project '{selection.LastDoclingProject}' no longer exists");
+                    }
                 }
             }
 
@@ -710,12 +735,17 @@
             {
                 await LoadExistingFileDataAsync(SelectedExistingFile);
 
-                // Save existing file selection
-                var selection = await UserSelectionService.GetSelectionAsync();
-                selection.LastDoclingExistingFile = SelectedExistingFile;
-                selection.LastDoclingProject = SelectedProject; // Also save the associated project
-                await UserSelectionService.SaveSelectionAsync(selection);
-                Logger.LogDebug($"Saved existing file selection: {SelectedExistingFile}");
+                // Save existing file selection with full customer/project path
+                var fileInfo = ExistingFiles.FirstOrDefault(f => f.FilePath == SelectedExistingFile);
+                if (fileInfo != null)
+                {
+                    var selection = await UserSelectionService.GetSelectionAsync();
+                    selection.LastDoclingExistingFile = SelectedExistingFile;
+                    // Store in "customer/project-id" format
+                    selection.LastDoclingProject = $"{fileInfo.Customer}/{fileInfo.ProjectId}";
+                    await UserSelectionService.SaveSelectionAsync(selection);
+                    Logger.LogDebug($"Saved existing file selection: {SelectedExistingFile}, project: {selection.LastDoclingProject}");
+                }
             }
             catch (Exception ex)
             {
@@ -797,10 +827,16 @@
         {
             try
             {
-                var selection = await UserSelectionService.GetSelectionAsync();
-                selection.LastDoclingProject = SelectedProject;
-                await UserSelectionService.SaveSelectionAsync(selection);
-                Logger.LogDebug($"Saved project selection: {SelectedProject}");
+                // Find the project to get customer information
+                var project = Projects.FirstOrDefault(p => p.ProjectId == SelectedProject);
+                if (project != null)
+                {
+                    var selection = await UserSelectionService.GetSelectionAsync();
+                    // Store in "customer/project-id" format
+                    selection.LastDoclingProject = $"{project.Customer}/{project.ProjectId}";
+                    await UserSelectionService.SaveSelectionAsync(selection);
+                    Logger.LogDebug($"Saved project selection: {selection.LastDoclingProject}");
+                }
             }
             catch (Exception ex)
             {
@@ -1088,11 +1124,53 @@
             var htmlDoc = new HtmlAgilityPack.HtmlDocument();
             htmlDoc.LoadHtml(htmlContent);
 
-            // Remove DOCTYPE node if present (HtmlAgilityPack may parse it as a comment)
-            var doctypeComment = htmlDoc.DocumentNode.SelectSingleNode("//comment()[contains(., 'DOCTYPE')]");
-            if (doctypeComment != null)
+            // Remove all <style> elements
+            var styleNodes = htmlDoc.DocumentNode.SelectNodes("//style");
+            if (styleNodes != null)
             {
-                doctypeComment.Remove();
+                foreach (var styleNode in styleNodes)
+                {
+                    styleNode.Remove();
+                }
+                Logger.LogDebug($"Removed {styleNodes.Count} style elements");
+            }
+
+            // Clean up <title> element - remove CDATA wrapper
+            var titleNode = htmlDoc.DocumentNode.SelectSingleNode("//title");
+            if (titleNode != null)
+            {
+                // Get the raw inner content
+                var rawContent = titleNode.InnerHtml;
+
+                // Extract text from CDATA section if present
+                string titleText;
+                if (rawContent.Contains("CDATA"))
+                {
+                    // Extract content between CDATA markers
+                    var cdataPattern = @"(?://)?\s*<!\[CDATA\[\s*(.*?)\s*\]\]>\s*(?://)?";
+                    var match = System.Text.RegularExpressions.Regex.Match(rawContent, cdataPattern,
+                        System.Text.RegularExpressions.RegexOptions.Singleline);
+
+                    if (match.Success)
+                    {
+                        titleText = match.Groups[1].Value.Trim();
+                    }
+                    else
+                    {
+                        // Fallback: use InnerText and clean it
+                        titleText = titleNode.InnerText.Trim();
+                    }
+                }
+                else
+                {
+                    titleText = titleNode.InnerText.Trim();
+                }
+
+                // Clear the node and set clean text content
+                titleNode.RemoveAllChildren();
+                titleNode.AppendChild(htmlDoc.CreateTextNode(titleText));
+
+                Logger.LogDebug($"Cleaned title: '{titleText}'");
             }
 
             // Configure output as XML (not HTML)
@@ -1100,14 +1178,22 @@
             htmlDoc.OptionWriteEmptyNodes = true;
             htmlDoc.OptionAutoCloseOnEnd = true;
 
-            // Generate XML output without DOCTYPE
+            // Find the root <html> element
+            var htmlElement = htmlDoc.DocumentNode.SelectSingleNode("//html");
+            if (htmlElement == null)
+            {
+                Logger.LogWarning("No <html> element found, using document node");
+                htmlElement = htmlDoc.DocumentNode;
+            }
+
+            // Generate XML output
             using var writer = new System.IO.StringWriter();
 
-            // Write XML declaration manually
+            // Write XML declaration
             writer.WriteLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
 
-            // Write HTML document as XML (no DOCTYPE)
-            htmlDoc.DocumentNode.WriteTo(writer);
+            // Write only the <html> element (not the document node to avoid span wrapper)
+            htmlElement.WriteTo(writer);
 
             return writer.ToString();
         }
