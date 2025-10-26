@@ -1641,19 +1641,45 @@
             SavedNormalizedXmlPath = null; // Clear saved path
             UpdateToolbarState();
 
-            // ALWAYS use transformation.xslt as the main XSLT file for transformations
-            var transformationXsltPath = "/app/xslt/transformation.xslt";
+            // Determine root XSLT file based on selected file path
+            string rootXsltFile;
+            if (!string.IsNullOrEmpty(SelectedXsltFile))
+            {
+                if (SelectedXsltFile.StartsWith("adobe/", StringComparison.OrdinalIgnoreCase))
+                {
+                    rootXsltFile = "adobe/transformation.xslt";
+                }
+                else if (SelectedXsltFile.StartsWith("docling/", StringComparison.OrdinalIgnoreCase))
+                {
+                    rootXsltFile = "docling/transformation.xslt";
+                }
+                else
+                {
+                    // Fallback: assume it's a module file, look for root in same directory
+                    var directory = Path.GetDirectoryName(SelectedXsltFile)?.Replace("\\", "/");
+                    rootXsltFile = !string.IsNullOrEmpty(directory)
+                        ? $"{directory}/transformation.xslt"
+                        : "transformation.xslt";
+                }
+            }
+            else
+            {
+                // Default to adobe pipeline (most common)
+                rootXsltFile = "adobe/transformation.xslt";
+            }
+
+            var transformationXsltPath = Path.Combine("/app/xslt", rootXsltFile);
             string transformationXsltContent;
 
             if (File.Exists(transformationXsltPath))
             {
                 transformationXsltContent = await File.ReadAllTextAsync(transformationXsltPath);
-                Logger.LogInformation("Loaded transformation.xslt for transformation (length: {Length})", transformationXsltContent?.Length ?? 0);
+                Logger.LogInformation("Loaded {RootXsltFile} for transformation (length: {Length})", rootXsltFile, transformationXsltContent?.Length ?? 0);
             }
             else
             {
-                Logger.LogError("transformation.xslt not found at {Path}", transformationXsltPath);
-                TransformationError = "transformation.xslt not found. Cannot perform transformation.";
+                Logger.LogError("{RootXsltFile} not found at {Path}", rootXsltFile, transformationXsltPath);
+                TransformationError = $"{rootXsltFile} not found. Cannot perform transformation.";
                 return;
             }
 
@@ -1663,9 +1689,9 @@
                 NormalizeHeaders = NormalizeHeaders
             };
 
-            // Check if we're editing a module file (not transformation.xslt)
+            // Check if we're editing a module file (not the root transformation.xslt)
             var isEditingModule = !string.IsNullOrEmpty(SelectedXsltFile) &&
-                                  !SelectedXsltFile.Equals("transformation.xslt", StringComparison.OrdinalIgnoreCase);
+                                  !SelectedXsltFile.Equals(rootXsltFile, StringComparison.OrdinalIgnoreCase);
 
             TransformationResult result;
 
@@ -1682,8 +1708,8 @@
             }
             else
             {
-                // Standard transformation (either transformation.xslt is selected, or no module editing)
-                Logger.LogInformation("Standard transformation using transformation.xslt");
+                // Standard transformation (root XSLT file is selected, or no module editing)
+                Logger.LogInformation("Standard transformation using {RootXsltFile}", rootXsltFile);
                 result = await XsltService.TransformAsync(XmlContent!, transformationXsltContent, options);
             }
 
