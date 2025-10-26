@@ -84,6 +84,7 @@ builder.Services.AddScoped<IContentExtractionService, ContentExtractionService>(
 builder.Services.AddScoped<IDocumentReconstructionService, DocumentReconstructionService>();
 builder.Services.AddScoped<IDiffService, DiffService>();
 builder.Services.AddScoped<IRoundTripValidationService, RoundTripValidationService>();
+builder.Services.AddScoped<IBase64ImageExtractor, Base64ImageExtractor>();
 builder.Services.AddScoped<TransformToolbarState>();
 builder.Services.AddSingleton<IXhtmlValidationService, XhtmlValidationService>();
 builder.Services.AddSingleton<ITransformationLogService, TransformationLogService>();
@@ -93,6 +94,10 @@ builder.Services.AddSingleton<IXmlFileWatcherService, XmlFileWatcherService>();
 builder.Services.AddSingleton<IUserSelectionService, UserSelectionService>();
 builder.Services.AddSingleton<IProjectLabelService, ProjectLabelService>();
 builder.Services.AddSingleton<IProjectDirectoryWatcherService, ProjectDirectoryWatcherService>();
+
+// Register MetadataSyncService (single instance for both hosted service and injection)
+builder.Services.AddSingleton<IMetadataSyncService, MetadataSyncService>();
+builder.Services.AddHostedService(provider => (MetadataSyncService)provider.GetRequiredService<IMetadataSyncService>());
 
 // Register Docling job polling service (single instance for both hosted service and injection)
 builder.Services.AddSingleton<DoclingJobPollingService>();

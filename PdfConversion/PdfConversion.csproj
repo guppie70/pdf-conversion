@@ -24,6 +24,8 @@
     <PackageReference Include="System.Threading.Channels" Version="9.0.0" />
     <!-- Diff comparison package -->
     <PackageReference Include="DiffPlex" Version="1.7.2" />
+    <!-- HTML to XML conversion -->
+    <PackageReference Include="HtmlAgilityPack" Version="1.11.71" />
   </ItemGroup>
 
   <ItemGroup>

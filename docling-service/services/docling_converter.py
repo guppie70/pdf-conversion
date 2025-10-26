@@ -1,6 +1,7 @@
 """Docling document conversion service."""
 
 import os
+import json
 import logging
 from pathlib import Path
 from typing import Tuple, Optional, Callable, Awaitable
@@ -10,8 +11,10 @@ from fastapi import UploadFile
 logger = logging.getLogger(__name__)
 
 try:
-    from docling.document_converter import DocumentConverter
-    from docling.datamodel.base_models import DocumentStream, PipelineOptions
+    from docling.document_converter import DocumentConverter, PdfFormatOption
+    from docling.datamodel.base_models import DocumentStream, PipelineOptions, InputFormat
+    from docling.datamodel.pipeline_options import PdfPipelineOptions
+    from docling_core.types.doc import ImageRefMode
     DOCLING_AVAILABLE = True
 except ImportError as e:
     logger.warning(f"Docling not available: {e}")
@@ -61,9 +64,19 @@ class DoclingConverter:
                 except Exception as e:
                     logger.warning(f"Model download failed, will try direct initialization: {e}")
 
-            # Initialize the converter
-            self.converter = DocumentConverter()
-            logger.info("Docling converter initialized successfully")
+            # Configure pipeline options for image extraction
+            pipeline_options = PdfPipelineOptions()
+            pipeline_options.images_scale = 2.0  # 144 DPI (2.0 * 72 DPI)
+            pipeline_options.generate_page_images = False  # Don't need full page images
+            pipeline_options.generate_picture_images = True  # Extract figures/pictures
+
+            # Initialize converter with image extraction enabled
+            self.converter = DocumentConverter(
+                format_options={
+                    InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
+                }
+            )
+            logger.info("Docling converter initialized successfully with image extraction enabled")
             return True
 
         except Exception as e:
@@ -83,166 +96,11 @@ class DoclingConverter:
         ext = Path(filename).suffix.lower()
         return ext in self.supported_extensions
 
-    async def convert(
-        self,
-        file: UploadFile,
-        project_id: str,
-        output_format: str = "docbook"
-    ) -> Tuple[str, Optional[int], Optional[str]]:
-        """
-        Convert uploaded document to specified format.
 
-        Args:
-            file: Uploaded file
-            project_id: Project ID for organizing output
-            output_format: Target format (docbook, html, markdown)
-
-        Returns:
-            Tuple of (output_file_path, page_count, error_message)
-            output_file_path is relative to /app/data
-
-        Raises:
-            ValueError: If file type or format is not supported
-            Exception: If conversion fails
-        """
-        # Validate file type
-        if not self.validate_file(file.filename):
-            raise ValueError(
-                f"Unsupported file type. Supported: {', '.join(self.supported_extensions)}"
-            )
-
-        # Validate output format
-        if output_format not in self.supported_formats:
-            raise ValueError(
-                f"Unsupported output format. Supported: {', '.join(self.supported_formats)}"
-            )
-
-        try:
-            # Create project input directory
-            input_dir = Path(f"/app/data/input/optiver/projects/{project_id}")
-            input_dir.mkdir(parents=True, exist_ok=True)
-
-            # Save uploaded file temporarily
-            input_file_path = input_dir / file.filename
-            logger.info(f"Saving uploaded file to {input_file_path}")
-
-            contents = await file.read()
-            with open(input_file_path, "wb") as f:
-                f.write(contents)
-
-            # Prepare output path
-            output_filename = "docling-output.xml"
-            output_file_path = input_dir / output_filename
-
-            # Try to initialize converter if not already done
-            converter_ready = self._ensure_converter_initialized()
-
-            # Perform real Docling conversion if available
-            if converter_ready and self.converter:
-                logger.info(f"Converting {input_file_path} with Docling to {output_format}")
-                page_count = self._convert_with_docling(
-                    input_file_path,
-                    output_file_path,
-                    output_format
-                )
-            else:
-                # Fallback to placeholder for testing
-                logger.warning("Using placeholder conversion (Docling not available)")
-                page_count = self._create_placeholder_output(
-                    input_file_path,
-                    output_file_path,
-                    output_format
-                )
-
-            # Return path relative to /app/data
-            relative_path = f"input/optiver/projects/{project_id}/{output_filename}"
-            logger.info(f"Conversion completed: {relative_path}")
-
-            return relative_path, page_count, None
-
-        except Exception as e:
-            logger.error(f"Conversion failed: {str(e)}", exc_info=True)
-            raise
-
-    def _convert_with_docling(
-        self,
-        input_path: Path,
-        output_path: Path,
-        output_format: str
-    ) -> int:
-        """
-        Convert document using Docling library.
-
-        Args:
-            input_path: Path to input file
-            output_path: Path to output file
-            output_format: Target format (docbook, html, markdown)
-
-        Returns:
-            Number of pages in document
-        """
-        try:
-            logger.info(f"Starting Docling conversion: {input_path}")
-
-            # Convert document with Docling
-            result = self.converter.convert(str(input_path))
-
-            # Get page count from result
-            page_count = len(result.document.pages) if hasattr(result.document, 'pages') else 1
-            logger.info(f"Docling conversion complete: {page_count} pages")
-
-            # Export based on format
-            if output_format == "markdown":
-                content = result.document.export_to_markdown()
-            elif output_format == "html":
-                content = result.document.export_to_html()
-            else:  # docbook format
-                # Docling doesn't directly support DocBook, so we export to HTML
-                # and wrap it in a basic DocBook structure
-                html_content = result.document.export_to_html()
-                content = self._wrap_html_in_docbook(html_content, input_path.name)
-
-            # Save output
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write(content)
-
-            logger.info(f"Output saved to {output_path}")
-            return page_count
-
-        except Exception as e:
-            logger.error(f"Docling conversion failed: {str(e)}", exc_info=True)
-            raise
-
-    def _wrap_html_in_docbook(self, html_content: str, source_filename: str) -> str:
-        """
-        Wrap HTML content in a basic DocBook XML structure.
-
-        Args:
-            html_content: HTML content from Docling
-            source_filename: Name of source file
-
-        Returns:
-            DocBook XML string
-        """
-        return f"""<?xml version="1.0" encoding="UTF-8"?>
-<book xmlns="http://docbook.org/ns/docbook" version="5.0">
-    <info>
-        <title>Document Conversion</title>
-        <subtitle>Converted from {source_filename}</subtitle>
-    </info>
-    <chapter>
-        <title>Content</title>
-        <section>
-            <title>Document Body</title>
-            {html_content}
-        </section>
-    </chapter>
-</book>"""
 
     async def convert_with_progress(
         self,
         input_file_path: Path,
-        project_id: str,
         output_format: str,
         progress_callback: Optional[Callable[[float, int, int, str], Awaitable[None]]] = None
     ) -> Tuple[Optional[str], Optional[int], Optional[str]]:
@@ -251,21 +109,15 @@ class DoclingConverter:
 
         Args:
             input_file_path: Path to input file
-            project_id: Project ID for organizing output
-            output_format: Target format (docbook, html, markdown)
+            output_format: Target format (html, markdown, docbook)
             progress_callback: Async callback for progress updates
                               Accepts (progress, current_page, total_pages, message)
 
         Returns:
-            Tuple of (output_file_path, page_count, error_message)
-            output_file_path is relative to /app/data
+            Tuple of (output_content, page_count, error_message)
+            output_content contains HTML/XML with base64-embedded images
         """
         try:
-            # Prepare output path
-            output_filename = "docling-output.xml"
-            input_dir = Path(f"/app/data/input/optiver/projects/{project_id}")
-            output_file_path = input_dir / output_filename
-
             # Report starting
             if progress_callback:
                 await progress_callback(0.05, 0, 0, "Initializing conversion...")
@@ -283,9 +135,8 @@ class DoclingConverter:
                 if progress_callback:
                     await progress_callback(0.15, 0, 0, "Starting Docling conversion...")
 
-                page_count = await self._convert_with_docling_async(
+                content, page_count = await self._convert_with_docling_async(
                     input_file_path,
-                    output_file_path,
                     output_format,
                     progress_callback
                 )
@@ -296,9 +147,8 @@ class DoclingConverter:
                 if progress_callback:
                     await progress_callback(0.20, 0, 0, "Using placeholder conversion...")
 
-                page_count = self._create_placeholder_output(
+                content, page_count = self._create_placeholder_output(
                     input_file_path,
-                    output_file_path,
                     output_format
                 )
 
@@ -306,11 +156,9 @@ class DoclingConverter:
             if progress_callback:
                 await progress_callback(1.0, page_count, page_count, "Conversion complete")
 
-            # Return path relative to /app/data
-            relative_path = f"input/optiver/projects/{project_id}/{output_filename}"
-            logger.info(f"Conversion completed: {relative_path}")
+            logger.info(f"Conversion completed: {page_count} pages, {len(content)} bytes")
 
-            return relative_path, page_count, None
+            return content, page_count, None
 
         except Exception as e:
             logger.error(f"Conversion failed: {str(e)}", exc_info=True)
@@ -319,21 +167,20 @@ class DoclingConverter:
     async def _convert_with_docling_async(
         self,
         input_path: Path,
-        output_path: Path,
         output_format: str,
         progress_callback: Optional[Callable[[float, int, int, str], Awaitable[None]]] = None
-    ) -> int:
+    ) -> Tuple[str, int]:
         """
         Convert document using Docling library with progress tracking.
 
         Args:
             input_path: Path to input file
-            output_path: Path to output file
-            output_format: Target format (docbook, html, markdown)
+            output_format: Target format (html, markdown, docbook)
             progress_callback: Optional async callback for progress updates
 
         Returns:
-            Number of pages in document
+            Tuple of (content, page_count)
+            content contains HTML/XML with base64-embedded images
         """
         try:
             logger.info(f"Starting Docling conversion: {input_path}")
@@ -384,28 +231,32 @@ class DoclingConverter:
             logger.info(f"Docling conversion complete: {page_count} pages")
 
             if progress_callback:
-                await progress_callback(0.70, page_count, page_count, f"Processed {page_count} pages, exporting...")
+                await progress_callback(0.60, page_count, page_count, f"Processed {page_count} pages, exporting with base64 images...")
 
-            # Export based on format
-            if output_format == "markdown":
-                content = result.document.export_to_markdown()
-            elif output_format == "html":
-                content = result.document.export_to_html()
-            else:  # docbook format
-                # Docling doesn't directly support DocBook, so we export to HTML
-                # and wrap it in a basic DocBook structure
-                html_content = result.document.export_to_html()
-                content = self._wrap_html_in_docbook(html_content, input_path.name)
+            # Count images
+            image_count = len(result.document.pictures) if hasattr(result.document, 'pictures') and result.document.pictures else 0
+            logger.info(f"Found {image_count} images to embed as base64")
 
             if progress_callback:
-                await progress_callback(0.90, page_count, page_count, "Saving output...")
+                await progress_callback(0.70, page_count, page_count, f"Embedding {image_count} images as base64...")
 
-            # Save output
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write(content)
+            # Export based on format with EMBEDDED base64 images
+            if output_format == "markdown":
+                content = result.document.export_to_markdown(image_mode=ImageRefMode.EMBEDDED)
+            elif output_format == "doctags":
+                # DocTags format - structured for LLMs
+                content = result.document.export_to_doctags()
+            elif output_format == "json":
+                # JSON format - lossless representation
+                content = json.dumps(result.document.export_to_dict(), indent=2)
+            else:  # html or xml - always return HTML (Blazor will convert to XML if needed)
+                content = result.document.export_to_html(image_mode=ImageRefMode.EMBEDDED)
 
-            logger.info(f"Output saved to {output_path}")
-            return page_count
+            if progress_callback:
+                await progress_callback(0.90, page_count, page_count, "Finalizing output...")
+
+            logger.info(f"Generated output: {len(content)} bytes with {image_count} embedded images")
+            return content, page_count
 
         except Exception as e:
             logger.error(f"Docling conversion failed: {str(e)}", exc_info=True)
@@ -414,20 +265,18 @@ class DoclingConverter:
     def _create_placeholder_output(
         self,
         input_path: Path,
-        output_path: Path,
         output_format: str
-    ) -> int:
+    ) -> Tuple[str, int]:
         """
         Create placeholder output for testing.
         This will be replaced with actual Docling conversion.
 
         Args:
             input_path: Path to input file
-            output_path: Path to output file
             output_format: Target format
 
         Returns:
-            Placeholder page count
+            Tuple of (content, page_count)
         """
         # Create a simple DocBook XML placeholder
         placeholder_content = """<?xml version="1.0" encoding="UTF-8"?>
@@ -451,8 +300,5 @@ class DoclingConverter:
     </chapter>
 </book>""".format(input_path.name, output_format)
 
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(placeholder_content)
-
-        # Return placeholder page count
-        return 1
+        # Return placeholder content and page count
+        return placeholder_content, 1

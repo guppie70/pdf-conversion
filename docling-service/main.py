@@ -10,7 +10,6 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse
 from models.schemas import (
     HealthResponse,
-    ConversionResponse,
     SupportedFormatsResponse
 )
 from models.job_models import (
@@ -81,73 +80,6 @@ async def get_supported_formats():
     )
 
 
-@app.post("/convert", response_model=ConversionResponse, tags=["Conversion"])
-async def convert_document(
-    file: UploadFile = File(..., description="PDF or Word document to convert"),
-    project_id: str = Form(..., description="Project ID (e.g., 'ar24-3')"),
-    output_format: str = Form(default="docbook", description="Output format (docbook, html, markdown)")
-):
-    """
-    Convert PDF or Word document to structured XML.
-
-    **Process:**
-    1. Validates file type (PDF, DOCX, DOC)
-    2. Saves file to project input directory
-    3. Converts document using Docling library
-    4. Saves output as `docling-output.xml` in project directory
-    5. Returns output file path and page count
-
-    **File Location:**
-    - Input: `data/input/optiver/projects/{project_id}/{filename}`
-    - Output: `data/input/optiver/projects/{project_id}/docling-output.xml`
-
-    **Example:**
-    ```bash
-    curl -X POST http://localhost:4807/convert \\
-      -F "file=@annual-report.pdf" \\
-      -F "project_id=ar24-3" \\
-      -F "output_format=docbook"
-    ```
-    """
-    logger.info(f"Conversion request: file={file.filename}, project={project_id}, format={output_format}")
-
-    try:
-        # Validate file type
-        if not converter.validate_file(file.filename):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported file type. Supported extensions: {', '.join(converter.supported_extensions)}"
-            )
-
-        # Convert document
-        output_file, page_count, error = await converter.convert(
-            file=file,
-            project_id=project_id,
-            output_format=output_format
-        )
-
-        if error:
-            raise HTTPException(status_code=500, detail=error)
-
-        return ConversionResponse(
-            success=True,
-            output_file=output_file,
-            page_count=page_count,
-            message=f"Successfully converted {file.filename} to {output_format}"
-        )
-
-    except ValueError as e:
-        logger.error(f"Validation error: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-    except Exception as e:
-        logger.error(f"Conversion failed: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Conversion failed: {str(e)}"
-        )
-
-
 @app.get("/", tags=["Info"])
 async def root():
     """
@@ -166,29 +98,28 @@ async def root():
 @app.post("/convert-async", response_model=JobStartResponse, tags=["Conversion"])
 async def convert_document_async(
     file: UploadFile = File(..., description="PDF or Word document to convert"),
-    project_id: str = Form(..., description="Project ID (e.g., 'ar24-3')"),
-    output_format: str = Form(default="docbook", description="Output format (docbook, html, markdown)")
+    output_format: str = Form(default="html", description="Output format (html, markdown, docbook)")
 ):
     """
     Start async conversion job - returns immediately with job ID.
 
     **Process:**
     1. Validates file type (PDF, DOCX, DOC)
-    2. Saves file to project input directory
+    2. Saves file to temporary directory
     3. Creates background job and returns job ID
     4. Client polls /jobs/{job_id} for status and progress
+    5. Upon completion, result contains HTML/XML with base64-embedded images
 
     **Example:**
     ```bash
     curl -X POST http://localhost:4808/convert-async \\
       -F "file=@annual-report.pdf" \\
-      -F "project_id=ar24-3" \\
-      -F "output_format=docbook"
+      -F "output_format=html"
     ```
 
     Returns job_id for tracking progress via /jobs/{job_id}
     """
-    logger.info(f"Async conversion request: file={file.filename}, project={project_id}, format={output_format}")
+    logger.info(f"Async conversion request: file={file.filename}, format={output_format}")
 
     try:
         # Validate file type
@@ -198,11 +129,11 @@ async def convert_document_async(
                 detail=f"Unsupported file type. Supported extensions: {', '.join(converter.supported_extensions)}"
             )
 
-        # Save file to project directory
-        input_dir = Path(f"/app/data/input/optiver/projects/{project_id}")
-        input_dir.mkdir(parents=True, exist_ok=True)
+        # Save file to temporary directory
+        temp_dir = Path("/app/data/temp")
+        temp_dir.mkdir(parents=True, exist_ok=True)
 
-        input_file_path = input_dir / file.filename
+        input_file_path = temp_dir / file.filename
         logger.info(f"Saving uploaded file to {input_file_path}")
 
         contents = await file.read()
@@ -212,7 +143,6 @@ async def convert_document_async(
         # Create job
         job_manager = get_job_manager()
         job_id = job_manager.create_job(
-            project_id=project_id,
             filename=file.filename,
             output_format=output_format
         )
@@ -221,7 +151,6 @@ async def convert_document_async(
         async def conversion_task(job_id: str, progress_callback):
             return await converter.convert_with_progress(
                 input_file_path=input_file_path,
-                project_id=project_id,
                 output_format=output_format,
                 progress_callback=progress_callback
             )
@@ -281,12 +210,14 @@ async def get_job_result(job_id: str):
     """
     Get final result of completed conversion job.
 
-    **Only works for completed jobs.** Returns XML content and metadata.
+    **Only works for completed jobs.** Returns HTML/XML content with base64-embedded images.
 
     **Example:**
     ```bash
     curl http://localhost:4808/jobs/{job_id}/result
     ```
+
+    **Response:** JSON with output_content containing full HTML/XML with embedded images
     """
     job_manager = get_job_manager()
     job = job_manager.get_job(job_id)
@@ -311,31 +242,13 @@ async def get_job_result(job_id: str):
             error="Job was cancelled"
         )
 
-    # Job completed successfully - read output file
-    try:
-        output_file = f"input/optiver/projects/{job.project_id}/docling-output.xml"
-        output_path = Path(f"/app/data/{output_file}")
-
-        if not output_path.exists():
-            raise HTTPException(status_code=500, detail="Output file not found")
-
-        with open(output_path, "r", encoding="utf-8") as f:
-            output_content = f.read()
-
-        return JobResultResponse(
-            job_id=job_id,
-            success=True,
-            output_content=output_content,
-            output_file=output_file,
-            page_count=job.total_pages
-        )
-
-    except Exception as e:
-        logger.error(f"Error reading job result: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to read result: {str(e)}"
-        )
+    # Job completed successfully - return stored content
+    return JobResultResponse(
+        job_id=job_id,
+        success=True,
+        output_content=job.output_content,
+        page_count=job.total_pages
+    )
 
 
 @app.delete("/jobs/{job_id}", tags=["Jobs"])

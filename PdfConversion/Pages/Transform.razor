@@ -2,6 +2,7 @@
 @using PdfConversion.Services
 @using PdfConversion.Models
 @using PdfConversion.Shared
+@using PdfConversion.Utils
 @using Microsoft.JSInterop
 @using static PdfConversion.Shared.LoadingSkeleton
 @implements IAsyncDisposable
@@ -519,12 +520,14 @@
                     {
                         <select class="form-select form-select-sm xslt-file-select" @onchange="OnFilePathChangedFromDropdown" @onfocus="OnFileDropdownFocusedAsync">
                             <option value="">Select a file...</option>
-                            @foreach (var project in Projects)
+                            @foreach (var project in Projects
+                                .OrderBy(p => FilenameUtils.FormatCustomerDisplayName(p.Organization))
+                                .ThenBy(p => p.Name))
                             {
-                                <optgroup label="@project.Name">
+                                <optgroup label="@($"{FilenameUtils.FormatCustomerDisplayName(project.Organization)} / {project.Name}")">
                                     @if (project.Files != null && project.Files.Any())
                                     {
-                                        @foreach (var file in project.Files)
+                                        @foreach (var file in project.Files.OrderBy(f => f))
                                         {
                                             var fullPath = $"{project.Organization}/{project.ProjectId}/{file}";
                                             var isSelected = !string.IsNullOrEmpty(SelectedProjectId) &&

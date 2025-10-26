@@ -53,7 +53,6 @@ class JobManager:
 
     def create_job(
         self,
-        project_id: str,
         filename: str,
         output_format: str = "docbook"
     ) -> str:
@@ -61,7 +60,6 @@ class JobManager:
         Create a new conversion job.
 
         Args:
-            project_id: Project ID for organization
             filename: Original filename
             output_format: Target format
 
@@ -75,13 +73,12 @@ class JobManager:
             status=JobStatus.QUEUED,
             progress=0.0,
             message="Job queued for processing",
-            project_id=project_id,
             filename=filename,
             output_format=output_format
         )
 
         self.jobs[job_id] = job
-        logger.info(f"Created job {job_id}: project={project_id}, file={filename}")
+        logger.info(f"Created job {job_id}: file={filename}, format={output_format}")
 
         return job_id
 
@@ -96,7 +93,7 @@ class JobManager:
         Args:
             job_id: Job identifier
             conversion_func: Async function to execute conversion
-                            Should accept (job_id, progress_callback) and return (output_file, page_count, error)
+                            Should accept (job_id, progress_callback) and return (output_content, page_count, error)
         """
         await self._queue.put((job_id, conversion_func))
         logger.info(f"Enqueued job {job_id} (queue size: {self._queue.qsize()})")
@@ -216,7 +213,7 @@ class JobManager:
                         self.update_progress(job_id, progress, current_page, total_pages, message)
 
                     # Execute conversion
-                    output_file, page_count, error = await conversion_func(job_id, progress_callback)
+                    output_content, page_count, error = await conversion_func(job_id, progress_callback)
 
                     # Update job with result
                     job.completed_at = datetime.utcnow()
@@ -230,6 +227,7 @@ class JobManager:
                         job.status = JobStatus.COMPLETED
                         job.progress = 1.0
                         job.total_pages = page_count
+                        job.output_content = output_content  # Store the content in job
                         job.message = f"Conversion completed ({page_count} pages)"
                         logger.info(f"Job {job_id} completed successfully")
 

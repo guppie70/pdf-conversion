@@ -29,9 +29,11 @@ class JobInfo(BaseModel):
     error: Optional[str] = Field(None, description="Error message if failed")
 
     # Request metadata
-    project_id: Optional[str] = Field(None, description="Project ID")
     filename: Optional[str] = Field(None, description="Original filename")
     output_format: Optional[str] = Field(None, description="Output format")
+
+    # Conversion result (stored when completed)
+    output_content: Optional[str] = Field(None, description="Converted content with base64-embedded images")
 
 
 class JobStartResponse(BaseModel):
@@ -44,7 +46,6 @@ class JobResultResponse(BaseModel):
     """Response containing job result."""
     job_id: str = Field(..., description="Job identifier")
     success: bool = Field(..., description="Whether conversion succeeded")
-    output_content: Optional[str] = Field(None, description="Converted XML content")
-    output_file: Optional[str] = Field(None, description="Output file path relative to /app/data")
+    output_content: Optional[str] = Field(None, description="Converted HTML/XML content with base64-embedded images")
     page_count: Optional[int] = Field(None, description="Number of pages processed")
     error: Optional[str] = Field(None, description="Error message if failed")

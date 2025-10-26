@@ -11,6 +11,7 @@
 @inject ILogger<DoclingConvert> Logger
 @inject DoclingJobPollingService JobPollingService
 @inject IUserSelectionService UserSelectionService
+@inject IBase64ImageExtractor ImageExtractor
 @implements IAsyncDisposable
 
 <PageTitle>Docling Convert - Step 1</PageTitle>
@@ -183,9 +184,11 @@
                         value="@OutputFormat"
                         @onchange="HandleOutputFormatChange"
                         disabled="@IsConverting">
-                    <option value="docbook">DocBook XML</option>
+                    <option value="xml">XML</option>
                     <option value="html">HTML</option>
                     <option value="markdown">Markdown</option>
+                    <option value="doctags">DocTags</option>
+                    <option value="json">JSON</option>
                 </select>
             </div>
 
@@ -294,9 +297,6 @@
             <div class="panel-body">
                 <div id="monacoPreviewContainer" class="monaco-container"></div>
                 <div class="button-group mt-3">
-                    <button class="btn btn-success" @onclick="SaveToProject">
-                        <i class="bi bi-save"></i> Save to Project
-                    </button>
                     <button class="btn btn-primary" @onclick="NavigateToTransform">
                         <i class="bi bi-arrow-right-circle"></i> Next: Transform
                     </button>
@@ -324,7 +324,7 @@
     private byte[]? UploadedFileData { get; set; }
     private string? UploadedFileName { get; set; }
     private string? UploadedContentType { get; set; }
-    private string OutputFormat { get; set; } = "docbook";
+    private string OutputFormat { get; set; } = "html";
     private bool IsDragging { get; set; }
     private bool IsConverting { get; set; }
     private int ElapsedSeconds { get; set; }
@@ -813,7 +813,7 @@
 
     private async void HandleOutputFormatChange(ChangeEventArgs e)
     {
-        OutputFormat = e.Value?.ToString() ?? "docbook";
+        OutputFormat = e.Value?.ToString() ?? "html";
         Logger.LogInformation($"[HandleOutputFormatChange] Output format changed to: '{OutputFormat}'");
 
         // Save output format selection
@@ -886,7 +886,6 @@
             var fileContent = new ByteArrayContent(UploadedFileData);
             fileContent.Headers.ContentType = new MediaTypeHeaderValue(UploadedContentType ?? "application/octet-stream");
             content.Add(fileContent, "file", UploadedFileName);
-            content.Add(new StringContent(SelectedProject), "project_id");
             content.Add(new StringContent(OutputFormat), "output_format");
 
             // Call async endpoint to start job
@@ -952,7 +951,7 @@
 
             Logger.LogInformation($"Job {jobInfo.JobId} completed successfully");
 
-            // Fetch result
+            // Fetch result with base64-embedded images
             var httpClient = HttpClientFactory.CreateClient("DoclingService");
             var response = await httpClient.GetAsync($"/jobs/{jobInfo.JobId}/result");
 
@@ -961,9 +960,105 @@
                 var result = await response.Content.ReadFromJsonAsync<DoclingJobResultResponse>();
                 if (result?.Success == true && result.OutputContent != null)
                 {
-                    DoclingOutput = result.OutputContent;
-                    SuccessMessage = $"Conversion successful! Processed {result.PageCount ?? 0} pages in {ElapsedSeconds} seconds.";
-                    Logger.LogInformation($"Retrieved result: {DoclingOutput.Length} bytes");
+                    var htmlWithBase64 = result.OutputContent;
+                    Logger.LogInformation($"Retrieved result: {htmlWithBase64.Length} bytes with base64-embedded images");
+
+                    // Determine project folder based on mode
+                    string projectFolderPath;
+                    string baseFilename;
+
+                    if (FileMode == FileModeEnum.ExistingFile && !string.IsNullOrEmpty(SelectedExistingFile))
+                    {
+                        // Existing file mode - derive project folder from file path
+                        // Example: /app/data/input/taxxor/projects/ar25-1/taxxor-small.pdf
+                        // -> project folder: /app/data/input/taxxor/projects/ar25-1
+                        projectFolderPath = Path.GetDirectoryName(SelectedExistingFile) ?? string.Empty;
+                        baseFilename = Path.GetFileNameWithoutExtension(SelectedExistingFile);
+                        Logger.LogInformation($"ExistingFile mode: Using project folder from file path: {projectFolderPath}");
+                    }
+                    else
+                    {
+                        // New upload mode - find project by ProjectId
+                        var project = Projects.FirstOrDefault(p => p.ProjectId == SelectedProject);
+                        if (project == null)
+                        {
+                            ErrorMessage = "Selected project not found";
+                            return;
+                        }
+                        projectFolderPath = project.FolderPath;
+                        baseFilename = Path.GetFileNameWithoutExtension(UploadedFileName ?? "document");
+                        Logger.LogInformation($"NewUpload mode: Using project folder: {projectFolderPath}");
+                    }
+
+                    if (string.IsNullOrEmpty(projectFolderPath))
+                    {
+                        ErrorMessage = "Could not determine project folder path";
+                        return;
+                    }
+
+                    // Determine if this format needs image extraction
+                    bool needsImageExtraction = OutputFormat == "xml" || OutputFormat == "html" || OutputFormat == "markdown";
+                    string outputContent;
+                    int imageCount = 0;
+
+                    if (needsImageExtraction)
+                    {
+                        // Extract images and replace base64 with file references
+                        var imagesPath = Path.Combine(projectFolderPath, "images", "from-conversion");
+                        Directory.CreateDirectory(imagesPath);
+
+                        Logger.LogInformation($"Extracting images to: {imagesPath}");
+                        var modifiedHtml = await ImageExtractor.ExtractAndReplaceImagesAsync(
+                            htmlWithBase64,
+                            imagesPath,
+                            baseFilename);
+
+                        // Count extracted images
+                        if (Directory.Exists(imagesPath))
+                        {
+                            imageCount = Directory.GetFiles(imagesPath).Length;
+                        }
+
+                        // Convert to XML if user selected XML format
+                        if (OutputFormat == "xml")
+                        {
+                            Logger.LogInformation("Converting HTML to XML format");
+                            outputContent = ConvertHtmlToXml(modifiedHtml);
+                        }
+                        else
+                        {
+                            outputContent = modifiedHtml;
+                        }
+                    }
+                    else
+                    {
+                        // DocTags and JSON formats - save as-is without image extraction
+                        Logger.LogInformation($"Saving {OutputFormat} format without image extraction");
+                        outputContent = htmlWithBase64;  // Actually contains DocTags or JSON content from Docling
+                    }
+
+                    // Save with appropriate file extension
+                    var fileExtension = OutputFormat switch
+                    {
+                        "xml" => "xml",
+                        "markdown" => "md",
+                        "doctags" => "doctags",
+                        "json" => "json",
+                        _ => "html"  // default for html format
+                    };
+                    var outputPath = Path.Combine(projectFolderPath, $"docling-output.{fileExtension}");
+                    await File.WriteAllTextAsync(outputPath, outputContent, System.Text.Encoding.UTF8);
+                    Logger.LogInformation($"Saved output to: {outputPath}");
+
+                    // Update Monaco display
+                    DoclingOutput = outputContent;
+
+                    // Build success message
+                    var imageInfo = needsImageExtraction && imageCount > 0
+                        ? $" with {imageCount} images extracted"
+                        : "";
+                    SuccessMessage = $"Conversion successful! Processed {result.PageCount ?? 0} pages in {ElapsedSeconds} seconds{imageInfo}. Output saved to {outputPath}";
+                    Logger.LogInformation($"Conversion complete{(needsImageExtraction ? " with image extraction" : "")}");
                 }
                 else
                 {
@@ -981,6 +1076,46 @@
         {
             Logger.LogError(ex, "Error handling job completion");
             ErrorMessage = $"Error retrieving result: {ex.Message}";
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string ConvertHtmlToXml(string htmlContent)
+    {
+        try
+        {
+            // Load HTML with HtmlAgilityPack
+            var htmlDoc = new HtmlAgilityPack.HtmlDocument();
+            htmlDoc.LoadHtml(htmlContent);
+
+            // Remove DOCTYPE node if present (HtmlAgilityPack may parse it as a comment)
+            var doctypeComment = htmlDoc.DocumentNode.SelectSingleNode("//comment()[contains(., 'DOCTYPE')]");
+            if (doctypeComment != null)
+            {
+                doctypeComment.Remove();
+            }
+
+            // Configure output as XML (not HTML)
+            htmlDoc.OptionOutputAsXml = true;
+            htmlDoc.OptionWriteEmptyNodes = true;
+            htmlDoc.OptionAutoCloseOnEnd = true;
+
+            // Generate XML output without DOCTYPE
+            using var writer = new System.IO.StringWriter();
+
+            // Write XML declaration manually
+            writer.WriteLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+
+            // Write HTML document as XML (no DOCTYPE)
+            htmlDoc.DocumentNode.WriteTo(writer);
+
+            return writer.ToString();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error converting HTML to XML");
+            // Return original HTML if conversion fails
+            return htmlContent;
         }
     }
 
@@ -1057,33 +1192,6 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error initializing Monaco editor");
-        }
-    }
-
-    private async Task SaveToProject()
-    {
-        try
-        {
-            if (string.IsNullOrEmpty(DoclingOutput) || string.IsNullOrEmpty(SelectedProject))
-                return;
-
-            var project = Projects.FirstOrDefault(p => p.ProjectId == SelectedProject);
-            if (project == null)
-            {
-                ErrorMessage = "Selected project not found";
-                return;
-            }
-
-            var outputPath = Path.Combine(project.FolderPath, "docling-output.xml");
-            await File.WriteAllTextAsync(outputPath, DoclingOutput);
-
-            SuccessMessage = $"Saved to {outputPath}";
-            Logger.LogInformation($"Saved DocBook output to {outputPath}");
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = $"Save failed: {ex.Message}";
-            Logger.LogError(ex, "Error saving DocBook output");
         }
     }
 

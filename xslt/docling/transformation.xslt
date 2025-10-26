@@ -22,6 +22,7 @@
     <!-- Include modular XSLT files -->
     <xsl:include href="modules/tables.xslt"/>
     <xsl:include href="modules/headers.xslt"/>
+    <xsl:include href="modules/images.xslt"/>
     <xsl:include href="pass2/postprocess.xslt"/>
     <xsl:include href="pass3/table-symmetry.xslt"/>
 

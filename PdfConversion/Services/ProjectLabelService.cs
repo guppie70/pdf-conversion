@@ -336,4 +336,22 @@ public class ProjectLabelService : IProjectLabelService
 
         return null;
     }
+
+    public async Task<ProjectLabelsData> GetProjectLabelsDataAsync()
+    {
+        return await LoadLabelsAsync();
+    }
+
+    public async Task SaveProjectLabelsDataAsync(ProjectLabelsData data)
+    {
+        await _fileLock.WaitAsync();
+        try
+        {
+            await SaveLabelsAsync(data);
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
 }
