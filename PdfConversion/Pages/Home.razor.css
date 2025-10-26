@@ -386,14 +386,39 @@
     color: #cccccc;
 }
 
-.system-status-card .card-body p {
-    font-size: 0.9rem;
-    line-height: 1.6;
+.system-status-card .card-body hr {
+    margin: 1rem 0;
+    border-color: #3e3e42;
+    opacity: 1;
 }
 
-.system-status-card .card-body strong {
-    color: #ffffff;
+/* Status Grid Layout */
+.status-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.75rem 1rem;
+    margin: 0;
+    padding: 0;
+    align-items: center;
+}
+
+.status-grid dt {
+    font-size: 0.9rem;
     font-weight: 600;
+    color: #ffffff;
+    margin: 0;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.status-grid dd {
+    font-size: 0.9rem;
+    margin: 0;
+    text-align: left;
+}
+
+.status-grid dd.status-value {
+    color: #cccccc;
 }
 
 .system-status-card .badge {

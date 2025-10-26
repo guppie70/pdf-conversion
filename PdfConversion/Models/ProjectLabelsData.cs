@@ -1,16 +1,16 @@
 namespace PdfConversion.Models;
 
 /// <summary>
-/// JSON structure for storing project custom labels
-/// Stored in data/project-labels.json
+/// JSON structure for storing project metadata
+/// Stored in data/project-metadata.json
 /// </summary>
 public class ProjectLabelsData
 {
     /// <summary>
-    /// Nested dictionary: customer -> projectId -> label
-    /// Example: { "optiver": { "ar24-3": "Q3 Financial Report" } }
+    /// Nested dictionary: customer -> projectId -> metadata
+    /// Example: { "optiver": { "ar24-3": { "label": "...", "status": "Ready" } } }
     /// </summary>
-    public Dictionary<string, Dictionary<string, string>> Labels { get; set; } = new();
+    public Dictionary<string, Dictionary<string, ProjectMetadata>> Projects { get; set; } = new();
 
     /// <summary>
     /// Timestamp of last modification (UTC)

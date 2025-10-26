@@ -61,7 +61,9 @@ services:
       - ./data:/app/data
     working_dir: /app
     command: >
-      sh -c "pip install -r requirements.txt &&
+      sh -c "apt-get update &&
+             apt-get install -y libgl1 libglib2.0-0 libgomp1 &&
+             pip install -r requirements.txt &&
              uvicorn main:app --host 0.0.0.0 --port 4808 --reload"
     ports:
       - "4808:4808"
@@ -71,7 +73,7 @@ services:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4808/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://localhost:4808/health"]
       interval: 30s
       timeout: 3s
       retries: 3

@@ -35,12 +35,22 @@ try
 
 // Add services to the container.
 builder.Services.AddRazorPages();
-builder.Services.AddServerSideBlazor().AddHubOptions(options =>
-{
-    // Increase max message size to 10MB to support large XML file content in Monaco editor callbacks
-    // Default is 32KB which is too small for Source XML editor changes
-    options.MaximumReceiveMessageSize = 10 * 1024 * 1024; // 10MB
-});
+builder.Services.AddServerSideBlazor()
+    .AddHubOptions(options =>
+    {
+        // Increase max message size to 10MB to support large XML file content in Monaco editor callbacks
+        // Default is 32KB which is too small for Source XML editor changes
+        options.MaximumReceiveMessageSize = 10 * 1024 * 1024; // 10MB
+    })
+    .AddCircuitOptions(options =>
+    {
+        // Increase circuit retention for long-running Docling conversions
+        // Default is 3 minutes, increase to 15 minutes
+        options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(15);
+    });
+
+// Add SignalR for real-time progress updates
+builder.Services.AddSignalR();
 
 // Add memory cache for service caching
 builder.Services.AddMemoryCache(options =>
@@ -84,6 +94,10 @@ builder.Services.AddSingleton<IUserSelectionService, UserSelectionService>();
 builder.Services.AddSingleton<IProjectLabelService, ProjectLabelService>();
 builder.Services.AddSingleton<IProjectDirectoryWatcherService, ProjectDirectoryWatcherService>();
 
+// Register Docling job polling service (single instance for both hosted service and injection)
+builder.Services.AddSingleton<DoclingJobPollingService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<DoclingJobPollingService>());
+
 // Register ProjectMetadataService
 var metadataPath = Path.Combine(builder.Environment.ContentRootPath, "data", "project-metadata.json");
 builder.Services.AddSingleton(new ProjectMetadataService(metadataPath));
@@ -110,6 +124,16 @@ builder.Services.AddHttpClient<Xslt3ServiceClient>(client =>
 {
     client.BaseAddress = new Uri(xslt3ServiceUrl);
     client.Timeout = TimeSpan.FromSeconds(30);
+    client.DefaultRequestHeaders.Add("User-Agent", "PdfConversion/1.0");
+});
+
+// Configure HttpClient for Docling service
+var doclingServiceUrl = builder.Configuration.GetValue<string>("DOCLING_SERVICE_URL") ?? "http://docling-service:4808";
+
+builder.Services.AddHttpClient("DoclingService", client =>
+{
+    client.BaseAddress = new Uri(doclingServiceUrl);
+    client.Timeout = TimeSpan.FromMinutes(15); // Long timeout for large PDFs
     client.DefaultRequestHeaders.Add("User-Agent", "PdfConversion/1.0");
 });
 
@@ -147,6 +171,9 @@ app.UseRouting();
 // Map Blazor endpoints
 app.MapBlazorHub();
 app.MapFallbackToPage("/_Host");
+
+// Map SignalR hubs
+app.MapHub<PdfConversion.Hubs.DoclingProgressHub>("/hubs/docling-progress");
 
 // Map transform-test endpoint for rapid XSLT testing
 app.MapGet("/transform-test", async (HttpContext context, IXsltTransformationService xsltService, IUserSelectionService selectionService, ILogger<Program> logger) =>

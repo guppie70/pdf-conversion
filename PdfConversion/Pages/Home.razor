@@ -137,46 +137,79 @@
                     <h5 class="mb-0">System Status</h5>
                 </div>
                 <div class="card-body">
-                    <p class="mb-2"><strong>Environment:</strong> @Environment</p>
-                    <p class="mb-2">
-                        <strong>XSLT Service: </strong>
-                        @if (IsCheckingService)
-                        {
-                            <span class="badge bg-secondary">Checking...</span>
-                        }
-                        else if (ServiceStatus == ServiceConnectionStatus.Connected)
-                        {
-                            <span class="badge bg-success">✓ Connected</span>
-                        }
-                        else if (ServiceStatus == ServiceConnectionStatus.Error)
-                        {
-                            <span class="badge bg-warning">Error</span>
-                        }
-                        else
-                        {
-                            <span class="badge bg-danger">✗ Not Connected</span>
-                        }
-                    </p>
-                    <p class="mb-2">
-                        <strong>Docling Service: </strong>
-                        @if (IsCheckingDoclingService)
-                        {
-                            <span class="badge bg-secondary">Checking...</span>
-                        }
-                        else if (DoclingServiceStatus == ServiceConnectionStatus.Connected)
-                        {
-                            <span class="badge bg-success">✓ Connected</span>
-                        }
-                        else if (DoclingServiceStatus == ServiceConnectionStatus.Error)
-                        {
-                            <span class="badge bg-warning">Error</span>
-                        }
-                        else
-                        {
-                            <span class="badge bg-danger">✗ Not Connected</span>
-                        }
-                    </p>
-                    <p class="mb-0"><strong>Projects Available:</strong> <span class="badge bg-@(ProjectCount > 0 ? "success" : "secondary")">@ProjectCount</span></p>
+                    <dl class="status-grid">
+                        <dt>Environment:</dt>
+                        <dd class="status-value">@Environment</dd>
+                    </dl>
+                    <hr/>
+                    <dl class="status-grid">
+                        <dt>XSLT Service:</dt>
+                        <dd>
+                            @if (IsCheckingService)
+                            {
+                                <span class="badge bg-secondary">Checking...</span>
+                            }
+                            else if (ServiceStatus == ServiceConnectionStatus.Connected)
+                            {
+                                <span class="badge bg-success">✓ Connected</span>
+                            }
+                            else if (ServiceStatus == ServiceConnectionStatus.Error)
+                            {
+                                <span class="badge bg-warning">Error</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-danger">✗ Not Connected</span>
+                            }
+                        </dd>
+
+                        <dt>Docling Service:</dt>
+                        <dd>
+                            @if (IsCheckingDoclingService)
+                            {
+                                <span class="badge bg-secondary">Checking...</span>
+                            }
+                            else if (DoclingServiceStatus == ServiceConnectionStatus.Connected)
+                            {
+                                <span class="badge bg-success">✓ Connected</span>
+                            }
+                            else if (DoclingServiceStatus == ServiceConnectionStatus.Error)
+                            {
+                                <span class="badge bg-warning">Error</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-danger">✗ Not Connected</span>
+                            }
+                        </dd>
+
+                        <dt>Ollama Service:</dt>
+                        <dd>
+                            @if (IsCheckingOllamaService)
+                            {
+                                <span class="badge bg-secondary">Checking...</span>
+                            }
+                            else if (OllamaServiceStatus == ServiceConnectionStatus.Connected)
+                            {
+                                <span class="badge bg-success">✓ Connected</span>
+                            }
+                            else if (OllamaServiceStatus == ServiceConnectionStatus.Error)
+                            {
+                                <span class="badge bg-warning">Error</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-danger">✗ Not Connected</span>
+                            }
+                        </dd>
+                    </dl>
+                    <hr/>
+                    <dl class="status-grid">
+                        <dt>Projects Available:</dt>
+                        <dd>
+                            <span class="badge bg-@(ProjectCount > 0 ? "success" : "secondary")">@ProjectCount</span>
+                        </dd>
+                    </dl>
                 </div>
             </div>
         </div>
@@ -241,6 +274,8 @@
     private bool IsCheckingService => ServiceStatus == ServiceConnectionStatus.Checking;
     private ServiceConnectionStatus DoclingServiceStatus { get; set; } = ServiceConnectionStatus.Checking;
     private bool IsCheckingDoclingService => DoclingServiceStatus == ServiceConnectionStatus.Checking;
+    private ServiceConnectionStatus OllamaServiceStatus { get; set; } = ServiceConnectionStatus.Checking;
+    private bool IsCheckingOllamaService => OllamaServiceStatus == ServiceConnectionStatus.Checking;
 
     protected override async Task OnInitializedAsync()
     {
@@ -261,6 +296,7 @@
             // Check service statuses
             await CheckXsltServiceStatusAsync();
             await CheckDoclingServiceStatusAsync();
+            await CheckOllamaServiceStatusAsync();
 
             // Set project count
             ProjectCount = ProjectsByCustomer.Values.Sum(list => list.Count);
@@ -291,12 +327,26 @@
         try
         {
             DoclingServiceStatus = ServiceConnectionStatus.Checking;
-            var response = await Http.GetAsync("http://localhost:4808/health");
+            var response = await Http.GetAsync("http://docling-service:4808/health");
             DoclingServiceStatus = response.IsSuccessStatusCode ? ServiceConnectionStatus.Connected : ServiceConnectionStatus.NotConnected;
         }
         catch (Exception)
         {
             DoclingServiceStatus = ServiceConnectionStatus.NotConnected;
+        }
+    }
+
+    private async Task CheckOllamaServiceStatusAsync()
+    {
+        try
+        {
+            OllamaServiceStatus = ServiceConnectionStatus.Checking;
+            var response = await Http.GetAsync("http://host.docker.internal:11434/api/tags");
+            OllamaServiceStatus = response.IsSuccessStatusCode ? ServiceConnectionStatus.Connected : ServiceConnectionStatus.NotConnected;
+        }
+        catch (Exception)
+        {
+            OllamaServiceStatus = ServiceConnectionStatus.NotConnected;
         }
     }
 
