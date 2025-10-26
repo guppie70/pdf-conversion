@@ -140,7 +140,7 @@
                 </head>
                 <body>
                     <div class="document-content">
-                        <xsl:apply-templates select="//db:section | //db:chapter | /html/body | /body"/>
+                        <xsl:apply-templates select="//db:section | //db:chapter | /html/body/* | /body/*"/>
                     </div>
                 </body>
             </html>

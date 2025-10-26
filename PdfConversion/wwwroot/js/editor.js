@@ -320,39 +320,8 @@ window.downloadFile = function (fileName, contentType, base64Content) {
     }
 };
 
-// LocalStorage utilities for persisting selections
+// LocalStorage utilities for persisting UI preferences (not file selections)
 window.developmentStorage = {
-    saveSelection: function(projectId, fileName) {
-        try {
-            localStorage.setItem('dev_selectedProject', projectId || '');
-            localStorage.setItem('dev_selectedFile', fileName || '');
-            console.log(`Saved selection: project=${projectId}, file=${fileName}`);
-        } catch (error) {
-            console.error('Error saving selection to localStorage:', error);
-        }
-    },
-
-    loadSelection: function() {
-        try {
-            const projectId = localStorage.getItem('dev_selectedProject') || null;
-            const fileName = localStorage.getItem('dev_selectedFile') || null;
-            console.log(`Loaded selection: project=${projectId}, file=${fileName}`);
-            return { projectId, fileName };
-        } catch (error) {
-            console.error('Error loading selection from localStorage:', error);
-            return { projectId: null, fileName: null };
-        }
-    },
-
-    clearSelection: function() {
-        try {
-            localStorage.removeItem('dev_selectedProject');
-            localStorage.removeItem('dev_selectedFile');
-            console.log('Cleared saved selection');
-        } catch (error) {
-            console.error('Error clearing selection from localStorage:', error);
-        }
-    },
 
     saveSettings: function(useXslt3Service, normalizeHeaders, autoTransform) {
         try {

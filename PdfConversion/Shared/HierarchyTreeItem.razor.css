@@ -1,5 +1,66 @@
 .tree-item {
     margin-bottom: 0.25rem;
+    border: 2px solid transparent;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+}
+
+.tree-item[draggable="true"] {
+    cursor: grab;
+}
+
+.tree-item.dragging {
+    opacity: 0.5;
+    background-color: rgba(45, 45, 48, 0.5);
+    cursor: grabbing;
+}
+
+.tree-item.drop-zone-valid {
+    border: 2px solid #007acc;
+    background-color: #2d2d30;
+}
+
+.tree-item.drop-zone-invalid {
+    border: 2px solid #dc3545;
+    cursor: not-allowed;
+}
+
+.tree-item.drop-indicator-before {
+    position: relative;
+}
+
+.tree-item.drop-indicator-before::before {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background-color: #007acc;
+    box-shadow: 0 0 4px rgba(0, 122, 204, 0.6);
+    z-index: 1000;
+    border-radius: 2px;
+}
+
+.tree-item.drop-indicator-after {
+    position: relative;
+}
+
+.tree-item.drop-indicator-after::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background-color: #007acc;
+    box-shadow: 0 0 4px rgba(0, 122, 204, 0.6);
+    z-index: 1000;
+    border-radius: 2px;
+}
+
+.tree-item.dragging * {
+    pointer-events: none;
 }
 
 .tree-item-content {

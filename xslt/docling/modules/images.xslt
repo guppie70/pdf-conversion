@@ -7,23 +7,24 @@
     <!-- Image transformation templates (default mode) - Docling HTML → Taxxor TDM format -->
 
     <!-- Transform img elements to use Taxxor DM image paths -->
-    <xsl:template match="img" priority="10">
+    <xsl:template match="img" priority="20">
         <xsl:variable name="original-src" select="@src"/>
 
         <!-- Construct Taxxor-compatible path -->
         <xsl:variable name="taxxor-path" select="concat('/dataserviceassets/{projectid}/images/from-conversion/', $original-src)"/>
 
         <img src="{$taxxor-path}">
-            <!-- Copy all attributes except src -->
-            <xsl:apply-templates select="@*[not(name()='src')]"/>
-            <!-- Copy any child nodes (though img is typically self-closing) -->
-            <xsl:apply-templates select="node()"/>
+            <!-- Preserve alt attribute from source, or use empty string for WCAG compliance -->
+            <xsl:attribute name="alt">
+                <xsl:value-of select="if (@alt) then @alt else ''"/>
+            </xsl:attribute>
+            <!-- Copy all other attributes except src and alt -->
+            <xsl:apply-templates select="@*[not(name()='src' or name()='alt')]"/>
         </img>
     </xsl:template>
 
-    <!-- Copy img attributes (except src which is handled above) -->
-    <xsl:template match="img/@*" priority="5">
-        <xsl:copy/>
+    <xsl:template match="figure">
+        <xsl:apply-templates/>
     </xsl:template>
 
 </xsl:stylesheet>

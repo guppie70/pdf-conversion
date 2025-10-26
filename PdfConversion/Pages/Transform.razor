@@ -1221,12 +1221,9 @@
                 Logger.LogWarning("OnFilePathChanged: XmlContent is empty, skipping Source XML editor initialization");
             }
 
-            // Save selection to localStorage
+            // Save selection to server-side UserSelectionService
             if (!isRestoringFromStorage)
             {
-                await JSRuntime.InvokeVoidAsync("developmentStorage.saveSelection", SelectedProjectId, SelectedFileName, SelectedXsltFile);
-
-                // Save to server-side UserSelectionService
                 // SelectedProjectId is already in "customer/project-id" format
                 await UserSelectionService.UpdateSelectionAsync(
                     projectId: SelectedProjectId,
@@ -1435,10 +1432,7 @@
                     Logger.LogError(watchEx, "Failed to start XSLT file watcher");
                 }
 
-                // Save selection to localStorage
-                await JSRuntime.InvokeVoidAsync("developmentStorage.saveSelection", SelectedProjectId, SelectedFileName, SelectedXsltFile);
-
-                // Save to server-side UserSelectionService
+                // Save selection to server-side UserSelectionService
                 // SelectedProjectId is already in "customer/project-id" format
                 await UserSelectionService.UpdateSelectionAsync(
                     projectId: SelectedProjectId,
@@ -1700,13 +1694,14 @@
                     transformationXsltContent,
                     SelectedXsltFile,
                     XsltContent,
-                    options);
+                    options,
+                    transformationXsltPath);
             }
             else
             {
                 // Standard transformation (root XSLT file is selected, or no module editing)
                 Logger.LogInformation("Standard transformation using {RootXsltFile}", rootXsltFile);
-                result = await XsltService.TransformAsync(XmlContent!, transformationXsltContent, options);
+                result = await XsltService.TransformAsync(XmlContent!, transformationXsltContent, options, transformationXsltPath);
             }
 
             if (result.IsSuccess)
@@ -2621,15 +2616,7 @@
                 }
                 else
                 {
-                    // Fallback to localStorage if UserSelectionService has no data
-                    Logger.LogInformation("No selection found in UserSelectionService JSON, falling back to localStorage");
-                    savedSelection = await JSRuntime.InvokeAsync<SavedSelection>("developmentStorage.loadSelection");
-
-                    if (savedSelection != null && !string.IsNullOrEmpty(savedSelection.ProjectId))
-                    {
-                        Logger.LogInformation("Loaded selection from localStorage: Project={Project}, File={File}, XsltFile={XsltFile}",
-                            savedSelection.ProjectId, savedSelection.FileName, savedSelection.XsltFile);
-                    }
+                    Logger.LogInformation("No selection found in UserSelectionService JSON");
                 }
 
                 if (savedSelection != null && !string.IsNullOrEmpty(savedSelection.ProjectId))

@@ -236,7 +236,7 @@ app.MapGet("/transform-test", async (HttpContext context, IXsltTransformationSer
             logger.LogInformation("Transform test: using projectid={ProjectId}", projectId);
         }
 
-        var result = await xsltService.TransformAsync(xmlContent, xsltContent, options);
+        var result = await xsltService.TransformAsync(xmlContent, xsltContent, options, xsltPath);
 
         if (!result.IsSuccess)
         {

@@ -334,21 +334,7 @@
             }
             catch (Exception ex)
             {
-                Logger.LogWarning(ex, "Error restoring selections from UserSelectionService, falling back to localStorage");
-            }
-
-            // Fallback to localStorage if UserSelectionService didn't provide values
-            if (string.IsNullOrEmpty(savedProjectId))
-            {
-                savedProjectId = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "convert.projectId");
-                savedSourceFile = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "convert.sourceFile");
-                savedHierarchyFile = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "convert.hierarchyFile");
-
-                if (!string.IsNullOrEmpty(savedProjectId))
-                {
-                    Logger.LogInformation("Restored selections from localStorage: Project={Project}, Source={Source}, Hierarchy={Hierarchy}",
-                        savedProjectId, savedSourceFile, savedHierarchyFile);
-                }
+                Logger.LogWarning(ex, "Error restoring selections from UserSelectionService");
             }
 
             // Apply the restored selections
@@ -458,12 +444,7 @@
             {
                 await LoadProjectFilesAsync(_config.ProjectId);
 
-                // Save to localStorage (existing)
-                await JSRuntime.InvokeVoidAsync("localStorage.setItem", "convert.projectId", _config.ProjectId);
-                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "convert.sourceFile");
-                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "convert.hierarchyFile");
-
-                // Save to UserSelectionService (new)
+                // Save to UserSelectionService
                 // Extract just the project ID from full path (e.g., "optiver/ar24-3" → "ar24-3")
                 var projectId = _config.ProjectId.Contains('/')
                     ? _config.ProjectId.Split('/').Last()
@@ -474,12 +455,7 @@
             }
             else
             {
-                // Clear localStorage (existing)
-                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "convert.projectId");
-                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "convert.sourceFile");
-                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "convert.hierarchyFile");
-
-                // Clear UserSelectionService (new)
+                // Clear UserSelectionService
                 await UserSelectionService.UpdateSelectionAsync(projectId: string.Empty, sourceXml: string.Empty, hierarchyXml: string.Empty);
             }
 
@@ -497,20 +473,14 @@
         _config.SourceFile = e.Value?.ToString();
         if (!string.IsNullOrEmpty(_config.SourceFile))
         {
-            // Save to localStorage (existing)
-            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "convert.sourceFile", _config.SourceFile);
-
-            // Save to UserSelectionService (new)
+            // Save to UserSelectionService
             await UserSelectionService.UpdateSelectionAsync(sourceXml: _config.SourceFile);
 
             AddLogEntry($"Source file selected: {_config.SourceFile}");
         }
         else
         {
-            // Clear localStorage (existing)
-            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "convert.sourceFile");
-
-            // Clear UserSelectionService (new)
+            // Clear UserSelectionService
             await UserSelectionService.UpdateSelectionAsync(sourceXml: string.Empty);
         }
         StateHasChanged();
@@ -521,20 +491,14 @@
         _config.HierarchyFile = e.Value?.ToString();
         if (!string.IsNullOrEmpty(_config.HierarchyFile))
         {
-            // Save to localStorage (existing)
-            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "convert.hierarchyFile", _config.HierarchyFile);
-
-            // Save to UserSelectionService (new)
+            // Save to UserSelectionService
             await UserSelectionService.UpdateSelectionAsync(hierarchyXml: _config.HierarchyFile);
 
             AddLogEntry($"Hierarchy file selected: {_config.HierarchyFile}");
         }
         else
         {
-            // Clear localStorage (existing)
-            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "convert.hierarchyFile");
-
-            // Clear UserSelectionService (new)
+            // Clear UserSelectionService
             await UserSelectionService.UpdateSelectionAsync(hierarchyXml: string.Empty);
         }
         StateHasChanged();

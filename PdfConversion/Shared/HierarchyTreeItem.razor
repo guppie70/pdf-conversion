@@ -1,6 +1,17 @@
 @using PdfConversion.Models
 
-<div class="tree-item" style="margin-left: @(Level * 20)px" @onclick="HandleItemClick" @onclick:stopPropagation="true">
+<div class="tree-item @GetDragClasses()"
+     style="margin-left: @(Level * 20)px"
+     draggable="@(Level > 0 ? "true" : "false")"
+     @ondragstart="HandleDragStart"
+     @ondragend="HandleDragEnd"
+     @ondragover="HandleDragOver"
+     @ondragover:preventDefault="true"
+     @ondragleave="HandleDragLeave"
+     @ondrop="HandleDrop"
+     @ondrop:preventDefault="true"
+     @onclick="HandleItemClick"
+     @onclick:stopPropagation="true">
     <div class="tree-item-content">
         @if (Item.SubItems.Any())
         {
@@ -49,6 +60,7 @@
     {
         <HierarchyTreeItem Item="subItem"
                           Level="Level + 1"
+                          ParentItem="Item"
                           OnItemSelected="OnItemSelected"
                           OnItemEdited="OnItemEdited" />
     }
@@ -62,6 +74,9 @@
     public int Level { get; set; }
 
     [Parameter]
+    public HierarchyItem? ParentItem { get; set; }
+
+    [Parameter]
     public EventCallback<HierarchyItem> OnItemSelected { get; set; }
 
     [Parameter]
@@ -70,6 +85,16 @@
     private bool IsExpanded { get; set; } = true;
     private bool IsEditing { get; set; }
     private string EditedLinkName { get; set; } = string.Empty;
+
+    // Drag-drop state (static to share across instances)
+    private static HierarchyItem? DraggedItem { get; set; }
+    private static HierarchyItem? DraggedItemParent { get; set; }
+    private bool IsDragOver { get; set; }
+    private bool IsBeingDragged { get; set; }
+
+    // Drop position tracking for sibling reordering
+    private enum DropPosition { None, Before, Into, After }
+    private DropPosition CurrentDropPosition { get; set; } = DropPosition.None;
 
     private async Task HandleItemClick()
     {
@@ -112,5 +137,159 @@
     private string GetConfidenceClass(int confidence)
     {
         return confidence >= 80 ? "high" : confidence >= 70 ? "medium" : "low";
+    }
+
+    // Drag-drop event handlers
+    private void HandleDragStart(DragEventArgs e)
+    {
+        if (Level == 0) return; // Don't allow root drag
+        DraggedItem = Item;
+        DraggedItemParent = ParentItem;
+        IsBeingDragged = true;
+    }
+
+    private void HandleDragEnd()
+    {
+        IsBeingDragged = false;
+        IsDragOver = false;
+        CurrentDropPosition = DropPosition.None;
+    }
+
+    private void HandleDragOver(DragEventArgs e)
+    {
+        if (!CanDropHere())
+        {
+            IsDragOver = false;
+            CurrentDropPosition = DropPosition.None;
+            return;
+        }
+
+        IsDragOver = true;
+
+        // Calculate drop position based on mouse Y offset
+        // Use fixed pixel thresholds for tree items (typically ~45px height)
+        // Top 12px = insert before, Bottom 12px = insert after, Middle = insert into
+        var offsetY = e.OffsetY;
+
+        if (offsetY < 12)
+        {
+            // Top zone - insert before
+            CurrentDropPosition = DropPosition.Before;
+        }
+        else if (offsetY > 33) // Assuming ~45px height, this is bottom 12px
+        {
+            // Bottom zone - insert after
+            CurrentDropPosition = DropPosition.After;
+        }
+        else
+        {
+            // Middle zone - insert into (make child)
+            CurrentDropPosition = DropPosition.Into;
+        }
+    }
+
+    private void HandleDragLeave()
+    {
+        IsDragOver = false;
+        CurrentDropPosition = DropPosition.None;
+    }
+
+    private async Task HandleDrop()
+    {
+        if (DraggedItem == null || !CanDropHere())
+        {
+            IsDragOver = false;
+            CurrentDropPosition = DropPosition.None;
+            return;
+        }
+
+        // Remove from old parent
+        if (DraggedItemParent != null)
+        {
+            DraggedItemParent.SubItems.Remove(DraggedItem);
+            await OnItemEdited.InvokeAsync(DraggedItemParent);
+        }
+
+        // Handle different drop positions
+        if (CurrentDropPosition == DropPosition.Before || CurrentDropPosition == DropPosition.After)
+        {
+            // Insert as sibling (before or after current item)
+            if (ParentItem != null)
+            {
+                var siblings = ParentItem.SubItems;
+                var currentIndex = siblings.IndexOf(Item);
+
+                if (currentIndex >= 0)
+                {
+                    var insertIndex = CurrentDropPosition == DropPosition.Before
+                        ? currentIndex
+                        : currentIndex + 1;
+
+                    siblings.Insert(insertIndex, DraggedItem);
+                    await OnItemEdited.InvokeAsync(ParentItem);
+                }
+            }
+        }
+        else // DropPosition.Into
+        {
+            // Add as child (existing behavior)
+            Item.SubItems.Add(DraggedItem);
+            await OnItemEdited.InvokeAsync(Item);
+        }
+
+        // Clear state
+        IsDragOver = false;
+        CurrentDropPosition = DropPosition.None;
+        DraggedItem = null;
+        DraggedItemParent = null;
+
+        StateHasChanged();
+    }
+
+    private bool CanDropHere()
+    {
+        if (DraggedItem == null || DraggedItem == Item)
+            return false;
+
+        // Check for circular reference (cannot drop parent into its own descendants)
+        return !IsDescendantOf(Item, DraggedItem);
+    }
+
+    private bool IsDescendantOf(HierarchyItem potential, HierarchyItem ancestor)
+    {
+        if (potential == ancestor)
+            return true;
+
+        return ancestor.SubItems.Any(child => IsDescendantOf(potential, child));
+    }
+
+    private string GetDragClasses()
+    {
+        var classes = new List<string>();
+        if (IsBeingDragged) classes.Add("dragging");
+
+        if (IsDragOver && CanDropHere())
+        {
+            // Add specific class based on drop position
+            switch (CurrentDropPosition)
+            {
+                case DropPosition.Before:
+                    classes.Add("drop-indicator-before");
+                    break;
+                case DropPosition.After:
+                    classes.Add("drop-indicator-after");
+                    break;
+                case DropPosition.Into:
+                    classes.Add("drop-zone-valid");
+                    break;
+            }
+        }
+
+        if (IsDragOver && !CanDropHere())
+        {
+            classes.Add("drop-zone-invalid");
+        }
+
+        return string.Join(" ", classes);
     }
 }
