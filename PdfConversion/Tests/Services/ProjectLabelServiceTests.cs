@@ -88,8 +88,10 @@ public class ProjectLabelServiceTests : IDisposable
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
         Assert.NotNull(data);
-        Assert.True(data.Labels.ContainsKey(customer));
-        Assert.Equal(label, data.Labels[customer][projectId]);
+        Assert.NotNull(data.Projects);
+        Assert.True(data.Projects.ContainsKey(customer));
+        Assert.True(data.Projects[customer].ContainsKey(projectId));
+        Assert.Equal(label, data.Projects[customer][projectId].Label);
         Assert.True(data.LastModified > DateTime.UtcNow.AddMinutes(-1));
     }
 
@@ -162,8 +164,9 @@ public class ProjectLabelServiceTests : IDisposable
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
         Assert.NotNull(data);
-        Assert.True(data.Labels.ContainsKey(customer));
-        Assert.False(data.Labels[customer].ContainsKey(projectId));
+        Assert.NotNull(data.Projects);
+        Assert.True(data.Projects.ContainsKey(customer));
+        Assert.False(data.Projects[customer].ContainsKey(projectId));
     }
 
     [Fact]
@@ -249,10 +252,11 @@ public class ProjectLabelServiceTests : IDisposable
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
         Assert.NotNull(data);
-        Assert.Equal(3, data.Labels.Count);
+        Assert.NotNull(data.Projects);
+        Assert.Equal(3, data.Projects.Count);
         foreach (var customer in customers)
         {
-            Assert.True(data.Labels.ContainsKey(customer));
+            Assert.True(data.Projects.ContainsKey(customer));
         }
     }
 
