@@ -2,6 +2,7 @@
 @using System.Net.Http.Headers
 @using System.Threading
 @using Microsoft.AspNetCore.SignalR.Client
+@using Microsoft.JSInterop
 @using PdfConversion.Services
 @using PdfConversion.Models
 @inject IProjectLabelService ProjectLabelService
@@ -92,7 +93,7 @@
                             Please select a project to continue
                         </div>
                     }
-                    else if (UploadedFile == null)
+                    else if (UploadedFileData == null)
                     {
                         <div class="alert alert-warning mt-3" role="alert">
                             <i class="bi bi-exclamation-triangle"></i>
@@ -104,14 +105,10 @@
                 <!-- File Upload Area -->
                 <div class="form-group mt-3">
                     <label class="form-label">Document File</label>
-                    <div class="upload-area @(IsDragging ? "dragging" : "")"
-                         @ondragenter="HandleDragEnter"
-                         @ondragleave="HandleDragLeave"
-                         @ondragover:preventDefault
-                         @ondrop="HandleDrop"
-                         @ondrop:preventDefault>
+                    <div @ref="_dropZoneElement"
+                         class="upload-area">
 
-                        @if (UploadedFile == null)
+                        @if (UploadedFileData == null)
                         {
                             <div class="upload-prompt">
                                 <i class="bi bi-cloud-arrow-up" style="font-size: 2.5rem; color: #0d6efd;"></i>
@@ -129,8 +126,8 @@
                             <div class="file-info">
                                 <i class="bi bi-file-earmark-check" style="font-size: 2rem; color: #28a745;"></i>
                                 <div class="file-details mt-2">
-                                    <p class="mb-1"><strong>@UploadedFile.Name</strong></p>
-                                    <p class="text-muted mb-0">Size: @FormatFileSize(UploadedFile.Size)</p>
+                                    <p class="mb-1"><strong>@UploadedFileName</strong></p>
+                                    <p class="text-muted mb-0">Size: @FormatFileSize(UploadedFileData.Length)</p>
                                 </div>
                                 <button type="button" class="btn btn-secondary btn-sm mt-2" @onclick="ClearFile">
                                     <i class="bi bi-x-circle"></i> Clear
@@ -316,7 +313,6 @@
     private string? UploadedFileName { get; set; }
     private string? UploadedContentType { get; set; }
     private string OutputFormat { get; set; } = "html";
-    private bool IsDragging { get; set; }
     private bool IsConverting { get; set; }
     private int ElapsedSeconds { get; set; }
     private string DoclingOutput { get; set; } = string.Empty;
@@ -349,6 +345,8 @@
 
     private System.Timers.Timer? _conversionTimer;
     private bool _monacoInitialized = false;
+    private ElementReference _dropZoneElement;
+    private DotNetObjectReference<DoclingConvert>? _dotNetHelper;
 
     private bool IsReadyToConvert
     {
@@ -492,6 +490,18 @@
         if (firstRender)
         {
             Logger.LogInformation($"[OnAfterRenderAsync] First render - SelectedProject='{SelectedProject}', UploadedFile={UploadedFile?.Name ?? "null"}");
+
+            // Initialize drag and drop with JavaScript interop
+            try
+            {
+                _dotNetHelper = DotNetObjectReference.Create(this);
+                await JSRuntime.InvokeVoidAsync("initializeFileDrop", _dropZoneElement, _dotNetHelper);
+                Logger.LogInformation("File drop initialized");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error initializing file drop");
+            }
         }
 
         if (!string.IsNullOrEmpty(DoclingOutput) && !_monacoInitialized)
@@ -783,20 +793,6 @@
         }
     }
 
-    private void HandleDragEnter()
-    {
-        IsDragging = true;
-    }
-
-    private void HandleDragLeave()
-    {
-        IsDragging = false;
-    }
-
-    private void HandleDrop()
-    {
-        IsDragging = false;
-    }
 
     private async Task HandleFileSelect(InputFileChangeEventArgs e)
     {
@@ -816,6 +812,10 @@
             ErrorMessage = string.Empty;
             SuccessMessage = string.Empty;
             Logger.LogInformation($"File loaded: {UploadedFileName} ({FormatFileSize(UploadedFileData.Length)} bytes)");
+
+            // Save file to disk if project is selected
+            await SaveUploadedFileAsync();
+
             StateHasChanged();
         }
         catch (Exception ex)
@@ -828,11 +828,80 @@
         }
     }
 
+    // Note: OnFileDropped methods removed - drag/drop now triggers InputFile directly
+    // This avoids JSON serialization limits for large files
+
+    [JSInvokable]
+    public async Task OnFileDropError(string errorMessage)
+    {
+        Logger.LogError($"File drop error: {errorMessage}");
+        ErrorMessage = errorMessage;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SaveUploadedFileAsync()
+    {
+        if (UploadedFileData == null || string.IsNullOrEmpty(UploadedFileName))
+        {
+            Logger.LogDebug("Skipping file save: missing data or filename");
+            return;
+        }
+
+        if (string.IsNullOrEmpty(SelectedProject))
+        {
+            // File loaded but project not selected yet - this is OK
+            Logger.LogDebug("File loaded into memory, waiting for project selection to save to disk");
+            SuccessMessage = $"File '{UploadedFileName}' loaded. Select a project to save it to disk.";
+            return;
+        }
+
+        try
+        {
+            var project = Projects.FirstOrDefault(p => p.ProjectId == SelectedProject);
+            if (project == null)
+            {
+                Logger.LogWarning($"Project not found: {SelectedProject}");
+                ErrorMessage = $"Selected project '{SelectedProject}' not found. File not saved to disk.";
+                return;
+            }
+
+            var filePath = Path.Combine(project.FolderPath, UploadedFileName);
+
+            // Check if file exists and log
+            bool isOverwrite = File.Exists(filePath);
+            if (isOverwrite)
+            {
+                Logger.LogInformation($"Overwriting existing file: {filePath}");
+            }
+
+            await File.WriteAllBytesAsync(filePath, UploadedFileData);
+            Logger.LogInformation($"Saved uploaded file to: {filePath}");
+
+            // Show success message
+            var projectLabel = project.CustomLabel ?? project.ProjectId;
+            SuccessMessage = isOverwrite
+                ? $"File '{UploadedFileName}' updated in project '{projectLabel}'."
+                : $"File '{UploadedFileName}' saved to project '{projectLabel}'.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving uploaded file");
+            ErrorMessage = $"Failed to save file to disk: {ex.Message}";
+        }
+    }
+
     private async void HandleProjectChange(ChangeEventArgs e)
     {
         SelectedProject = e.Value?.ToString() ?? string.Empty;
         Logger.LogInformation($"[HandleProjectChange] Project changed to: '{SelectedProject}'");
         Logger.LogInformation($"[HandleProjectChange] State after project change - SelectedProject='{SelectedProject}', UploadedFile={UploadedFile?.Name ?? "null"}");
+
+        // If a file is already loaded in memory and project was just selected, save it now
+        if (!string.IsNullOrEmpty(SelectedProject) && UploadedFileData != null && !string.IsNullOrEmpty(UploadedFileName))
+        {
+            Logger.LogInformation($"Project selected with file already loaded - saving file to project folder");
+            await SaveUploadedFileAsync();
+        }
 
         // Save project selection
         if (!string.IsNullOrEmpty(SelectedProject))
@@ -1357,6 +1426,20 @@
             catch (Exception ex)
             {
                 Logger.LogError(ex, "Error disposing SignalR connection");
+            }
+        }
+
+        // Clean up JavaScript interop
+        if (_dotNetHelper != null)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("disposeFileDrop", _dropZoneElement);
+                _dotNetHelper.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error disposing file drop interop");
             }
         }
     }
