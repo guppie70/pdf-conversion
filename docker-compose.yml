@@ -54,17 +54,13 @@ services:
 
   docling-service:
     platform: linux/amd64  # Force x86_64 for ML library compatibility
-    image: python:3.11
+    image: taxxor-docling-service:local
     container_name: taxxor-docling-service
     volumes:
       - ./docling-service:/app
       - ./data:/app/data
     working_dir: /app
-    command: >
-      sh -c "apt-get update &&
-             apt-get install -y libgl1 libglib2.0-0 libgomp1 &&
-             pip install -r requirements.txt &&
-             uvicorn main:app --host 0.0.0.0 --port 4808 --reload"
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "4808", "--reload"]
     ports:
       - "4808:4808"
     networks:
