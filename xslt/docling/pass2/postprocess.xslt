@@ -13,13 +13,19 @@
         </xsl:copy>
     </xsl:template>
 
+    <!-- Function to calculate effective cell count including colspan/rowspan -->
+    <xsl:function name="local:effective-cell-count" as="xs:integer">
+        <xsl:param name="row" as="element(tr)"/>
+        <xsl:value-of select="sum($row/(td|th)/(if (@colspan castable as xs:integer) then xs:integer(@colspan) else 1))"/>
+    </xsl:function>
+
     <!-- Detect asymmetric table rows: mark rows with fewer cells than table maximum -->
     <xsl:template match="table" mode="pass2" priority="10">
-        <!-- Calculate max cell count across all rows -->
+        <!-- Calculate max cell count across all rows (accounting for colspan) -->
         <xsl:variable name="max-cells" as="xs:integer">
             <xsl:choose>
                 <xsl:when test=".//tr">
-                    <xsl:value-of select="max(.//tr/(count(td) + count(th)))"/>
+                    <xsl:value-of select="max(.//tr/local:effective-cell-count(.))"/>
                 </xsl:when>
                 <xsl:otherwise>0</xsl:otherwise>
             </xsl:choose>

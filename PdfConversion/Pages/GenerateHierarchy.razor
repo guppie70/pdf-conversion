@@ -194,7 +194,16 @@
                 var projectId = match.Groups[3].Value;
                 SelectedProject = $"{customer}/{projectId}";
                 Logger.LogInformation("Auto-selected project from file path: {Project}", SelectedProject);
+
+                // Save project selection
+                await UserSelectionService.UpdateSelectionAsync(projectId: SelectedProject);
+                Logger.LogInformation("Saved project selection: {Project}", SelectedProject);
             }
+
+            // Save source XML selection (just filename for portability)
+            var filename = Path.GetFileName(filePath);
+            await UserSelectionService.UpdateSelectionAsync(sourceXml: filename);
+            Logger.LogInformation("Saved source XML selection: {File}", filename);
 
             await OnSourceXmlChangedAsync();
             LoadHierarchyXmlFiles();
@@ -226,12 +235,20 @@
             .ToList();
 
         Logger.LogInformation("Found {Count} hierarchy XML files in {Dir}", HierarchyXmlFiles.Count, metadataDir);
+
+        // Force Blazor to re-render the dropdown
+        StateHasChanged();
     }
 
     private async Task OnHierarchyXmlChangedAsync()
     {
         if (!string.IsNullOrEmpty(SelectedHierarchyXml))
         {
+            // Save to user selections (save just the filename for portability)
+            var filename = Path.GetFileName(SelectedHierarchyXml);
+            await UserSelectionService.UpdateSelectionAsync(hierarchyXml: filename);
+            Logger.LogInformation("Saved hierarchy XML selection: {File}", filename);
+
             await LoadExistingHierarchyAsync();
         }
     }
@@ -255,43 +272,118 @@
 
     protected override async Task OnInitializedAsync()
     {
+        Logger.LogInformation("[OnInitializedAsync] Starting initialization");
+
         try
         {
             // Load all projects
             Projects = await ProjectLabelService.GetAllProjectsAsync("/app/data/input");
-            Logger.LogInformation("Loaded {Count} projects", Projects.Count);
+            Logger.LogInformation("[OnInitializedAsync] Loaded {Count} projects", Projects.Count);
 
             // Try to restore last selection
             var selection = await UserSelectionService.GetSelectionAsync();
-            if (!string.IsNullOrEmpty(selection.LastSelectedProject))
+            if (selection != null)
             {
-                SelectedProject = selection.LastSelectedProject;
-                Logger.LogInformation("Restored project selection: {Project}", SelectedProject);
+                Logger.LogInformation("[OnInitializedAsync] Found user selections");
 
-                // Restore source XML if available
-                if (!string.IsNullOrEmpty(selection.LastSelectedSourceXml))
+                // Restore project selection
+                if (!string.IsNullOrEmpty(selection.LastSelectedProject))
                 {
-                    SelectedSourceXml = selection.LastSelectedSourceXml;
-                    Logger.LogInformation("Restored source XML: {File}", SelectedSourceXml);
+                    SelectedProject = selection.LastSelectedProject;
+                    Logger.LogInformation("[OnInitializedAsync] Restored project: {Project}", SelectedProject);
+                }
+
+                // Restore source XML if available - reconstruct full path
+                if (!string.IsNullOrEmpty(selection.LastSelectedSourceXml) && !string.IsNullOrEmpty(SelectedProject))
+                {
+                    var sourceXmlFilename = selection.LastSelectedSourceXml;
+                    var parts = SelectedProject.Split('/');
+                    if (parts.Length == 2)
+                    {
+                        var customer = parts[0];
+                        var projectId = parts[1];
+
+                        // Try input directory first
+                        var inputPath = $"/app/data/input/{customer}/projects/{projectId}/{sourceXmlFilename}";
+                        if (File.Exists(inputPath))
+                        {
+                            SelectedSourceXml = inputPath;
+                            Logger.LogInformation("[OnInitializedAsync] Restored source XML from input: {File}", SelectedSourceXml);
+                        }
+                        else
+                        {
+                            // Try output directory as fallback
+                            var outputPath = $"/app/data/output/{customer}/projects/{projectId}/{sourceXmlFilename}";
+                            if (File.Exists(outputPath))
+                            {
+                                SelectedSourceXml = outputPath;
+                                Logger.LogInformation("[OnInitializedAsync] Restored source XML from output: {File}", SelectedSourceXml);
+                            }
+                            else
+                            {
+                                Logger.LogWarning("[OnInitializedAsync] Source XML file not found: {File}", sourceXmlFilename);
+                            }
+                        }
+                    }
                 }
 
                 // Restore XSLT selection
                 if (!string.IsNullOrEmpty(selection.LastSelectedXslt))
                 {
                     SelectedXsltFile = selection.LastSelectedXslt;
-                    Logger.LogInformation("Restored XSLT selection: {File}", SelectedXsltFile);
+                    Logger.LogInformation("[OnInitializedAsync] Restored XSLT: {File}", SelectedXsltFile);
                 }
 
-                // Auto-load and transform if both selections exist
-                if (!string.IsNullOrEmpty(SelectedSourceXml) && !string.IsNullOrEmpty(SelectedXsltFile))
+                // If source XML was restored, load hierarchy files and transform
+                if (!string.IsNullOrEmpty(SelectedSourceXml))
                 {
-                    await AutoTransformAndLoadAsync();
+                    // Load hierarchy XML files from metadata folder
+                    LoadHierarchyXmlFiles();
+
+                    // Auto-transform and load if XSLT is available
+                    if (!string.IsNullOrEmpty(SelectedXsltFile))
+                    {
+                        await AutoTransformAndLoadAsync();
+                    }
+
+                    // Restore hierarchy XML selection if available
+                    if (!string.IsNullOrEmpty(selection.LastSelectedHierarchyXml))
+                    {
+                        var hierarchyFilename = selection.LastSelectedHierarchyXml;
+
+                        // Find matching file in HierarchyXmlFiles list
+                        var matchingFile = HierarchyXmlFiles.FirstOrDefault(f =>
+                            Path.GetFileName(f).Equals(hierarchyFilename, StringComparison.OrdinalIgnoreCase));
+
+                        if (matchingFile != null)
+                        {
+                            SelectedHierarchyXml = matchingFile;
+                            Logger.LogInformation("[OnInitializedAsync] Restored hierarchy XML: {File}", matchingFile);
+
+                            // Auto-load the hierarchy
+                            await OnHierarchyXmlChangedAsync();
+                        }
+                        else
+                        {
+                            Logger.LogWarning("[OnInitializedAsync] Hierarchy file not found: {File}", hierarchyFilename);
+                        }
+                    }
+                }
+                else
+                {
+                    Logger.LogInformation("[OnInitializedAsync] No source XML to restore");
                 }
             }
+            else
+            {
+                Logger.LogWarning("[OnInitializedAsync] No user selections found");
+            }
+
+            StateHasChanged();
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error during initialization");
+            Logger.LogError(ex, "[OnInitializedAsync] Error during initialization");
             ToastNotification.ShowError($"Initialization error: {ex.Message}");
         }
     }
@@ -404,22 +496,33 @@
 
         try
         {
-            var parts = SelectedProject.Split('/');
-            if (parts.Length != 2)
+            // Determine save path: use selected hierarchy XML if available, otherwise default
+            string filePath;
+            if (!string.IsNullOrEmpty(SelectedHierarchyXml))
             {
-                Logger.LogError("Invalid project format: {Project}", SelectedProject);
-                ToastNotification.ShowError("Invalid project format");
-                return;
+                // Save back to the selected hierarchy file
+                filePath = SelectedHierarchyXml;
             }
+            else
+            {
+                // Fallback to default hierarchy.xml location
+                var parts = SelectedProject.Split('/');
+                if (parts.Length != 2)
+                {
+                    Logger.LogError("Invalid project format: {Project}", SelectedProject);
+                    ToastNotification.ShowError("Invalid project format");
+                    return;
+                }
 
-            var customer = parts[0];
-            var projectId = parts[1];
-            var filePath = $"/app/data/output/{customer}/projects/{projectId}/hierarchy.xml";
+                var customer = parts[0];
+                var projectId = parts[1];
+                filePath = $"/app/data/output/{customer}/projects/{projectId}/hierarchy.xml";
+            }
 
             await HierarchyService.SaveHierarchyAsync(filePath, CurrentHierarchy);
             HasChanges = false;
             Logger.LogInformation("Saved hierarchy to {Path}", filePath);
-            ToastNotification.ShowSuccess($"Hierarchy saved to {projectId}/hierarchy.xml");
+            ToastNotification.ShowSuccess($"Saved hierarchy: {Path.GetFileName(filePath)}");
 
             // Refresh headers panel to update used status
             if (HeadersPanel != null)

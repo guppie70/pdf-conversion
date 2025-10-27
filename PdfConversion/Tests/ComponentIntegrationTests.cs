@@ -200,7 +200,7 @@ public class ComponentIntegrationTests : TestContext
 
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         _mockProjectService.Setup(s => s.ReadInputFileAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(xmlContent);
-        _mockXsltService.Setup(s => s.TransformAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TransformationOptions>()))
+        _mockXsltService.Setup(s => s.TransformAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TransformationOptions?>(), It.IsAny<string?>()))
             .ReturnsAsync(transformResult);
         JSInterop.Mode = JSRuntimeMode.Loose; // Allow JS calls to succeed
 
@@ -218,7 +218,8 @@ public class ComponentIntegrationTests : TestContext
         _mockXsltService.Verify(s => s.TransformAsync(
             It.IsAny<string>(),
             It.IsAny<string>(),
-            It.IsAny<TransformationOptions>()), Times.AtLeastOnce);
+            It.IsAny<TransformationOptions?>(),
+            It.IsAny<string?>()), Times.AtLeastOnce);
     }
 
     /// <summary>
@@ -588,7 +589,7 @@ public class ComponentIntegrationTests : TestContext
         var transformResult = new TransformationResult { IsSuccess = true, OutputContent = "<div/>" };
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         _mockProjectService.Setup(s => s.ReadInputFileAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync("<root/>");
-        _mockXsltService.Setup(s => s.TransformAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TransformationOptions>()))
+        _mockXsltService.Setup(s => s.TransformAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TransformationOptions?>(), It.IsAny<string?>()))
             .ReturnsAsync(transformResult);
         JSInterop.Mode = JSRuntimeMode.Loose; // Allow JS calls to succeed
 
@@ -726,7 +727,7 @@ public class ComponentIntegrationTests : TestContext
 
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         _mockProjectService.Setup(s => s.ReadInputFileAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync("<root/>");
-        _mockXsltService.Setup(s => s.TransformAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TransformationOptions>()))
+        _mockXsltService.Setup(s => s.TransformAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TransformationOptions?>(), It.IsAny<string?>()))
             .ReturnsAsync(transformResult);
         JSInterop.Mode = JSRuntimeMode.Loose; // Allow JS calls to succeed
 
@@ -765,7 +766,7 @@ public class ComponentIntegrationTests : TestContext
 
         _mockProjectService.Setup(s => s.GetProjectsAsync()).ReturnsAsync(new List<Project>());
         _mockProjectService.Setup(s => s.ReadInputFileAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync("<root/>");
-        _mockXsltService.Setup(s => s.TransformAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TransformationOptions>()))
+        _mockXsltService.Setup(s => s.TransformAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<TransformationOptions?>(), It.IsAny<string?>()))
             .ReturnsAsync(transformResult);
         JSInterop.Mode = JSRuntimeMode.Loose; // Allow JS calls to succeed
 

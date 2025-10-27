@@ -76,6 +76,13 @@ public class HierarchyService : IHierarchyService
             DataRef = element.Attribute("data-ref")?.Value ?? string.Empty
         };
 
+        // Load optional TOC attributes
+        item.TocStart = element.Attribute("data-tocstart")?.Value == "true";
+        item.TocEnd = element.Attribute("data-tocend")?.Value == "true";
+        item.TocNumber = element.Attribute("data-tocnumber")?.Value;
+        item.TocStyle = element.Attribute("data-tocstyle")?.Value;
+        item.TocHide = element.Attribute("data-tochide")?.Value == "true";
+
         // Parse web_page element
         var webPage = element.Element("web_page");
         if (webPage != null)
@@ -166,6 +173,32 @@ public class HierarchyService : IHierarchyService
         if (!string.IsNullOrEmpty(item.Reasoning))
         {
             element.Add(new XAttribute("reasoning", item.Reasoning));
+        }
+
+        // Add optional TOC attributes
+        if (item.TocStart)
+        {
+            element.Add(new XAttribute("data-tocstart", "true"));
+        }
+
+        if (item.TocEnd)
+        {
+            element.Add(new XAttribute("data-tocend", "true"));
+        }
+
+        if (!string.IsNullOrEmpty(item.TocNumber))
+        {
+            element.Add(new XAttribute("data-tocnumber", item.TocNumber));
+        }
+
+        if (!string.IsNullOrEmpty(item.TocStyle))
+        {
+            element.Add(new XAttribute("data-tocstyle", item.TocStyle));
+        }
+
+        if (item.TocHide)
+        {
+            element.Add(new XAttribute("data-tochide", "true"));
         }
 
         // Add web_page element

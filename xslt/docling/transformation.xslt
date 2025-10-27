@@ -3,7 +3,8 @@
                 xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
                 xmlns:xs="http://www.w3.org/2001/XMLSchema"
                 xmlns:db="http://docbook.org/ns/docbook"
-                exclude-result-prefixes="xs db">
+                xmlns:hdr="http://taxxor.com/xslt/header-functions"
+                exclude-result-prefixes="xs db hdr">
 
     <!-- Output settings: XHTML5 serialization ensures proper handling of void vs non-void elements -->
     <xsl:output method="xhtml"
@@ -163,12 +164,7 @@
 
     <!-- Pass 1: Standard HTML elements (already in correct format, just copy with attributes) -->
 
-    <xsl:template match="h1 | h2 | h3 | h4 | h5 | h6" priority="10">
-        <xsl:copy>
-            <xsl:apply-templates select="@*"/>
-            <xsl:apply-templates/>
-        </xsl:copy>
-    </xsl:template>
+    <!-- h1-h6 templates removed - now handled by headers.xslt module with postfix section number stripping -->
 
     <xsl:template match="p" priority="10">
         <xsl:variable name="text" select="normalize-space(.)"/>

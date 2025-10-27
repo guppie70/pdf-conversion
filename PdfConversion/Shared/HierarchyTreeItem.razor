@@ -1,4 +1,5 @@
 @using PdfConversion.Models
+@using PdfConversion.Utils
 @using System.Text.Json
 @inject IJSRuntime JSRuntime
 
@@ -267,6 +268,96 @@
         StateHasChanged();
     }
 
+    /// <summary>
+    /// Generates a unique ID for a new hierarchy item based on the link name.
+    /// Uses normalized filename as base, appends random suffix if duplicate.
+    /// </summary>
+    private string GenerateUniqueId(string linkName, HierarchyItem rootItem)
+    {
+        // Normalize the linkname to create base ID (without extension)
+        var baseId = FilenameUtils.NormalizeFileName(linkName);
+
+        // Check if unique
+        if (!IdExistsInTree(baseId, rootItem))
+            return baseId;
+
+        // Append short random string (6 characters)
+        var random = new Random();
+        var chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+        var suffix = new string(Enumerable.Repeat(chars, 6)
+            .Select(s => s[random.Next(s.Length)]).ToArray());
+
+        return $"{baseId}-{suffix}";
+    }
+
+    /// <summary>
+    /// Generates a unique data-ref (filename) for a new hierarchy item.
+    /// Uses normalized filename with sequential numbering if duplicate.
+    /// </summary>
+    private string GenerateUniqueDataRef(string linkName, HierarchyItem rootItem)
+    {
+        // Normalize the linkname to create base filename
+        var baseFilename = FilenameUtils.NormalizeFileName(linkName);
+        var filename = $"{baseFilename}.xml";
+
+        // Check if unique
+        if (!DataRefExistsInTree(filename, rootItem))
+            return filename;
+
+        // Add sequential numbering
+        int counter = 1;
+        while (DataRefExistsInTree($"{baseFilename}-{counter}.xml", rootItem))
+        {
+            counter++;
+        }
+
+        return $"{baseFilename}-{counter}.xml";
+    }
+
+    /// <summary>
+    /// Recursively checks if an ID exists anywhere in the tree.
+    /// </summary>
+    private bool IdExistsInTree(string id, HierarchyItem item)
+    {
+        if (item.Id == id)
+            return true;
+
+        return item.SubItems.Any(child => IdExistsInTree(id, child));
+    }
+
+    /// <summary>
+    /// Recursively checks if a data-ref exists anywhere in the tree.
+    /// </summary>
+    private bool DataRefExistsInTree(string dataRef, HierarchyItem item)
+    {
+        if (item.DataRef == dataRef)
+            return true;
+
+        return item.SubItems.Any(child => DataRefExistsInTree(dataRef, child));
+    }
+
+    /// <summary>
+    /// Gets the root item of the hierarchy tree by traversing upward.
+    /// Note: Cannot traverse beyond component hierarchy boundaries, so returns
+    /// the highest accessible ancestor (which should be root when ParentItem is null).
+    /// </summary>
+    private HierarchyItem GetRootItem()
+    {
+        // Traverse up to find root
+        var current = Item;
+        var checkParent = ParentItem;
+
+        while (checkParent != null)
+        {
+            current = checkParent;
+            // In practice, we can't traverse further up through the component tree
+            // This will return the item at the level where ParentItem is null (root level)
+            break;
+        }
+
+        return current;
+    }
+
     private async Task HandleHeaderDrop()
     {
         if (DraggedHeader == null)
@@ -278,13 +369,17 @@
         await JSRuntime.InvokeVoidAsync("console.log",
             $"[HierarchyTreeItem] Drop position: {CurrentDropPosition}, adding header '{DraggedHeader.Id}' as {(CurrentDropPosition == DropPosition.Into ? "child" : "sibling")}");
 
-        // Create a new hierarchy item from the header
+        // Get root item for uniqueness checks
+        var rootItem = GetRootItem();
+
+        // Create a new hierarchy item from the header with properly generated data
         var newItem = new HierarchyItem
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = GenerateUniqueId(DraggedHeader.Title, rootItem),
             LinkName = DraggedHeader.Title,
             Level = CurrentDropPosition == DropPosition.Into ? Item.Level + 1 : Item.Level,
-            DataRef = DraggedHeader.XPath,
+            DataRef = GenerateUniqueDataRef(DraggedHeader.Title, rootItem),
+            Path = "/",  // Always use root path for new items
             SubItems = new List<HierarchyItem>()
         };
 

@@ -68,6 +68,34 @@ public class HierarchyItem
     public string? Reasoning { get; set; }
 
     /// <summary>
+    /// Optional: Marks the start of a TOC section (from data-tocstart attribute)
+    /// </summary>
+    public bool TocStart { get; set; }
+
+    /// <summary>
+    /// Optional: Marks the end of a TOC section (from data-tocend attribute)
+    /// </summary>
+    public bool TocEnd { get; set; }
+
+    /// <summary>
+    /// Optional: Section number in TOC (from data-tocnumber attribute)
+    /// Examples: "1", "2.1", "4.6", "note 1"
+    /// </summary>
+    public string? TocNumber { get; set; }
+
+    /// <summary>
+    /// Optional: TOC numbering style (from data-tocstyle attribute)
+    /// Examples: "default", "notes123"
+    /// </summary>
+    public string? TocStyle { get; set; }
+
+    /// <summary>
+    /// Optional: Hides item from table of contents (from data-tochide attribute)
+    /// Used for utility pages like contact info that should exist but not appear in TOC
+    /// </summary>
+    public bool TocHide { get; set; }
+
+    /// <summary>
     /// Returns a formatted string for logging and debugging
     /// </summary>
     public override string ToString() => $"{LinkName} (Level {Level}, ID: {Id})";
