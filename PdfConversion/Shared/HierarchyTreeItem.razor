@@ -41,6 +41,12 @@
         else
         {
             <span class="tree-item-label" @ondblclick="StartEdit" @ondblclick:stopPropagation="true">@Item.LinkName</span>
+            <button class="btn btn-sm btn-link tree-edit-icon"
+                    @onclick="OpenEditor"
+                    @onclick:stopPropagation="true"
+                    title="Edit item properties">
+                <i class="bi bi-pencil-square"></i>
+            </button>
         }
 
         @if (Item.Confidence.HasValue)
@@ -65,7 +71,8 @@
                           Level="Level + 1"
                           ParentItem="Item"
                           OnItemSelected="OnItemSelected"
-                          OnItemEdited="OnItemEdited" />
+                          OnItemEdited="OnItemEdited"
+                          OnEditRequest="OnEditRequest" />
     }
 }
 
@@ -84,6 +91,9 @@
 
     [Parameter]
     public EventCallback<HierarchyItem> OnItemEdited { get; set; }
+
+    [Parameter]
+    public EventCallback<HierarchyItem> OnEditRequest { get; set; }
 
     private bool IsExpanded { get; set; } = true;
     private bool IsEditing { get; set; }
@@ -136,6 +146,11 @@
         {
             IsEditing = false;
         }
+    }
+
+    private async Task OpenEditor()
+    {
+        await OnEditRequest.InvokeAsync(Item);
     }
 
     private string GetConfidenceClass(int confidence)

@@ -64,7 +64,8 @@
                 {
                     <HierarchyTreeView RootItem="CurrentHierarchy.Root"
                                      OnItemSelected="HandleItemSelected"
-                                     OnItemEdited="HandleItemEdited" />
+                                     OnItemEdited="HandleItemEdited"
+                                     OnEditRequest="HandleEditRequest" />
                 }
                 else
                 {
@@ -83,6 +84,13 @@
                                   OnHeadersChanged="HandleHeadersChanged" />
         </div>
     </div>
+
+    @if (ShowEditor && EditingItem != null)
+    {
+        <HierarchyItemEditor SelectedItem="EditingItem"
+                            OnItemUpdated="HandleItemUpdated"
+                            OnClosed="CloseEditor" />
+    }
 </div>
 
 @code {
@@ -90,6 +98,10 @@
     private HierarchyItem? SelectedItem { get; set; }
     private bool HasChanges { get; set; }
     private AvailableHeadersPanel? HeadersPanel { get; set; }
+
+    // Editor panel state
+    private HierarchyItem? EditingItem { get; set; }
+    private bool ShowEditor => EditingItem != null;
 
     // Project and file selection state
     private List<ProjectInfo> Projects { get; set; } = new();
@@ -545,6 +557,32 @@
     private void HandleItemEdited(HierarchyItem item)
     {
         HasChanges = true;
+    }
+
+    private void HandleEditRequest(HierarchyItem item)
+    {
+        EditingItem = item;
+        StateHasChanged();
+    }
+
+    private async Task HandleItemUpdated(HierarchyItem updatedItem)
+    {
+        // Item is already updated by reference, just mark as changed
+        HasChanges = true;
+        EditingItem = null;
+        StateHasChanged();
+
+        // Optionally refresh the headers panel to reflect changes
+        if (HeadersPanel != null)
+        {
+            await HeadersPanel.RefreshUsedStatusAsync();
+        }
+    }
+
+    private void CloseEditor()
+    {
+        EditingItem = null;
+        StateHasChanged();
     }
 
     private async Task HandleHeadersChanged()

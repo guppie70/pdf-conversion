@@ -168,3 +168,23 @@
 .confidence-low {
     background-color: #dc3545;
 }
+
+.tree-edit-icon {
+    opacity: 0;
+    padding: 0.125rem 0.25rem;
+    font-size: 0.875rem;
+    color: #0d6efd;
+    transition: opacity 0.2s;
+    background: transparent;
+    border: none;
+}
+
+.tree-item-content:hover .tree-edit-icon {
+    opacity: 1;
+}
+
+.tree-edit-icon:hover {
+    color: #0d6efd;
+    background-color: rgba(13, 110, 253, 0.1);
+    border-radius: 3px;
+}

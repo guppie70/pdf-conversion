@@ -4,7 +4,8 @@
                 xmlns:xs="http://www.w3.org/2001/XMLSchema"
                 xmlns:db="http://docbook.org/ns/docbook"
                 xmlns:hdr="http://taxxor.com/xslt/header-functions"
-                exclude-result-prefixes="xs db hdr">
+                xmlns:local="http://taxxor.com/xslt/local"
+                exclude-result-prefixes="xs db hdr local">
 
     <!-- Output settings: XHTML5 serialization ensures proper handling of void vs non-void elements -->
     <xsl:output method="xhtml"

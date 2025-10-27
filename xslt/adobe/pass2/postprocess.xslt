@@ -2,9 +2,16 @@
 <xsl:stylesheet version="2.0"
                 xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
                 xmlns:xs="http://www.w3.org/2001/XMLSchema"
-                exclude-result-prefixes="xs">
+                xmlns:local="http://taxxor.com/xslt/local"
+                exclude-result-prefixes="xs local">
 
     <!-- Post-processing templates (Pass 2, mode="pass2") - Remove "(continued)" artifacts from <p> and <li> elements -->
+
+    <!-- Function to calculate effective cell count including colspan/rowspan -->
+    <xsl:function name="local:effective-cell-count" as="xs:integer">
+        <xsl:param name="row" as="element(tr)"/>
+        <xsl:value-of select="sum($row/(td|th)/(if (@colspan castable as xs:integer) then xs:integer(@colspan) else 1))"/>
+    </xsl:function>
 
     <!-- Identity transform for pass2 (copy everything by default) -->
     <xsl:template match="node() | @*" mode="pass2">
@@ -72,19 +79,14 @@
         </xsl:copy>
     </xsl:template>
 
-    <!-- Detect and mark asymmetrical table rows -->
-    <!-- Asymmetrical = row has fewer cells than the maximum number of cells in the table -->
+    <!-- Detect and mark asymmetrical table rows (accounting for colspan) -->
+    <!-- Asymmetrical = row has fewer effective cells than the maximum number of effective cells in the table -->
     <xsl:template match="tr" mode="pass2" priority="10">
-        <xsl:variable name="current-cell-count" select="count(td | th)"/>
+        <xsl:variable name="current-cell-count" select="local:effective-cell-count(.)"/>
 
-        <!-- Find the maximum number of cells in any row of this table -->
-        <xsl:variable name="max-cell-count">
-            <xsl:for-each select="ancestor::table[1]//tr">
-                <xsl:sort select="count(td | th)" data-type="number" order="descending"/>
-                <xsl:if test="position() = 1">
-                    <xsl:value-of select="count(td | th)"/>
-                </xsl:if>
-            </xsl:for-each>
+        <!-- Find the maximum effective cell count in any row of this table -->
+        <xsl:variable name="max-cell-count" as="xs:integer">
+            <xsl:value-of select="max(ancestor::table[1]//tr/local:effective-cell-count(.))"/>
         </xsl:variable>
 
         <xsl:copy>

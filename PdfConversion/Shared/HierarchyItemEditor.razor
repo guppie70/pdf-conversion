@@ -1,0 +1,221 @@
+@using PdfConversion.Models
+@inject IJSRuntime JSRuntime
+
+@if (SelectedItem != null)
+{
+    <div class="editor-overlay" @onkeydown="HandleKeyDown">
+        <div class="editor-header">
+            <div>
+                <h5 class="mb-1">Edit Hierarchy Item</h5>
+                <span class="badge bg-secondary">@SelectedItem.Id</span>
+            </div>
+            <button type="button" class="btn-close" @onclick="HandleClose" aria-label="Close"></button>
+        </div>
+
+        <div class="editor-body">
+            <div class="editor-field">
+                <label for="linkname">Link Name *</label>
+                <input type="text"
+                       id="linkname"
+                       class="form-control"
+                       @bind="SelectedItem.LinkName"
+                       @bind:event="oninput"
+                       required />
+            </div>
+
+            <div class="editor-field">
+                <label>Level</label>
+                <div>
+                    <span class="badge bg-info">Level @SelectedItem.Level</span>
+                </div>
+            </div>
+
+            <div class="editor-field">
+                <label for="dataref">Data Reference (Filename) *</label>
+                <input type="text"
+                       id="dataref"
+                       class="form-control"
+                       @bind="SelectedItem.DataRef"
+                       @bind:event="oninput"
+                       placeholder="e.g., section-name.xml"
+                       required />
+            </div>
+
+            <div class="editor-field">
+                <label for="path">Web Path *</label>
+                <input type="text"
+                       id="path"
+                       class="form-control"
+                       @bind="SelectedItem.Path"
+                       @bind:event="oninput"
+                       placeholder="e.g., /section-name"
+                       required />
+            </div>
+
+            <div class="toc-section">
+                <button class="btn btn-sm btn-outline-secondary w-100 toc-toggle"
+                        @onclick="ToggleTocSection"
+                        type="button">
+                    <i class="bi @(TocExpanded ? "bi-chevron-down" : "bi-chevron-right")"></i>
+                    Table of Contents Settings
+                    @if (HasActiveTocAttributes())
+                    {
+                        <span class="badge bg-primary ms-2">@GetActiveTocCount()</span>
+                    }
+                </button>
+
+                @if (TocExpanded)
+                {
+                    <div class="toc-content">
+                        <div class="editor-field">
+                            <div class="form-check">
+                                <input type="checkbox"
+                                       id="tocstart"
+                                       class="form-check-input"
+                                       @bind="SelectedItem.TocStart" />
+                                <label class="form-check-label" for="tocstart">
+                                    Mark as TOC start
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="editor-field">
+                            <div class="form-check">
+                                <input type="checkbox"
+                                       id="tocend"
+                                       class="form-check-input"
+                                       @bind="SelectedItem.TocEnd" />
+                                <label class="form-check-label" for="tocend">
+                                    Mark as TOC end
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="editor-field">
+                            <label for="tocnumber">TOC Number</label>
+                            <input type="text"
+                                   id="tocnumber"
+                                   class="form-control form-control-sm"
+                                   @bind="SelectedItem.TocNumber"
+                                   @bind:event="oninput"
+                                   placeholder="e.g., 1, 2.1, note 1" />
+                        </div>
+
+                        <div class="editor-field">
+                            <label for="tocstyle">TOC Style</label>
+                            <input type="text"
+                                   id="tocstyle"
+                                   class="form-control form-control-sm"
+                                   @bind="SelectedItem.TocStyle"
+                                   @bind:event="oninput"
+                                   placeholder="e.g., default, notes123" />
+                        </div>
+
+                        <div class="editor-field">
+                            <div class="form-check">
+                                <input type="checkbox"
+                                       id="tochide"
+                                       class="form-check-input"
+                                       @bind="SelectedItem.TocHide" />
+                                <label class="form-check-label" for="tochide">
+                                    Hide from table of contents
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="editor-actions">
+            <button class="btn btn-primary" @onclick="HandleSave" disabled="@(!IsValid())">
+                <i class="bi bi-check-lg"></i> Save
+            </button>
+            <button class="btn btn-secondary" @onclick="HandleClose">
+                <i class="bi bi-x-lg"></i> Cancel
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public HierarchyItem? SelectedItem { get; set; }
+
+    [Parameter]
+    public EventCallback<HierarchyItem> OnItemUpdated { get; set; }
+
+    [Parameter]
+    public EventCallback OnClosed { get; set; }
+
+    private bool TocExpanded { get; set; } = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && SelectedItem != null)
+        {
+            // Focus the first input field
+            await JSRuntime.InvokeVoidAsync("setTimeout", "document.getElementById('linkname')?.focus()", 100);
+        }
+    }
+
+    private void ToggleTocSection()
+    {
+        TocExpanded = !TocExpanded;
+    }
+
+    private bool HasActiveTocAttributes()
+    {
+        if (SelectedItem == null) return false;
+
+        return SelectedItem.TocStart
+            || SelectedItem.TocEnd
+            || SelectedItem.TocHide
+            || !string.IsNullOrEmpty(SelectedItem.TocNumber)
+            || !string.IsNullOrEmpty(SelectedItem.TocStyle);
+    }
+
+    private int GetActiveTocCount()
+    {
+        if (SelectedItem == null) return 0;
+
+        int count = 0;
+        if (SelectedItem.TocStart) count++;
+        if (SelectedItem.TocEnd) count++;
+        if (SelectedItem.TocHide) count++;
+        if (!string.IsNullOrEmpty(SelectedItem.TocNumber)) count++;
+        if (!string.IsNullOrEmpty(SelectedItem.TocStyle)) count++;
+        return count;
+    }
+
+    private bool IsValid()
+    {
+        if (SelectedItem == null) return false;
+
+        return !string.IsNullOrWhiteSpace(SelectedItem.LinkName)
+            && !string.IsNullOrWhiteSpace(SelectedItem.DataRef)
+            && !string.IsNullOrWhiteSpace(SelectedItem.Path);
+    }
+
+    private async Task HandleSave()
+    {
+        if (SelectedItem != null && IsValid())
+        {
+            await OnItemUpdated.InvokeAsync(SelectedItem);
+            await OnClosed.InvokeAsync();
+        }
+    }
+
+    private async Task HandleClose()
+    {
+        await OnClosed.InvokeAsync();
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            await HandleClose();
+        }
+    }
+}

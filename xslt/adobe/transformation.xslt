@@ -4,9 +4,10 @@
                 xmlns:xs="http://www.w3.org/2001/XMLSchema"
                 xmlns:hdr="http://taxxor.com/xslt/header-functions"
                 xmlns:lst="http://taxxor.com/xslt/list-functions"
+                xmlns:local="http://taxxor.com/xslt/local"
                 xmlns:x="adobe:ns:meta/"
                 xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-                exclude-result-prefixes="xs hdr lst x rdf">
+                exclude-result-prefixes="xs hdr lst local x rdf">
 
     <!-- Output settings: XHTML5 serialization ensures proper handling of void vs non-void elements -->
     <xsl:output method="xhtml"

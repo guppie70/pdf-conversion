@@ -6,7 +6,8 @@
         <HierarchyTreeItem Item="RootItem"
                           Level="0"
                           OnItemSelected="HandleItemSelected"
-                          OnItemEdited="HandleItemEdited" />
+                          OnItemEdited="HandleItemEdited"
+                          OnEditRequest="HandleEditRequest" />
     }
 </div>
 
@@ -20,6 +21,9 @@
     [Parameter]
     public EventCallback<HierarchyItem> OnItemEdited { get; set; }
 
+    [Parameter]
+    public EventCallback<HierarchyItem> OnEditRequest { get; set; }
+
     private async Task HandleItemSelected(HierarchyItem item)
     {
         await OnItemSelected.InvokeAsync(item);
@@ -28,5 +32,10 @@
     private async Task HandleItemEdited(HierarchyItem item)
     {
         await OnItemEdited.InvokeAsync(item);
+    }
+
+    private async Task HandleEditRequest(HierarchyItem item)
+    {
+        await OnEditRequest.InvokeAsync(item);
     }
 }

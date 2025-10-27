@@ -2,7 +2,8 @@
 <xsl:stylesheet version="2.0"
                 xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
                 xmlns:xs="http://www.w3.org/2001/XMLSchema"
-                exclude-result-prefixes="xs">
+                xmlns:local="http://taxxor.com/xslt/local"
+                exclude-result-prefixes="xs local">
 
     <!-- Pass 2: Post-processing cleanup and asymmetric row detection -->
 
@@ -10,6 +11,37 @@
     <xsl:template match="node() | @*" mode="pass2">
         <xsl:copy>
             <xsl:apply-templates select="node() | @*" mode="pass2"/>
+        </xsl:copy>
+    </xsl:template>
+
+    <!-- Pattern 1: Handle table wrapper div - extract title from first tbody row if it has colspan -->
+    <xsl:template match="div[contains(@class, 'table-wrapper')]" mode="pass2" priority="20">
+        <xsl:variable name="first-tbody-row" select=".//tbody/tr[1]"/>
+        <xsl:variable name="is-title-row" select="count($first-tbody-row/*) = 1 and $first-tbody-row/*[1]/@colspan"/>
+        <xsl:variable name="table-title" select="if ($is-title-row) then normalize-space($first-tbody-row/*[1]) else ''"/>
+
+        <xsl:copy>
+            <xsl:apply-templates select="@*" mode="pass2"/>
+
+            <!-- Process tablegraph-header-wrapper: inject title if found -->
+            <xsl:apply-templates select="div[@class='tablegraph-header-wrapper']" mode="pass2-inject-title">
+                <xsl:with-param name="title" select="$table-title"/>
+            </xsl:apply-templates>
+
+            <!-- Process table element (will handle tbody row removal) -->
+            <xsl:apply-templates select="table" mode="pass2"/>
+        </xsl:copy>
+    </xsl:template>
+
+    <!-- Inject extracted title into table-title div -->
+    <xsl:template match="div[@class='tablegraph-header-wrapper']" mode="pass2-inject-title">
+        <xsl:param name="title" select="''"/>
+        <xsl:copy>
+            <xsl:apply-templates select="@*" mode="pass2"/>
+            <div class="table-title">
+                <xsl:value-of select="if ($title != '') then $title else 'tabletitle'"/>
+            </div>
+            <xsl:apply-templates select="div[@class='table-scale']" mode="pass2"/>
         </xsl:copy>
     </xsl:template>
 
@@ -34,8 +66,13 @@
         <xsl:copy>
             <xsl:apply-templates select="@*" mode="pass2"/>
 
-            <!-- Process table children with max-cells context -->
-            <xsl:apply-templates select="node()" mode="pass2-table">
+            <!-- Process thead if exists -->
+            <xsl:apply-templates select="thead" mode="pass2-table">
+                <xsl:with-param name="max-cells" select="$max-cells" tunnel="yes"/>
+            </xsl:apply-templates>
+
+            <!-- Process tbody: detect and move header rows to thead if needed -->
+            <xsl:apply-templates select="tbody" mode="pass2-tbody">
                 <xsl:with-param name="max-cells" select="$max-cells" tunnel="yes"/>
             </xsl:apply-templates>
         </xsl:copy>
@@ -52,7 +89,7 @@
     <!-- Mark rows with fewer cells than maximum -->
     <xsl:template match="tr" mode="pass2-table" priority="10">
         <xsl:param name="max-cells" as="xs:integer" tunnel="yes"/>
-        <xsl:variable name="current-cells" select="count(td) + count(th)"/>
+        <xsl:variable name="current-cells" select="local:effective-cell-count(.)"/>
 
         <xsl:copy>
             <xsl:apply-templates select="@*" mode="pass2-table"/>
@@ -70,6 +107,85 @@
 
             <xsl:apply-templates select="node()" mode="pass2-table"/>
         </xsl:copy>
+    </xsl:template>
+
+    <!-- Helper function: check if row is a header row (only th OR first td then th) -->
+    <xsl:function name="local:is-header-row" as="xs:boolean">
+        <xsl:param name="row" as="element(tr)"/>
+        <xsl:choose>
+            <!-- Row contains only th elements -->
+            <xsl:when test="$row[th and not(td)]">
+                <xsl:value-of select="true()"/>
+            </xsl:when>
+            <!-- Row starts with td but all other cells are th -->
+            <xsl:when test="$row/td[1] and $row/*[position() gt 1 and self::td]">
+                <xsl:value-of select="false()"/>
+            </xsl:when>
+            <xsl:when test="$row/td[1] and $row/*[position() gt 1]/self::th">
+                <xsl:value-of select="true()"/>
+            </xsl:when>
+            <xsl:otherwise>
+                <xsl:value-of select="false()"/>
+            </xsl:otherwise>
+        </xsl:choose>
+    </xsl:function>
+
+    <!-- Process tbody: detect header rows and move to thead, handle title row -->
+    <xsl:template match="tbody" mode="pass2-tbody" priority="10">
+        <xsl:param name="max-cells" as="xs:integer" tunnel="yes"/>
+
+        <xsl:variable name="table-has-more-than-two-rows" select="count(tr) gt 2"/>
+        <xsl:variable name="first-row" select="tr[1]"/>
+
+        <!-- Pattern 1: Check if first row is a title row (single cell with colspan) -->
+        <xsl:variable name="is-title-row" select="count($first-row/*) = 1 and $first-row/*[1]/@colspan"/>
+        <xsl:variable name="title-offset" select="if ($is-title-row) then 1 else 0"/>
+
+        <!-- Pattern 2: Identify consecutive header rows (after title, stop at first non-header) -->
+        <xsl:variable name="header-rows" as="element(tr)*">
+            <xsl:if test="$table-has-more-than-two-rows">
+                <xsl:call-template name="collect-consecutive-header-rows">
+                    <xsl:with-param name="rows" select="tr[position() gt $title-offset]"/>
+                    <xsl:with-param name="max-rows" select="3"/>
+                </xsl:call-template>
+            </xsl:if>
+        </xsl:variable>
+
+        <xsl:variable name="num-header-rows" select="count($header-rows)"/>
+
+        <!-- Create or augment thead if header rows detected -->
+        <xsl:if test="$num-header-rows gt 0">
+            <xsl:choose>
+                <!-- Merge with existing thead -->
+                <xsl:when test="../thead">
+                    <thead>
+                        <xsl:apply-templates select="../thead/@*" mode="pass2-table"/>
+                        <xsl:apply-templates select="../thead/tr" mode="pass2-table">
+                            <xsl:with-param name="max-cells" select="$max-cells" tunnel="yes"/>
+                        </xsl:apply-templates>
+                        <xsl:apply-templates select="$header-rows" mode="pass2-table">
+                            <xsl:with-param name="max-cells" select="$max-cells" tunnel="yes"/>
+                        </xsl:apply-templates>
+                    </thead>
+                </xsl:when>
+                <!-- Create new thead -->
+                <xsl:otherwise>
+                    <thead>
+                        <xsl:apply-templates select="$header-rows" mode="pass2-table">
+                            <xsl:with-param name="max-cells" select="$max-cells" tunnel="yes"/>
+                        </xsl:apply-templates>
+                    </thead>
+                </xsl:otherwise>
+            </xsl:choose>
+        </xsl:if>
+
+        <!-- Process tbody: skip title row and header rows -->
+        <tbody>
+            <xsl:apply-templates select="@*" mode="pass2-table"/>
+            <xsl:apply-templates select="tr[position() gt ($title-offset + $num-header-rows)]" mode="pass2-table">
+                <xsl:with-param name="max-cells" select="$max-cells" tunnel="yes"/>
+            </xsl:apply-templates>
+        </tbody>
     </xsl:template>
 
 </xsl:stylesheet>
