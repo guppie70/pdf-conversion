@@ -5,6 +5,7 @@
 @using PdfConversion.Services
 @using PdfConversion.Models
 @using PdfConversion.Components
+@using PdfConversion.Utils
 @inject IProjectManagementService ProjectService
 @inject IConversionService ConversionService
 @inject IRoundTripValidationService ValidationService
@@ -29,46 +30,20 @@
         </div>
         <div class="panel-body">
             <div class="row g-3">
-                <!-- Project Selection -->
-                <div class="col-md-4">
-                    <label for="projectSelect" class="form-label">Project</label>
-                    <select id="projectSelect"
-                            class="form-select"
-                            @onchange="OnProjectChanged"
-                            value="@_config.ProjectId"
-                            disabled="@IsProcessing">
-                        <option value="">-- Select Project --</option>
-                        @if (Projects != null)
-                        {
-                            @foreach (var project in Projects)
-                            {
-                                <option value="@project.ProjectId">@project.Name</option>
-                            }
-                        }
-                    </select>
-                </div>
-
-                <!-- Source File Selection -->
-                <div class="col-md-4">
+                <!-- Combined Project & Source File Selection -->
+                <div class="col-md-6">
                     <label for="sourceFileSelect" class="form-label">Source File</label>
-                    <select id="sourceFileSelect"
-                            class="form-select"
-                            @onchange="OnSourceFileChanged"
-                            value="@_config.SourceFile"
-                            disabled="@(!IsProjectSelected || IsProcessing)">
-                        <option value="">-- Select Source File --</option>
-                        @if (SourceFiles != null)
-                        {
-                            @foreach (var file in SourceFiles)
-                            {
-                                <option value="@file">@file</option>
-                            }
-                        }
-                    </select>
+                    <ProjectFileSelector
+                        FileGroups="@ProjectFileGroups"
+                        SelectedValue="@GetSelectedFilePath()"
+                        OnSelectionChanged="@OnFilePathChangedFromComponent"
+                        CssClass="form-select"
+                        PlaceholderText="Select source file..."
+                        IsDisabled="@IsProcessing" />
                 </div>
 
                 <!-- Hierarchy File Selection -->
-                <div class="col-md-4">
+                <div class="col-md-6">
                     <label for="hierarchyFileSelect" class="form-label">Hierarchy File</label>
                     <select id="hierarchyFileSelect"
                             class="form-select"
@@ -110,10 +85,6 @@
                     <i class="bi bi-info-circle"></i>
                     <strong>Required Fields:</strong>
                     <ul class="mb-0 mt-1">
-                        @if (string.IsNullOrEmpty(_config.ProjectId))
-                        {
-                            <li>Please select a <strong>Project</strong></li>
-                        }
                         @if (string.IsNullOrEmpty(_config.SourceFile))
                         {
                             <li>Please select a <strong>Source File</strong></li>
@@ -265,6 +236,25 @@
     private List<string>? HierarchyFiles;
     private bool IsProcessing = false;
     private bool ProcessingComplete = false;
+
+    // ProjectFileSelector helper properties
+    private List<ProjectFileGroup> ProjectFileGroups => Projects?
+        .Select(p => new ProjectFileGroup
+        {
+            Customer = p.Organization,
+            ProjectId = p.ProjectId,
+            ProjectName = p.Name,
+            Files = p.Files.Select(f => new ProjectFile
+            {
+                FileName = f,
+                FullPath = $"{p.Organization}/{p.ProjectId}/{f}"
+            }).ToList()
+        }).ToList() ?? new();
+
+    private string GetSelectedFilePath() =>
+        !string.IsNullOrEmpty(_config.ProjectId) && !string.IsNullOrEmpty(_config.SourceFile)
+            ? $"{_config.ProjectId}/{_config.SourceFile}"
+            : string.Empty;
 
     // Progress tracking
     private int CurrentItemIndex = 0;
@@ -421,6 +411,13 @@
                 }
             }
 
+            // Load files for each project (needed for ProjectFileSelector)
+            foreach (var project in Projects)
+            {
+                var fullProjectId = $"{project.Organization}/{project.ProjectId}";
+                project.Files = (await ProjectService.GetProjectFilesAsync(fullProjectId)).ToList();
+            }
+
             Logger.LogInformation("Loaded {Count} active projects", Projects.Count);
         }
         catch (Exception ex)
@@ -484,6 +481,44 @@
             await UserSelectionService.UpdateSelectionAsync(sourceXml: string.Empty);
         }
         StateHasChanged();
+    }
+
+    private async Task OnFilePathChangedFromComponent(string filePath)
+    {
+        if (!string.IsNullOrEmpty(filePath))
+        {
+            try
+            {
+                // Parse: "org/project/file.xml" -> org, project, file
+                var parts = filePath.Split('/', 3);
+                if (parts.Length != 3) return;
+
+                var organization = parts[0];
+                var projectId = parts[1];
+                var fileName = parts[2];
+
+                _config.ProjectId = $"{organization}/{projectId}";
+                _config.SourceFile = fileName;
+                _config.HierarchyFile = null;  // Reset hierarchy selection
+                HierarchyFiles = null;
+
+                // Load hierarchy files for the selected project
+                await LoadProjectFilesAsync(_config.ProjectId);
+
+                // Save to UserSelectionService (save only filename for consistency)
+                await UserSelectionService.UpdateSelectionAsync(
+                    projectId: projectId,
+                    sourceXml: fileName);
+
+                AddLogEntry($"Source file selected: {fileName}");
+                StateHasChanged();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error handling file path change");
+                AddLogEntry($"Error selecting file: {ex.Message}");
+            }
+        }
     }
 
     private async Task OnHierarchyFileChanged(ChangeEventArgs e)
