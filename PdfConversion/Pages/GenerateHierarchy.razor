@@ -45,57 +45,10 @@
         </div>
 
         <div class="right-panel">
-            <div class="panel-header">
-                <h5>Item Details</h5>
-            </div>
-            <div class="panel-content">
-                @if (SelectedItem != null)
-                {
-                    <div class="item-details">
-                        <div class="mb-3">
-                            <label class="form-label"><strong>ID:</strong></label>
-                            <input type="text" class="form-control" @bind="SelectedItem.Id" readonly />
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label"><strong>Link Name:</strong></label>
-                            <input type="text" class="form-control" @bind="SelectedItem.LinkName" @oninput="@(() => HasChanges = true)" />
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label"><strong>Level:</strong></label>
-                            <input type="number" class="form-control" @bind="SelectedItem.Level" readonly />
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label"><strong>Data Ref:</strong></label>
-                            <input type="text" class="form-control" @bind="SelectedItem.DataRef" @oninput="@(() => HasChanges = true)" />
-                        </div>
-                        @if (SelectedItem.Confidence.HasValue)
-                        {
-                            <div class="mb-3">
-                                <label class="form-label"><strong>Confidence:</strong></label>
-                                <div class="progress">
-                                    <div class="progress-bar bg-@GetConfidenceColor(SelectedItem.Confidence.Value)"
-                                         style="width: @SelectedItem.Confidence%">
-                                        @SelectedItem.Confidence%
-                                    </div>
-                                </div>
-                            </div>
-                        }
-                        @if (!string.IsNullOrEmpty(SelectedItem.Reasoning))
-                        {
-                            <div class="mb-3">
-                                <label class="form-label"><strong>AI Reasoning:</strong></label>
-                                <textarea class="form-control" rows="4" readonly>@SelectedItem.Reasoning</textarea>
-                            </div>
-                        }
-                    </div>
-                }
-                else
-                {
-                    <div class="text-center p-5 text-muted">
-                        <p>Select an item to view details</p>
-                    </div>
-                }
-            </div>
+            <AvailableHeadersPanel @ref="HeadersPanel"
+                                  NormalizedXmlPath="@NormalizedXmlPath"
+                                  HierarchyXmlPath="@HierarchyXmlPath"
+                                  OnHeadersChanged="HandleHeadersChanged" />
         </div>
     </div>
 </div>
@@ -104,16 +57,27 @@
     private HierarchyStructure? CurrentHierarchy { get; set; }
     private HierarchyItem? SelectedItem { get; set; }
     private bool HasChanges { get; set; }
+    private AvailableHeadersPanel? HeadersPanel { get; set; }
+
+    // File paths for the headers panel - using taxxor/ar25-1 test project
+    private string? NormalizedXmlPath => "/app/data/input/taxxor/projects/ar25-1/docling-output.xml";
+    private string? HierarchyXmlPath => "/app/data/input/taxxor/projects/ar25-1/metadata/sample-hierarchy.xml";
 
     private async Task LoadHierarchyAsync()
     {
         try
         {
-            // For now, load the example hierarchy
-            var filePath = "/app/data/input/optiver/projects/ar24-3/metadata/hierarchy-ar-pdf-en.xml";
+            // Load the sample hierarchy for taxxor/ar25-1
+            var filePath = "/app/data/input/taxxor/projects/ar25-1/metadata/sample-hierarchy.xml";
             CurrentHierarchy = await HierarchyService.LoadHierarchyAsync(filePath);
             HasChanges = false;
             Logger.LogInformation("Loaded hierarchy from {Path}", filePath);
+
+            // Refresh headers panel to mark used headers
+            if (HeadersPanel != null)
+            {
+                await HeadersPanel.LoadHeadersAsync();
+            }
         }
         catch (Exception ex)
         {
@@ -131,6 +95,12 @@
             await HierarchyService.SaveHierarchyAsync(filePath, CurrentHierarchy);
             HasChanges = false;
             Logger.LogInformation("Saved hierarchy to {Path}", filePath);
+
+            // Refresh headers panel to update used status
+            if (HeadersPanel != null)
+            {
+                await HeadersPanel.RefreshUsedStatusAsync();
+            }
         }
         catch (Exception ex)
         {
@@ -146,6 +116,12 @@
     private void HandleItemEdited(HierarchyItem item)
     {
         HasChanges = true;
+    }
+
+    private async Task HandleHeadersChanged()
+    {
+        // Called when headers are loaded/refreshed
+        StateHasChanged();
     }
 
     private string GetConfidenceColor(int confidence)

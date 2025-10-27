@@ -86,6 +86,7 @@ builder.Services.AddScoped<IDiffService, DiffService>();
 builder.Services.AddScoped<IRoundTripValidationService, RoundTripValidationService>();
 builder.Services.AddScoped<IBase64ImageExtractor, Base64ImageExtractor>();
 builder.Services.AddScoped<IHierarchyService, HierarchyService>();
+builder.Services.AddScoped<IHeaderExtractionService, HeaderExtractionService>();
 builder.Services.AddScoped<TransformToolbarState>();
 builder.Services.AddSingleton<IXhtmlValidationService, XhtmlValidationService>();
 builder.Services.AddSingleton<ITransformationLogService, TransformationLogService>();

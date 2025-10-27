@@ -1,4 +1,6 @@
 @using PdfConversion.Models
+@using System.Text.Json
+@inject IJSRuntime JSRuntime
 
 <div class="tree-item @GetDragClasses()"
      style="margin-left: @(Level * 20)px"
@@ -89,6 +91,7 @@
     // Drag-drop state (static to share across instances)
     private static HierarchyItem? DraggedItem { get; set; }
     private static HierarchyItem? DraggedItemParent { get; set; }
+    private static DocumentHeader? DraggedHeader { get; set; }
     private bool IsDragOver { get; set; }
     private bool IsBeingDragged { get; set; }
 
@@ -155,13 +158,19 @@
         CurrentDropPosition = DropPosition.None;
     }
 
-    private void HandleDragOver(DragEventArgs e)
+    private async Task HandleDragOver(DragEventArgs e)
     {
         if (!CanDropHere())
         {
             IsDragOver = false;
             CurrentDropPosition = DropPosition.None;
             return;
+        }
+
+        // Log only occasionally to avoid flooding console
+        if (!IsDragOver)
+        {
+            await JSRuntime.InvokeVoidAsync("console.log", "[HierarchyTreeItem] Drag over:", Item.LinkName, "DraggedHeader:", DraggedHeader?.Id ?? "null");
         }
 
         IsDragOver = true;
@@ -194,10 +203,22 @@
         CurrentDropPosition = DropPosition.None;
     }
 
-    private async Task HandleDrop()
+    private async Task HandleDrop(DragEventArgs e)
     {
+        await JSRuntime.InvokeVoidAsync("console.log", "[HierarchyTreeItem] HandleDrop called on:", Item.LinkName, "DraggedHeader:", DraggedHeader?.Id ?? "null", "DraggedItem:", DraggedItem?.LinkName ?? "null");
+
+        // Check if we're dropping a header from the panel
+        if (DraggedHeader != null)
+        {
+            await JSRuntime.InvokeVoidAsync("console.log", "[HierarchyTreeItem] Dropping header:", DraggedHeader.Id, "onto:", Item.LinkName);
+            await HandleHeaderDrop();
+            return;
+        }
+
+        // Otherwise handle tree item drop (existing logic)
         if (DraggedItem == null || !CanDropHere())
         {
+            await JSRuntime.InvokeVoidAsync("console.log", "[HierarchyTreeItem] Cannot drop here. DraggedItem null?", DraggedItem == null, "CanDropHere?", CanDropHere());
             IsDragOver = false;
             CurrentDropPosition = DropPosition.None;
             return;
@@ -246,8 +267,86 @@
         StateHasChanged();
     }
 
+    private async Task HandleHeaderDrop()
+    {
+        if (DraggedHeader == null)
+        {
+            return;
+        }
+
+        // Log drop position for debugging
+        await JSRuntime.InvokeVoidAsync("console.log",
+            $"[HierarchyTreeItem] Drop position: {CurrentDropPosition}, adding header '{DraggedHeader.Id}' as {(CurrentDropPosition == DropPosition.Into ? "child" : "sibling")}");
+
+        // Create a new hierarchy item from the header
+        var newItem = new HierarchyItem
+        {
+            Id = Guid.NewGuid().ToString(),
+            LinkName = DraggedHeader.Title,
+            Level = CurrentDropPosition == DropPosition.Into ? Item.Level + 1 : Item.Level,
+            DataRef = DraggedHeader.XPath,
+            SubItems = new List<HierarchyItem>()
+        };
+
+        // Handle different drop positions (same logic as tree item drops)
+        if (CurrentDropPosition == DropPosition.Before || CurrentDropPosition == DropPosition.After)
+        {
+            // Insert as sibling (before or after current item)
+            if (ParentItem != null)
+            {
+                var siblings = ParentItem.SubItems;
+                var currentIndex = siblings.IndexOf(Item);
+
+                if (currentIndex >= 0)
+                {
+                    var insertIndex = CurrentDropPosition == DropPosition.Before
+                        ? currentIndex
+                        : currentIndex + 1;
+
+                    siblings.Insert(insertIndex, newItem);
+                    await JSRuntime.InvokeVoidAsync("console.log",
+                        $"[HierarchyTreeItem] Inserted header as sibling at index {insertIndex} (position: {CurrentDropPosition})");
+                    await OnItemEdited.InvokeAsync(ParentItem);
+                }
+                else
+                {
+                    await JSRuntime.InvokeVoidAsync("console.log",
+                        "[HierarchyTreeItem] Warning: Could not find current item index in parent's SubItems");
+                }
+            }
+            else
+            {
+                // Fallback: If no parent (root level), add as child instead
+                await JSRuntime.InvokeVoidAsync("console.log",
+                    "[HierarchyTreeItem] Warning: Cannot insert as sibling - no parent item. Adding as child instead.");
+                newItem.Level = Item.Level + 1; // Adjust level since we're making it a child
+                Item.SubItems.Add(newItem);
+                await OnItemEdited.InvokeAsync(Item);
+            }
+        }
+        else // DropPosition.Into
+        {
+            // Add as child
+            Item.SubItems.Add(newItem);
+            await JSRuntime.InvokeVoidAsync("console.log",
+                $"[HierarchyTreeItem] Added header as child of '{Item.LinkName}'");
+            await OnItemEdited.InvokeAsync(Item);
+        }
+
+        // Clear state
+        IsDragOver = false;
+        CurrentDropPosition = DropPosition.None;
+        DraggedHeader = null;
+
+        StateHasChanged();
+    }
+
     private bool CanDropHere()
     {
+        // Allow header drops anywhere
+        if (DraggedHeader != null)
+            return true;
+
         if (DraggedItem == null || DraggedItem == Item)
             return false;
 
@@ -291,5 +390,15 @@
         }
 
         return string.Join(" ", classes);
+    }
+
+    /// <summary>
+    /// Public method for external components (like AvailableHeadersPanel) to set the dragged header.
+    /// Called when a header is being dragged from the panel.
+    /// </summary>
+    public static void SetDraggedHeader(DocumentHeader? header)
+    {
+        DraggedHeader = header;
+        // Note: Cannot use JSRuntime here as it's a static method and JSRuntime requires instance context
     }
 }

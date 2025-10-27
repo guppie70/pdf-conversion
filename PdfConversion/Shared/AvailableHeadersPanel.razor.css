@@ -1,0 +1,273 @@
+/* VS Code Dark Theme for Available Headers Panel */
+
+.headers-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: #252526;
+    border-left: 1px solid #3e3e42;
+}
+
+/* Panel Header */
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: #2d2d30;
+    border-bottom: 1px solid #3e3e42;
+}
+
+.panel-header h5 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #cccccc;
+}
+
+.header-count {
+    font-size: 12px;
+    color: #858585;
+    background: #3e3e42;
+    padding: 2px 8px;
+    border-radius: 10px;
+}
+
+/* Toolbar */
+.panel-toolbar {
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+    background: #252526;
+    border-bottom: 1px solid #3e3e42;
+}
+
+.search-box {
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.search-box i.bi-search {
+    position: absolute;
+    left: 10px;
+    color: #858585;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.search-box input {
+    padding-left: 32px;
+    padding-right: 32px;
+    background: #3c3c3c;
+    border: 1px solid #3e3e42;
+    color: #cccccc;
+    font-size: 13px;
+}
+
+.search-box input::placeholder {
+    color: #858585;
+}
+
+.search-box input:focus {
+    background: #3c3c3c;
+    border-color: #007acc;
+    color: #cccccc;
+    box-shadow: 0 0 0 0.2rem rgba(0, 122, 204, 0.25);
+}
+
+.clear-btn {
+    position: absolute;
+    right: 4px;
+    padding: 2px 6px;
+    color: #858585;
+    z-index: 1;
+}
+
+.clear-btn:hover {
+    color: #cccccc;
+}
+
+.level-filter {
+    width: 120px;
+    background: #3c3c3c;
+    border: 1px solid #3e3e42;
+    color: #cccccc;
+    font-size: 13px;
+}
+
+.level-filter:focus {
+    background: #3c3c3c;
+    border-color: #007acc;
+    color: #cccccc;
+    box-shadow: 0 0 0 0.2rem rgba(0, 122, 204, 0.25);
+}
+
+/* Level Summary */
+.level-summary {
+    display: flex;
+    gap: 6px;
+    padding: 8px 16px;
+    background: #1e1e1e;
+    border-bottom: 1px solid #3e3e42;
+    flex-wrap: wrap;
+}
+
+.level-summary .level-badge {
+    font-size: 11px;
+    padding: 3px 8px;
+}
+
+/* Headers List */
+.headers-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+}
+
+.header-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    margin-bottom: 4px;
+    background: #2d2d30;
+    border: 1px solid #3e3e42;
+    border-radius: 4px;
+    cursor: grab;
+    transition: all 0.15s ease;
+}
+
+.header-item:hover {
+    background: #37373d;
+    border-color: #007acc;
+}
+
+.header-item.dragging {
+    opacity: 0.5;
+    cursor: grabbing;
+}
+
+.header-item.used {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: #2d2d30;
+}
+
+.header-item.used:hover {
+    background: #2d2d30;
+    border-color: #3e3e42;
+}
+
+/* Level Badges */
+.level-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+}
+
+.level-h1 {
+    background: #569cd6;
+    color: #000000;
+}
+
+.level-h2 {
+    background: #4ec9b0;
+    color: #000000;
+}
+
+.level-h3 {
+    background: #ce9178;
+    color: #000000;
+}
+
+.level-h4 {
+    background: #dcdcaa;
+    color: #000000;
+}
+
+.level-h5 {
+    background: #c586c0;
+    color: #000000;
+}
+
+.level-h6 {
+    background: #9cdcfe;
+    color: #000000;
+}
+
+/* Header Title */
+.header-title {
+    flex: 1;
+    font-size: 13px;
+    color: #cccccc;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.header-item.used .header-title {
+    color: #808080;
+}
+
+/* Used Icon */
+.used-icon {
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+/* No Results */
+.no-results {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 48px 16px;
+    text-align: center;
+    color: #858585;
+}
+
+.no-results i {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+.no-results p {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+}
+
+.no-results button {
+    color: #007acc;
+    text-decoration: none;
+}
+
+.no-results button:hover {
+    color: #4daafc;
+    text-decoration: underline;
+}
+
+/* Scrollbar Styling */
+.headers-list::-webkit-scrollbar {
+    width: 10px;
+}
+
+.headers-list::-webkit-scrollbar-track {
+    background: #252526;
+}
+
+.headers-list::-webkit-scrollbar-thumb {
+    background: #424242;
+    border-radius: 5px;
+}
+
+.headers-list::-webkit-scrollbar-thumb:hover {
+    background: #4e4e4e;
+}
