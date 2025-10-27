@@ -518,30 +518,12 @@
                 <div class="panel-header-left">
                     @if (Projects != null && Projects.Any())
                     {
-                        <select class="form-select form-select-sm xslt-file-select" @onchange="OnFilePathChangedFromDropdown" @onfocus="OnFileDropdownFocusedAsync">
-                            <option value="">Select a file...</option>
-                            @foreach (var project in Projects
-                                .OrderBy(p => FilenameUtils.FormatCustomerDisplayName(p.Organization))
-                                .ThenBy(p => p.Name))
-                            {
-                                <optgroup label="@($"{FilenameUtils.FormatCustomerDisplayName(project.Organization)} / {project.Name}")">
-                                    @if (project.Files != null && project.Files.Any())
-                                    {
-                                        @foreach (var file in project.Files.OrderBy(f => f))
-                                        {
-                                            var fullPath = $"{project.Organization}/{project.ProjectId}/{file}";
-                                            var isSelected = !string.IsNullOrEmpty(SelectedProjectId) &&
-                                                           !string.IsNullOrEmpty(SelectedFileName) &&
-                                                           SelectedProjectId == $"{project.Organization}/{project.ProjectId}" &&
-                                                           SelectedFileName == file;
-                                            <option value="@fullPath" selected="@isSelected">
-                                                @file
-                                            </option>
-                                        }
-                                    }
-                                </optgroup>
-                            }
-                        </select>
+                        <ProjectFileSelector
+                            FileGroups="@ProjectFileGroups"
+                            SelectedValue="@GetSelectedFilePath()"
+                            OnSelectionChanged="@OnFilePathChangedFromComponent"
+                            CssClass="form-select form-select-sm xslt-file-select"
+                            PlaceholderText="Select a file..." />
                     }
                     else
                     {
@@ -880,6 +862,25 @@
                              && !string.IsNullOrEmpty(SelectedProjectId)
                              && !string.IsNullOrEmpty(SelectedFileName);
 
+    // ProjectFileSelector helper properties
+    private List<ProjectFileGroup> ProjectFileGroups => Projects?
+        .Select(p => new ProjectFileGroup
+        {
+            Customer = p.Organization,
+            ProjectId = p.ProjectId,
+            ProjectName = p.Name,
+            Files = p.Files.Select(f => new ProjectFile
+            {
+                FileName = f,
+                FullPath = $"{p.Organization}/{p.ProjectId}/{f}"
+            }).ToList()
+        }).ToList() ?? new();
+
+    private string GetSelectedFilePath() =>
+        !string.IsNullOrEmpty(SelectedProjectId) && !string.IsNullOrEmpty(SelectedFileName)
+            ? $"{SelectedProjectId}/{SelectedFileName}"
+            : string.Empty;
+
     private async Task OnRenderedToggled()
     {
         // ShowRendered is already updated by @bind-value
@@ -1110,6 +1111,14 @@
     private async Task OnFilePathChangedFromDropdown(ChangeEventArgs e)
     {
         var filePath = e.Value?.ToString();
+        if (!string.IsNullOrEmpty(filePath))
+        {
+            await OnFilePathChanged(filePath);
+        }
+    }
+
+    private async Task OnFilePathChangedFromComponent(string filePath)
+    {
         if (!string.IsNullOrEmpty(filePath))
         {
             await OnFilePathChanged(filePath);

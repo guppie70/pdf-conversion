@@ -1,0 +1,71 @@
+/* ProjectFileSelector Component Styles - VS Code Dark Modern Theme */
+
+/* Base select styling */
+select {
+    background-color: #2d2d30;
+    color: #cccccc;
+    border: 1px solid #3e3e42;
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 13px;
+    line-height: 1.5;
+    transition: border-color 0.15s ease-in-out;
+}
+
+select:hover:not(:disabled) {
+    border-color: #4e4e52;
+    background-color: #3e3e42;
+}
+
+select:focus {
+    outline: none;
+    border-color: #007acc;
+    box-shadow: 0 0 0 1px #007acc;
+}
+
+select:disabled {
+    background-color: #252526;
+    color: #6a6a6a;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* Optgroup styling (group headers) */
+select optgroup {
+    font-weight: 600;
+    font-style: normal;
+    color: #858585;
+    background-color: #252526;
+    padding: 4px 0;
+}
+
+/* Option styling (file items) */
+select option {
+    padding: 4px 12px 4px 24px; /* Indent file items */
+    color: #cccccc;
+    background-color: #2d2d30;
+}
+
+select option:hover {
+    background-color: #3e3e42;
+}
+
+/* Selected option */
+select option:checked {
+    background-color: #094771;
+    color: #ffffff;
+}
+
+/* Small variant (for toolbar usage) */
+select.form-select-sm {
+    padding: 4px 8px;
+    font-size: 12px;
+    min-height: 28px;
+}
+
+/* Ensure proper sizing */
+select.xslt-file-select {
+    min-width: 250px;
+    max-width: 400px;
+    flex: 1;
+}

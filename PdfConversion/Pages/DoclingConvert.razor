@@ -145,22 +145,13 @@
                 <!-- Existing File Selection for Re-processing -->
                 <div class="form-group">
                     <label for="existingFileSelect" class="form-label">Existing File</label>
-                    <select id="existingFileSelect"
-                            class="form-select"
-                            value="@SelectedExistingFile"
-                            @onchange="HandleExistingFileChange"
-                            disabled="@IsConverting">
-                        <option value="">-- Select Existing File --</option>
-                        @foreach (var customerGroup in ExistingFiles.GroupBy(f => f.ProjectLabel).OrderBy(g => g.Key))
-                        {
-                            <optgroup label="@customerGroup.Key">
-                                @foreach (var file in customerGroup.OrderBy(f => f.FileName))
-                                {
-                                    <option value="@file.FilePath">@file.FileName</option>
-                                }
-                            </optgroup>
-                        }
-                    </select>
+                    <ProjectFileSelector
+                        FileGroups="@ExistingFileGroups"
+                        SelectedValue="@SelectedExistingFile"
+                        OnSelectionChanged="@HandleExistingFileSelectionChanged"
+                        PlaceholderText="-- Select Existing File --"
+                        IsDisabled="@IsConverting"
+                        CssClass="form-select" />
                 </div>
 
                 <!-- Validation Alert for Existing File Mode -->
@@ -378,6 +369,27 @@
                 return hasExistingFile;
             }
         }
+    }
+
+    // ProjectFileSelector helper properties
+    private List<ProjectFileGroup> ExistingFileGroups =>
+        ExistingFiles
+            .GroupBy(f => new { f.Customer, f.ProjectId, f.ProjectLabel })
+            .Select(g => new ProjectFileGroup
+            {
+                Customer = g.Key.Customer,
+                ProjectId = g.Key.ProjectId,
+                ProjectName = g.Key.ProjectLabel,
+                Files = g.Select(f => new ProjectFile
+                {
+                    FileName = f.FileName,
+                    FullPath = f.FilePath
+                }).ToList()
+            }).ToList();
+
+    private async Task HandleExistingFileSelectionChanged(string filePath)
+    {
+        await HandleExistingFileChange(new ChangeEventArgs { Value = filePath });
     }
 
     protected override async Task OnInitializedAsync()
