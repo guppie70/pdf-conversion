@@ -306,15 +306,44 @@
 
                 if (!string.IsNullOrEmpty(selection.LastSelectedProject))
                 {
-                    // Convert short project ID (e.g., "ar24-3") to full path format (e.g., "optiver/ar24-3")
-                    // by looking up the matching project in the Projects list
-                    var matchingProject = Projects?.FirstOrDefault(p =>
-                        p.ProjectId.EndsWith("/" + selection.LastSelectedProject, StringComparison.OrdinalIgnoreCase) ||
-                        p.ProjectId.Equals(selection.LastSelectedProject, StringComparison.OrdinalIgnoreCase));
+                    // Support both formats:
+                    // - Full format: "optiver/ar24-3" (preferred, used by unified dropdown)
+                    // - Short format: "ar24-3" (legacy, needs lookup)
 
-                    if (matchingProject != null)
+                    string? resolvedProjectId = null;
+
+                    if (selection.LastSelectedProject.Contains('/'))
                     {
-                        savedProjectId = matchingProject.ProjectId;
+                        // Already in full format - use directly
+                        resolvedProjectId = selection.LastSelectedProject;
+                        Logger.LogInformation("Restored project selection in full format: {Project}", resolvedProjectId);
+                    }
+                    else
+                    {
+                        // Short format - find matching project in Projects list
+                        Logger.LogWarning("⚠️ Legacy ProjectId format detected in user-selections.json: '{ProjectId}' (expected 'customer/project-id' format)",
+                            selection.LastSelectedProject);
+
+                        var matchingProject = Projects?.FirstOrDefault(p =>
+                            p.ProjectId.EndsWith("/" + selection.LastSelectedProject, StringComparison.OrdinalIgnoreCase));
+
+                        resolvedProjectId = matchingProject?.ProjectId;
+
+                        if (resolvedProjectId != null)
+                        {
+                            Logger.LogInformation("Resolved legacy ProjectId '{Short}' to full format: {Full}",
+                                selection.LastSelectedProject, resolvedProjectId);
+                        }
+                        else
+                        {
+                            Logger.LogWarning("Could not resolve legacy ProjectId '{Short}' to any available project",
+                                selection.LastSelectedProject);
+                        }
+                    }
+
+                    if (resolvedProjectId != null)
+                    {
+                        savedProjectId = resolvedProjectId;
                         savedSourceFile = selection.LastSelectedSourceXml;
                         savedHierarchyFile = selection.LastSelectedHierarchyXml;
                         Logger.LogInformation("Restored selections from UserSelectionService: Project={Project}, Source={Source}, Hierarchy={Hierarchy}",
@@ -441,12 +470,11 @@
             {
                 await LoadProjectFilesAsync(_config.ProjectId);
 
-                // Save to UserSelectionService
-                // Extract just the project ID from full path (e.g., "optiver/ar24-3" → "ar24-3")
-                var projectId = _config.ProjectId.Contains('/')
-                    ? _config.ProjectId.Split('/').Last()
-                    : _config.ProjectId;
-                await UserSelectionService.UpdateSelectionAsync(projectId: projectId, sourceXml: string.Empty, hierarchyXml: string.Empty);
+                // Save to UserSelectionService with FULL path format (e.g., "optiver/ar24-3")
+                await UserSelectionService.UpdateSelectionAsync(
+                    projectId: _config.ProjectId,  // Keep full path, don't strip!
+                    sourceXml: string.Empty,
+                    hierarchyXml: string.Empty);
 
                 AddLogEntry($"Project selected: {_config.ProjectId}");
             }
@@ -505,9 +533,9 @@
                 // Load hierarchy files for the selected project
                 await LoadProjectFilesAsync(_config.ProjectId);
 
-                // Save to UserSelectionService (save only filename for consistency)
+                // Save to UserSelectionService with FULL path format (e.g., "optiver/ar24-3")
                 await UserSelectionService.UpdateSelectionAsync(
-                    projectId: projectId,
+                    projectId: _config.ProjectId,  // Use full path, not just projectId
                     sourceXml: fileName);
 
                 AddLogEntry($"Source file selected: {fileName}");
