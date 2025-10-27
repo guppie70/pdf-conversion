@@ -117,6 +117,14 @@ public class HierarchyService : IHierarchyService
         {
             _logger.LogInformation("Saving hierarchy to {FilePath}", filePath);
 
+            // Ensure directory exists
+            var directory = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+                _logger.LogInformation("Created directory: {Directory}", directory);
+            }
+
             var doc = new XDocument(
                 new XElement("items",
                     new XElement("structured",

@@ -1,7 +1,12 @@
 @page "/generate-hierarchy"
 @using PdfConversion.Models
 @using PdfConversion.Services
+@using PdfConversion.Shared
 @inject IHierarchyService HierarchyService
+@inject IProjectLabelService ProjectLabelService
+@inject IUserSelectionService UserSelectionService
+@inject IHeaderExtractionService HeaderExtractionService
+@inject IXsltTransformationService XsltTransformationService
 @inject ILogger<GenerateHierarchy> Logger
 
 <PageTitle>Generate Hierarchy</PageTitle>
@@ -10,10 +15,7 @@
     <div class="page-header">
         <h3>Document Hierarchy Editor</h3>
         <div class="header-actions">
-            <button class="btn btn-primary" @onclick="LoadHierarchyAsync">
-                <i class="bi bi-folder-open"></i> Load
-            </button>
-            <button class="btn btn-success" @onclick="SaveHierarchyAsync" disabled="@(!HasChanges)">
+            <button class="btn btn-success" @onclick="SaveHierarchyAsync" disabled="@(!HasChanges || string.IsNullOrEmpty(SelectedProject))">
                 <i class="bi bi-save"></i> Save
             </button>
             <button class="btn btn-secondary" disabled="true">
@@ -21,6 +23,36 @@
             </button>
         </div>
     </div>
+
+    <div class="settings-panel">
+        <label>Source XML:</label>
+        <ProjectFileSelector
+            FileGroups="@ProjectFileGroups"
+            SelectedValue="@GetSelectedFilePath()"
+            OnSelectionChanged="@OnFilePathChangedFromComponent"
+            CssClass="form-select"
+            PlaceholderText="Select XML..." />
+
+        <label>Hierarchy XML:</label>
+        <select class="form-select"
+                @bind="SelectedHierarchyXml"
+                @bind:after="OnHierarchyXmlChangedAsync"
+                disabled="@string.IsNullOrEmpty(SelectedSourceXml)">
+            <option value="">Select hierarchy...</option>
+            @foreach (var file in HierarchyXmlFiles)
+            {
+                <option value="@file">@Path.GetFileName(file)</option>
+            }
+        </select>
+    </div>
+
+    @if (!string.IsNullOrEmpty(AlertMessage))
+    {
+        <div class="alert alert-@AlertType alert-dismissible fade show mt-2" role="alert">
+            @AlertMessage
+            <button type="button" class="btn-close" @onclick="() => AlertMessage = null" aria-label="Close"></button>
+        </div>
+    }
 
     <div class="hierarchy-workspace">
         <div class="left-panel">
@@ -59,19 +91,291 @@
     private bool HasChanges { get; set; }
     private AvailableHeadersPanel? HeadersPanel { get; set; }
 
-    // File paths for the headers panel - using taxxor/ar25-1 test project
-    private string? NormalizedXmlPath => "/app/data/input/taxxor/projects/ar25-1/docling-output.xml";
-    private string? HierarchyXmlPath => "/app/data/input/taxxor/projects/ar25-1/metadata/sample-hierarchy.xml";
+    // Project and file selection state
+    private List<ProjectInfo> Projects { get; set; } = new();
+    private string? SelectedProject { get; set; } // Format: "customer/project-id"
+    private string? SelectedSourceXml { get; set; } // Full path to XML file
+    private string? SelectedXsltFile { get; set; } // XSLT file path from user selections
+    private List<string> HierarchyXmlFiles { get; set; } = new();
+    private string? SelectedHierarchyXml { get; set; }
+    private bool IsLoadingDocument { get; set; }
+    private bool IsLoadingHierarchy { get; set; }
 
-    private async Task LoadHierarchyAsync()
+    // ProjectFileSelector helper properties
+    private List<ProjectFileGroup> ProjectFileGroups
+    {
+        get
+        {
+            if (Projects == null || !Projects.Any())
+                return new();
+
+            var groups = new List<ProjectFileGroup>();
+
+            foreach (var project in Projects)
+            {
+                var customer = project.Customer;
+                var projectId = project.ProjectId;
+
+                // Group 1: Input files for this project
+                var inputDir = $"/app/data/input/{customer}/projects/{projectId}";
+                if (Directory.Exists(inputDir))
+                {
+                    var inputFiles = Directory.GetFiles(inputDir, "*.xml")
+                        .Where(f => !f.Contains("/metadata/"))
+                        .Select(f => new ProjectFile
+                        {
+                            FileName = Path.GetFileName(f),
+                            FullPath = f
+                        })
+                        .ToList();
+
+                    if (inputFiles.Any())
+                    {
+                        groups.Add(new ProjectFileGroup
+                        {
+                            Customer = customer,
+                            ProjectId = projectId,
+                            ProjectName = $"{project.CustomLabel ?? project.ProjectId} - Input Files",
+                            Files = inputFiles
+                        });
+                    }
+                }
+
+                // Group 2: Output files for this project
+                var outputDir = $"/app/data/output/{customer}/projects/{projectId}";
+                if (Directory.Exists(outputDir))
+                {
+                    var outputFiles = Directory.GetFiles(outputDir, "*.xml")
+                        .Where(f => !Path.GetFileName(f).Equals("hierarchy.xml", StringComparison.OrdinalIgnoreCase))
+                        .Select(f => new ProjectFile
+                        {
+                            FileName = Path.GetFileName(f),
+                            FullPath = f
+                        })
+                        .ToList();
+
+                    if (outputFiles.Any())
+                    {
+                        groups.Add(new ProjectFileGroup
+                        {
+                            Customer = customer,
+                            ProjectId = projectId,
+                            ProjectName = $"{project.CustomLabel ?? project.ProjectId} - Output Files",
+                            Files = outputFiles
+                        });
+                    }
+                }
+            }
+
+            return groups;
+        }
+    }
+
+    private string GetSelectedFilePath() =>
+        !string.IsNullOrEmpty(SelectedSourceXml) ? SelectedSourceXml : string.Empty;
+
+    private async Task OnFilePathChangedFromComponent(string filePath)
+    {
+        if (!string.IsNullOrEmpty(filePath))
+        {
+            SelectedSourceXml = filePath;
+
+            // Extract project from file path
+            // Path format: /app/data/input/{customer}/projects/{projectId}/file.xml
+            // or: /app/data/output/{customer}/projects/{projectId}/file.xml
+            var match = System.Text.RegularExpressions.Regex.Match(
+                filePath,
+                @"/app/data/(input|output)/([^/]+)/projects/([^/]+)/"
+            );
+
+            if (match.Success)
+            {
+                var customer = match.Groups[2].Value;
+                var projectId = match.Groups[3].Value;
+                SelectedProject = $"{customer}/{projectId}";
+                Logger.LogInformation("Auto-selected project from file path: {Project}", SelectedProject);
+            }
+
+            await OnSourceXmlChangedAsync();
+            LoadHierarchyXmlFiles();
+        }
+    }
+
+    private void LoadHierarchyXmlFiles()
+    {
+        HierarchyXmlFiles.Clear();
+        SelectedHierarchyXml = null;
+
+        if (string.IsNullOrEmpty(SelectedSourceXml))
+            return;
+
+        // Extract project directory from source XML path
+        // e.g., /app/data/input/taxxor/projects/ar25-1/docling-output.xml
+        // -> /app/data/input/taxxor/projects/ar25-1
+        var projectDir = Path.GetDirectoryName(SelectedSourceXml);
+        if (string.IsNullOrEmpty(projectDir))
+            return;
+
+        var metadataDir = Path.Combine(projectDir, "metadata");
+        if (!Directory.Exists(metadataDir))
+            return;
+
+        // Get all XML files in metadata folder
+        HierarchyXmlFiles = Directory.GetFiles(metadataDir, "*.xml")
+            .OrderBy(f => Path.GetFileName(f))
+            .ToList();
+
+        Logger.LogInformation("Found {Count} hierarchy XML files in {Dir}", HierarchyXmlFiles.Count, metadataDir);
+    }
+
+    private async Task OnHierarchyXmlChangedAsync()
+    {
+        if (!string.IsNullOrEmpty(SelectedHierarchyXml))
+        {
+            await LoadExistingHierarchyAsync();
+        }
+    }
+
+    // Alert state
+    private string? AlertMessage { get; set; }
+    private string AlertType { get; set; } = "info"; // success, warning, danger, info
+
+    // File paths for the headers panel - dynamic based on selection
+    private string? NormalizedXmlPath { get; set; }
+    private string? HierarchyXmlPath
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(SelectedProject)) return null;
+            var parts = SelectedProject.Split('/');
+            if (parts.Length != 2) return null;
+            return $"/app/data/output/{parts[0]}/projects/{parts[1]}/hierarchy.xml";
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
     {
         try
         {
-            // Load the sample hierarchy for taxxor/ar25-1
-            var filePath = "/app/data/input/taxxor/projects/ar25-1/metadata/sample-hierarchy.xml";
-            CurrentHierarchy = await HierarchyService.LoadHierarchyAsync(filePath);
+            // Load all projects
+            Projects = await ProjectLabelService.GetAllProjectsAsync("/app/data/input");
+            Logger.LogInformation("Loaded {Count} projects", Projects.Count);
+
+            // Try to restore last selection
+            var selection = await UserSelectionService.GetSelectionAsync();
+            if (!string.IsNullOrEmpty(selection.LastSelectedProject))
+            {
+                SelectedProject = selection.LastSelectedProject;
+                Logger.LogInformation("Restored project selection: {Project}", SelectedProject);
+
+                // Restore source XML if available
+                if (!string.IsNullOrEmpty(selection.LastSelectedSourceXml))
+                {
+                    SelectedSourceXml = selection.LastSelectedSourceXml;
+                    Logger.LogInformation("Restored source XML: {File}", SelectedSourceXml);
+                }
+
+                // Restore XSLT selection
+                if (!string.IsNullOrEmpty(selection.LastSelectedXslt))
+                {
+                    SelectedXsltFile = selection.LastSelectedXslt;
+                    Logger.LogInformation("Restored XSLT selection: {File}", SelectedXsltFile);
+                }
+
+                // Auto-load and transform if both selections exist
+                if (!string.IsNullOrEmpty(SelectedSourceXml) && !string.IsNullOrEmpty(SelectedXsltFile))
+                {
+                    await AutoTransformAndLoadAsync();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during initialization");
+            ToastNotification.ShowError($"Initialization error: {ex.Message}");
+        }
+    }
+
+    private async Task OnSourceXmlChangedAsync()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(SelectedSourceXml))
+            {
+                await UserSelectionService.UpdateSelectionAsync(sourceXml: SelectedSourceXml);
+                await AutoTransformAndLoadAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error updating source XML selection");
+            ShowAlert("danger", $"Error: {ex.Message}");
+        }
+    }
+
+    private async Task LoadDocumentAsync(bool showToast = true)
+    {
+        if (string.IsNullOrEmpty(SelectedSourceXml)) return;
+
+        IsLoadingDocument = true;
+        try
+        {
+            // Warn if unsaved changes
+            if (HasChanges && CurrentHierarchy != null)
+            {
+                // TODO: Show confirmation dialog
+                Logger.LogWarning("Loading new document with unsaved changes");
+            }
+
+            // Clear current hierarchy
+            CurrentHierarchy = null;
             HasChanges = false;
-            Logger.LogInformation("Loaded hierarchy from {Path}", filePath);
+
+            // Load headers
+            if (HeadersPanel != null)
+            {
+                await HeadersPanel.LoadHeadersAsync();
+            }
+
+            if (showToast)
+            {
+                ToastNotification.ShowSuccess($"Loaded document: {Path.GetFileName(SelectedSourceXml)}");
+            }
+            Logger.LogInformation("Loaded document headers from {Path}", SelectedSourceXml);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load document");
+            ToastNotification.ShowError($"Failed to load document: {ex.Message}");
+        }
+        finally
+        {
+            IsLoadingDocument = false;
+        }
+    }
+
+    private async Task LoadExistingHierarchyAsync()
+    {
+        if (string.IsNullOrEmpty(SelectedHierarchyXml))
+        {
+            Logger.LogWarning("No hierarchy XML file selected");
+            return;
+        }
+
+        IsLoadingHierarchy = true;
+        try
+        {
+            if (!File.Exists(SelectedHierarchyXml))
+            {
+                ToastNotification.ShowError($"Hierarchy file not found: {Path.GetFileName(SelectedHierarchyXml)}");
+                Logger.LogError("Hierarchy file not found: {Path}", SelectedHierarchyXml);
+                return;
+            }
+
+            CurrentHierarchy = await HierarchyService.LoadHierarchyAsync(SelectedHierarchyXml);
+            HasChanges = false;
+            Logger.LogInformation("Loaded hierarchy from {Path}", SelectedHierarchyXml);
+            ToastNotification.ShowSuccess($"Loaded hierarchy: {Path.GetFileName(SelectedHierarchyXml)}");
 
             // Refresh headers panel to mark used headers
             if (HeadersPanel != null)
@@ -82,19 +386,40 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to load hierarchy");
+            ToastNotification.ShowError($"Failed to load hierarchy: {ex.Message}");
+        }
+        finally
+        {
+            IsLoadingHierarchy = false;
         }
     }
 
     private async Task SaveHierarchyAsync()
     {
+        if (CurrentHierarchy == null || string.IsNullOrEmpty(SelectedProject))
+        {
+            ToastNotification.ShowError("No hierarchy to save or no project selected");
+            return;
+        }
+
         try
         {
-            if (CurrentHierarchy == null) return;
+            var parts = SelectedProject.Split('/');
+            if (parts.Length != 2)
+            {
+                Logger.LogError("Invalid project format: {Project}", SelectedProject);
+                ToastNotification.ShowError("Invalid project format");
+                return;
+            }
 
-            var filePath = "/app/data/output/hierarchy-edited.xml";
+            var customer = parts[0];
+            var projectId = parts[1];
+            var filePath = $"/app/data/output/{customer}/projects/{projectId}/hierarchy.xml";
+
             await HierarchyService.SaveHierarchyAsync(filePath, CurrentHierarchy);
             HasChanges = false;
             Logger.LogInformation("Saved hierarchy to {Path}", filePath);
+            ToastNotification.ShowSuccess($"Hierarchy saved to {projectId}/hierarchy.xml");
 
             // Refresh headers panel to update used status
             if (HeadersPanel != null)
@@ -105,6 +430,7 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to save hierarchy");
+            ToastNotification.ShowError($"Failed to save hierarchy: {ex.Message}");
         }
     }
 
@@ -127,5 +453,122 @@
     private string GetConfidenceColor(int confidence)
     {
         return confidence >= 80 ? "success" : confidence >= 70 ? "warning" : "danger";
+    }
+
+    private async Task AutoTransformAndLoadAsync()
+    {
+        if (string.IsNullOrEmpty(SelectedSourceXml) || string.IsNullOrEmpty(SelectedXsltFile))
+        {
+            if (string.IsNullOrEmpty(SelectedXsltFile))
+            {
+                ShowAlert("warning", "No XSLT file selected. Please transform a document on the Transform page first.");
+            }
+            return;
+        }
+
+        IsLoadingDocument = true;
+        ClearAlert();
+
+        try
+        {
+            // Warn if unsaved changes
+            if (HasChanges && CurrentHierarchy != null)
+            {
+                Logger.LogWarning("Loading new document with unsaved changes");
+            }
+
+            // Clear current hierarchy
+            CurrentHierarchy = null;
+            HasChanges = false;
+
+            // Read source XML
+            var xmlContent = await File.ReadAllTextAsync(SelectedSourceXml);
+
+            // Read XSLT
+            var xsltPath = $"/app/xslt/{SelectedXsltFile}";
+            if (!File.Exists(xsltPath))
+            {
+                ShowAlert("danger", $"XSLT file not found: {SelectedXsltFile}");
+                return;
+            }
+            var xsltContent = await File.ReadAllTextAsync(xsltPath);
+
+            // Transform
+            Logger.LogInformation("Transforming {SourceXml} with {Xslt}", Path.GetFileName(SelectedSourceXml), SelectedXsltFile);
+            var transformResult = await XsltTransformationService.TransformAsync(
+                xmlContent,
+                xsltContent,
+                new TransformationOptions
+                {
+                    UseXslt3Service = true,
+                    NormalizeHeaders = false
+                },
+                xsltPath  // Pass file path for module resolution
+            );
+
+            if (!transformResult.IsSuccess)
+            {
+                ShowAlert("danger", $"Transformation failed: {transformResult.ErrorMessage}");
+                Logger.LogError("Transformation failed: {Error}", transformResult.ErrorMessage);
+                return;
+            }
+
+            // Save transformed XML to normalized location
+            var parts = SelectedProject?.Split('/');
+            if (parts?.Length == 2)
+            {
+                var customer = parts[0];
+                var projectId = parts[1];
+                var normalizedPath = $"/app/data/output/{customer}/projects/{projectId}/normalized.xml";
+                var normalizedDir = Path.GetDirectoryName(normalizedPath);
+                if (!Directory.Exists(normalizedDir))
+                {
+                    Directory.CreateDirectory(normalizedDir!);
+                }
+                await File.WriteAllTextAsync(normalizedPath, transformResult.OutputContent);
+                NormalizedXmlPath = normalizedPath;
+                Logger.LogInformation("Saved normalized XML to {Path}", normalizedPath);
+                Logger.LogInformation("NormalizedXmlPath set to: {Path}, File exists: {Exists}",
+                    NormalizedXmlPath, File.Exists(NormalizedXmlPath));
+            }
+
+            // Load headers by passing the path directly (before parameter binding completes)
+            Logger.LogInformation("About to load headers. HeadersPanel is null: {IsNull}, NormalizedXmlPath: {Path}",
+                HeadersPanel == null, NormalizedXmlPath);
+
+            if (HeadersPanel != null && !string.IsNullOrEmpty(NormalizedXmlPath))
+            {
+                await HeadersPanel.LoadHeadersAsync(NormalizedXmlPath, HierarchyXmlPath);
+                Logger.LogInformation("Headers loaded. AllHeaders count from panel should be visible in AvailableHeadersPanel logs");
+            }
+            else
+            {
+                Logger.LogWarning("HeadersPanel is null or NormalizedXmlPath is empty, cannot load headers");
+            }
+
+            ShowAlert("success", $"Loaded and transformed: {Path.GetFileName(SelectedSourceXml)}");
+            Logger.LogInformation("Successfully transformed and loaded document");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Auto-transform failed");
+            ShowAlert("danger", $"Transformation error: {ex.Message}");
+        }
+        finally
+        {
+            IsLoadingDocument = false;
+        }
+    }
+
+    private void ShowAlert(string type, string message)
+    {
+        AlertType = type;
+        AlertMessage = message;
+        StateHasChanged();
+    }
+
+    private void ClearAlert()
+    {
+        AlertMessage = null;
     }
 }

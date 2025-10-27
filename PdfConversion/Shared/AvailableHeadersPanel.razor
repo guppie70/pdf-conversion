@@ -152,19 +152,40 @@
 
     public async Task LoadHeadersAsync()
     {
-        if (string.IsNullOrEmpty(NormalizedXmlPath))
+        await LoadHeadersAsync(NormalizedXmlPath, HierarchyXmlPath);
+    }
+
+    public async Task LoadHeadersAsync(string? normalizedXmlPath, string? hierarchyXmlPath = null)
+    {
+        Logger.LogInformation("[AvailableHeadersPanel] LoadHeadersAsync called. NormalizedXmlPath: {Path}",
+            normalizedXmlPath ?? "(null)");
+
+        if (string.IsNullOrEmpty(normalizedXmlPath))
         {
+            Logger.LogWarning("[AvailableHeadersPanel] normalizedXmlPath is null or empty, cannot load headers");
             AllHeaders = new List<DocumentHeader>();
             return;
         }
 
         try
         {
-            AllHeaders = await HeaderExtractionService.ExtractHeadersAsync(NormalizedXmlPath);
+            Logger.LogInformation("[AvailableHeadersPanel] Calling HeaderExtractionService.ExtractHeadersAsync for {Path}",
+                normalizedXmlPath);
 
-            if (!string.IsNullOrEmpty(HierarchyXmlPath))
+            AllHeaders = await HeaderExtractionService.ExtractHeadersAsync(normalizedXmlPath);
+
+            Logger.LogInformation("[AvailableHeadersPanel] Extracted {Count} headers from {Path}",
+                AllHeaders.Count, normalizedXmlPath);
+
+            var hierarchyPath = hierarchyXmlPath ?? HierarchyXmlPath;
+            if (!string.IsNullOrEmpty(hierarchyPath))
             {
-                await HeaderExtractionService.MarkUsedHeadersAsync(AllHeaders, HierarchyXmlPath);
+                Logger.LogInformation("[AvailableHeadersPanel] Marking used headers from {Path}", hierarchyPath);
+                await HeaderExtractionService.MarkUsedHeadersAsync(AllHeaders, hierarchyPath);
+            }
+            else
+            {
+                Logger.LogInformation("[AvailableHeadersPanel] HierarchyXmlPath is null, skipping used header marking");
             }
 
             // Don't invoke callback here to prevent infinite loop
@@ -172,7 +193,7 @@
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to load headers from {Path}", NormalizedXmlPath);
+            Logger.LogError(ex, "[AvailableHeadersPanel] Failed to load headers from {Path}", normalizedXmlPath);
             AllHeaders = new List<DocumentHeader>();
         }
     }
