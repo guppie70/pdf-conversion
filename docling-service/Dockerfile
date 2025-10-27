@@ -25,6 +25,10 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Grant appuser write permissions to site-packages for runtime model downloads
+# This allows rapidocr and other packages to download models at runtime
+RUN chown -R appuser:appuser /usr/local/lib/python3.11/site-packages
+
 # Copy application code
 COPY . .
 
