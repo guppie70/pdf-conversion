@@ -7,6 +7,9 @@
 @inject IUserSelectionService UserSelectionService
 @inject IHeaderExtractionService HeaderExtractionService
 @inject IXsltTransformationService XsltTransformationService
+@inject IHierarchyGeneratorService HierarchyGenerator
+@inject IOllamaService OllamaService
+@inject IJSRuntime JSRuntime
 @inject ILogger<GenerateHierarchy> Logger
 
 <PageTitle>Generate Hierarchy</PageTitle>
@@ -18,8 +21,10 @@
             <button class="btn btn-success" @onclick="SaveHierarchyAsync" disabled="@(!HasChanges || string.IsNullOrEmpty(SelectedProject))">
                 <i class="bi bi-save"></i> Save
             </button>
-            <button class="btn btn-secondary" disabled="true">
-                <i class="bi bi-magic"></i> Generate with AI (Coming Soon)
+            <button class="btn btn-primary"
+                    @onclick="ShowAiGenerationModal"
+                    disabled="@(string.IsNullOrEmpty(SelectedSourceXml) || !_ollamaHealthy)">
+                <i class="bi bi-robot"></i> Generate with AI
             </button>
         </div>
     </div>
@@ -91,6 +96,144 @@
                             OnItemUpdated="HandleItemUpdated"
                             OnClosed="CloseEditor" />
     }
+
+    @if (_showAiModal)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">AI Hierarchy Generation</h5>
+                        <button type="button" class="btn-close" @onclick="CloseAiModal" disabled="@_isGeneratingAi"></button>
+                    </div>
+                    <div class="modal-body">
+                        @if (_aiError != null)
+                        {
+                            <div class="alert alert-danger alert-dismissible">
+                                @_aiError
+                                <button type="button" class="btn-close" @onclick="() => _aiError = null"></button>
+                            </div>
+                        }
+
+                        <!-- XSLT Selection -->
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">XSLT Transformation</label>
+                            <select class="form-select" @bind="_selectedAiXslt">
+                                <option value="">-- Select XSLT File --</option>
+                                @foreach (var file in _availableXsltFiles)
+                                {
+                                    <option value="@file">@file.Replace("/app/xslt/", "")</option>
+                                }
+                            </select>
+                            @if (!string.IsNullOrEmpty(_selectedAiXslt))
+                            {
+                                <small class="text-muted d-block mt-1">
+                                    @_selectedAiXslt.Replace("/app/xslt/", "") selected
+                                </small>
+                            }
+                        </div>
+
+                        <!-- Example Hierarchies Selection -->
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">
+                                Training Examples
+                                <small class="text-muted">(select 2-3 for best results)</small>
+                            </label>
+                            <input type="text"
+                                   class="form-control form-control-sm mb-2"
+                                   placeholder="Search examples (e.g., 'optiver', 'philips')..."
+                                   @bind="_hierarchySearchFilter"
+                                   @bind:event="oninput" />
+
+                            <div class="example-list" style="max-height: 200px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; padding: 10px;">
+                                @{
+                                    var filteredExamples = string.IsNullOrWhiteSpace(_hierarchySearchFilter)
+                                        ? _exampleHierarchies
+                                        : _exampleHierarchies.Where(e =>
+                                            e.DisplayName.Contains(_hierarchySearchFilter, StringComparison.OrdinalIgnoreCase)
+                                        ).ToList();
+                                }
+                                @foreach (var example in filteredExamples)
+                                {
+                                    <div class="form-check">
+                                        <input class="form-check-input"
+                                               type="checkbox"
+                                               id="@example.Path"
+                                               checked="@example.IsSelected"
+                                               @onchange="@(() => ToggleExample(example))" />
+                                        <label class="form-check-label small" for="@example.Path">
+                                            @example.DisplayName
+                                        </label>
+                                    </div>
+                                }
+                            </div>
+                            <small class="text-muted d-block mt-1">
+                                @_exampleHierarchies.Count(e => e.IsSelected) selected
+                                @if (!string.IsNullOrWhiteSpace(_hierarchySearchFilter))
+                                {
+                                    <text> (showing @filteredExamples.Count() of @_exampleHierarchies.Count)</text>
+                                }
+                            </small>
+                        </div>
+
+                        <!-- Model Selection -->
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">AI Model</label>
+                            <select class="form-select" @bind="_selectedAiModel">
+                                @foreach (var model in _availableAiModels)
+                                {
+                                    <option value="@model.Name">
+                                        @model.Name
+                                        @if (model.Details != null)
+                                        {
+                                            <text> (@model.Details.ParameterSize)</text>
+                                        }
+                                    </option>
+                                }
+                            </select>
+                        </div>
+
+                        <!-- Temperature -->
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">
+                                Temperature: @_aiTemperature.ToString("F1")
+                            </label>
+                            <input type="range"
+                                   class="form-range"
+                                   min="0.0"
+                                   max="1.0"
+                                   step="0.1"
+                                   @bind="_aiTemperature" />
+                            <small class="text-muted d-block">
+                                Lower = more consistent, Higher = more creative
+                            </small>
+                        </div>
+
+                        @if (_isGeneratingAi)
+                        {
+                            <div class="text-center py-4">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Generating...</span>
+                                </div>
+                                <p class="mt-2 text-muted">Generating hierarchy... This may take 30-60 seconds.</p>
+                            </div>
+                        }
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CloseAiModal" disabled="@_isGeneratingAi">
+                            Cancel
+                        </button>
+                        <button type="button"
+                                class="btn btn-primary"
+                                @onclick="GenerateWithAi"
+                                disabled="@(_isGeneratingAi || _exampleHierarchies.Count(e => e.IsSelected) == 0 || string.IsNullOrEmpty(_selectedAiXslt))">
+                            <i class="bi bi-robot"></i> Generate
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
 </div>
 
 @code {
@@ -102,6 +245,29 @@
     // Editor panel state
     private HierarchyItem? EditingItem { get; set; }
     private bool ShowEditor => EditingItem != null;
+
+    // AI Generation state
+    private bool _showAiModal = false;
+    private bool _isGeneratingAi = false;
+    private bool _ollamaHealthy = false;
+    private bool _isAiGenerated = false;  // Track if current hierarchy is AI-generated
+    private string? _aiError = null;
+    private List<ExampleHierarchy> _exampleHierarchies = new();
+    private string _hierarchySearchFilter = string.Empty;
+    private List<OllamaModel> _availableAiModels = new();
+    private string _selectedAiModel = "deepseek-coder:33b";
+    private double _aiTemperature = 0.3;
+    private string _selectedAiXslt = "/app/xslt/transformation.xslt";
+    private List<string> _availableXsltFiles = new();
+
+    // ExampleHierarchy class for training data
+    private class ExampleHierarchy
+    {
+        public string Path { get; set; } = string.Empty;
+        public string DisplayName { get; set; } = string.Empty;
+        public bool IsSelected { get; set; }
+        public string? Content { get; set; }
+    }
 
     // Project and file selection state
     private List<ProjectInfo> Projects { get; set; } = new();
@@ -288,6 +454,17 @@
 
         try
         {
+            // Check Ollama health on page load
+            try
+            {
+                var models = await OllamaService.GetAvailableModelsAsync();
+                _ollamaHealthy = models?.Any() ?? false;
+            }
+            catch
+            {
+                _ollamaHealthy = false;
+            }
+
             // Load all projects
             Projects = await ProjectLabelService.GetAllProjectsAsync("/app/data/input");
             Logger.LogInformation("[OnInitializedAsync] Loaded {Count} projects", Projects.Count);
@@ -480,6 +657,7 @@
 
             CurrentHierarchy = await HierarchyService.LoadHierarchyAsync(SelectedHierarchyXml);
             HasChanges = false;
+            _isAiGenerated = false;  // Manual hierarchies are not AI-generated
             Logger.LogInformation("Loaded hierarchy from {Path}", SelectedHierarchyXml);
             ToastNotification.ShowSuccess($"Loaded hierarchy: {Path.GetFileName(SelectedHierarchyXml)}");
 
@@ -510,16 +688,41 @@
 
         try
         {
-            // Determine save path: use selected hierarchy XML if available, otherwise default
             string filePath;
-            if (!string.IsNullOrEmpty(SelectedHierarchyXml))
+
+            // AI-generated hierarchies go to metadata folder with specific name
+            if (_isAiGenerated)
+            {
+                var parts = SelectedProject.Split('/');
+                if (parts.Length != 2)
+                {
+                    Logger.LogError("Invalid project format: {Project}", SelectedProject);
+                    ToastNotification.ShowError("Invalid project format");
+                    return;
+                }
+
+                var customer = parts[0];
+                var projectId = parts[1];
+                var metadataDir = $"/app/data/input/{customer}/projects/{projectId}/metadata";
+
+                // Ensure metadata directory exists
+                if (!Directory.Exists(metadataDir))
+                {
+                    Directory.CreateDirectory(metadataDir);
+                    Logger.LogInformation("Created metadata directory: {Dir}", metadataDir);
+                }
+
+                filePath = Path.Combine(metadataDir, "ai-hierarchy.xml");
+                Logger.LogInformation("Saving AI-generated hierarchy to metadata folder: {Path}", filePath);
+            }
+            else if (!string.IsNullOrEmpty(SelectedHierarchyXml))
             {
                 // Save back to the selected hierarchy file
                 filePath = SelectedHierarchyXml;
             }
             else
             {
-                // Fallback to default hierarchy.xml location
+                // Fallback to default hierarchy.xml location in output folder
                 var parts = SelectedProject.Split('/');
                 if (parts.Length != 2)
                 {
@@ -689,8 +892,9 @@
                 Logger.LogWarning("HeadersPanel is null or NormalizedXmlPath is empty, cannot load headers");
             }
 
-            ShowAlert("success", $"Loaded and transformed: {Path.GetFileName(SelectedSourceXml)}");
-            Logger.LogInformation("Successfully transformed and loaded document");
+            // Only log success - no toast (user can see document loaded by headers appearing)
+            Logger.LogInformation("Successfully transformed and loaded document: {FileName}",
+                Path.GetFileName(SelectedSourceXml));
         }
         catch (Exception ex)
         {
@@ -713,5 +917,233 @@
     private void ClearAlert()
     {
         AlertMessage = null;
+    }
+
+    // AI Generation Methods
+
+    private async Task ShowAiGenerationModal()
+    {
+        _aiError = null;
+        _showAiModal = true;
+
+        // Load XSLT files
+        LoadXsltFiles();
+
+        // Load Ollama models and training hierarchies
+        await LoadOllamaModelsAsync();
+        LoadTrainingHierarchies();
+
+        StateHasChanged();
+    }
+
+    private void CloseAiModal()
+    {
+        _showAiModal = false;
+        _aiError = null;
+        StateHasChanged();
+    }
+
+    private void LoadXsltFiles()
+    {
+        try
+        {
+            var xsltDir = "/app/xslt";
+            if (Directory.Exists(xsltDir))
+            {
+                _availableXsltFiles = Directory.GetFiles(xsltDir, "*.xslt", SearchOption.AllDirectories)
+                    .OrderBy(f => f)
+                    .ToList();
+
+                // Default to transformation.xslt if available
+                if (_availableXsltFiles.Any(f => f.Contains("transformation.xslt")))
+                {
+                    _selectedAiXslt = _availableXsltFiles.First(f => f.Contains("transformation.xslt"));
+                }
+                else if (_availableXsltFiles.Any())
+                {
+                    _selectedAiXslt = _availableXsltFiles.First();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load XSLT files");
+        }
+    }
+
+    private async Task LoadOllamaModelsAsync()
+    {
+        try
+        {
+            _availableAiModels = await OllamaService.GetAvailableModelsAsync();
+            _ollamaHealthy = _availableAiModels.Any();
+
+            if (!_ollamaHealthy)
+            {
+                _aiError = "Ollama service is not running or has no models installed.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load Ollama models");
+            _aiError = "Failed to connect to Ollama service.";
+            _ollamaHealthy = false;
+        }
+    }
+
+    private void LoadTrainingHierarchies()
+    {
+        try
+        {
+            var trainingDir = "/app/data/training-material/hierarchies";
+
+            if (!Directory.Exists(trainingDir))
+            {
+                Logger.LogWarning("Training material hierarchies directory not found: {Dir}", trainingDir);
+                return;
+            }
+
+            var hierarchyFiles = Directory.GetFiles(trainingDir, "*.xml", SearchOption.AllDirectories)
+                .OrderBy(f => f)
+                .ToList();
+
+            _exampleHierarchies = hierarchyFiles.Select(path =>
+            {
+                var relativePath = path.Replace(trainingDir + "/", "");
+                var parts = relativePath.Split('/');
+                var organization = parts.Length > 0 ? parts[0] : "unknown";
+                var project = parts.Length > 1 ? parts[1] : "unknown";
+                var filename = Path.GetFileName(path);
+
+                var displayName = $"{organization}/{project} - {filename}";
+
+                return new ExampleHierarchy
+                {
+                    Path = path,
+                    DisplayName = displayName,
+                    IsSelected = false,
+                    Content = null
+                };
+            }).ToList();
+
+            Logger.LogInformation("Loaded {Count} training hierarchies", _exampleHierarchies.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load training hierarchies");
+            _exampleHierarchies = new List<ExampleHierarchy>();
+        }
+    }
+
+    private void ToggleExample(ExampleHierarchy example)
+    {
+        example.IsSelected = !example.IsSelected;
+
+        if (example.IsSelected && example.Content == null)
+        {
+            try
+            {
+                example.Content = File.ReadAllText(example.Path);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to load example hierarchy: {Path}", example.Path);
+                example.IsSelected = false;
+                _aiError = $"Failed to load example: {Path.GetFileName(example.Path)}";
+            }
+        }
+    }
+
+    private async Task GenerateWithAi()
+    {
+        _isGeneratingAi = true;
+        _aiError = null;
+
+        try
+        {
+            // Verify we have source XML selected
+            if (string.IsNullOrEmpty(SelectedSourceXml))
+            {
+                _aiError = "Please select a source XML file first.";
+                return;
+            }
+
+            // Get selected examples
+            var selectedExamples = _exampleHierarchies
+                .Where(e => e.IsSelected && e.Content != null)
+                .Select(e => e.Content!)
+                .ToList();
+
+            if (selectedExamples.Count == 0)
+            {
+                _aiError = "Please select at least one training example.";
+                return;
+            }
+
+            // Validate XSLT selection
+            if (string.IsNullOrEmpty(_selectedAiXslt))
+            {
+                _aiError = "Please select an XSLT transformation file.";
+                return;
+            }
+
+            // Read and transform source XML
+            var sourceXmlContent = await File.ReadAllTextAsync(SelectedSourceXml);
+
+            // Read XSLT file
+            var xsltContent = await File.ReadAllTextAsync(_selectedAiXslt);
+
+            // Transform with proper options and file path for include resolution
+            Logger.LogInformation("Transforming source XML with XSLT: {Xslt}", _selectedAiXslt);
+            var transformResult = await XsltTransformationService.TransformAsync(
+                sourceXmlContent,
+                xsltContent,
+                new TransformationOptions
+                {
+                    UseXslt3Service = true,
+                    NormalizeHeaders = false
+                },
+                _selectedAiXslt  // Pass file path for module resolution
+            );
+
+            if (!transformResult.IsSuccess)
+            {
+                _aiError = $"XSLT transformation failed: {transformResult.ErrorMessage}";
+                return;
+            }
+
+            // Generate hierarchy with AI
+            Logger.LogInformation("Generating hierarchy with {ModelName} using {Count} examples",
+                _selectedAiModel, selectedExamples.Count);
+            var proposal = await HierarchyGenerator.GenerateHierarchyAsync(
+                normalizedXml: transformResult.OutputContent,
+                exampleHierarchies: selectedExamples,
+                modelName: _selectedAiModel,
+                cancellationToken: CancellationToken.None
+            );
+
+            // Convert HierarchyProposal to HierarchyStructure and load into editor
+            var hierarchyStructure = proposal.ToHierarchyStructure();
+            CurrentHierarchy = hierarchyStructure;
+            HasChanges = true;
+            _isAiGenerated = true;  // Mark this hierarchy as AI-generated
+
+            // Close modal
+            _showAiModal = false;
+
+            // Only show warnings/errors - no success toast
+            Logger.LogInformation("AI generated hierarchy with {Count} items, confidence: {Confidence}%",
+                proposal.TotalItems, proposal.OverallConfidence);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "AI hierarchy generation failed");
+            _aiError = $"Generation failed: {ex.Message}";
+        }
+        finally
+        {
+            _isGeneratingAi = false;
+            StateHasChanged();
+        }
     }
 }

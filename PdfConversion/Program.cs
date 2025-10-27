@@ -119,6 +119,7 @@ builder.Services.AddSingleton<IBatchTransformationService, BatchTransformationSe
 // Register Ollama service for AI hierarchy generation
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<IOllamaService, OllamaService>();
+builder.Services.AddScoped<IHierarchyGeneratorService, HierarchyGeneratorService>();
 
 // Configure HttpClient for XSLT3Service
 var xslt3ServiceUrl = builder.Configuration.GetValue<string>("XSLT3_SERVICE_URL") ?? "http://xslt3service:4806";

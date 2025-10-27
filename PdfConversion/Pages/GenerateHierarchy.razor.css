@@ -189,3 +189,262 @@
     height: 1.5rem;
     background-color: #2d2d30;
 }
+
+/* ===================================================================
+   VS Code Dark Modern Theme for AI Generation Modal
+   =================================================================== */
+
+/* Modal overlay */
+::deep .modal {
+    --bs-modal-bg: var(--bg-secondary, #252526);
+    --bs-modal-border-color: var(--border-color, #3e3e42);
+}
+
+/* Modal dialog styling */
+::deep .modal-content {
+    background-color: #252526;
+    border: 1px solid #3e3e42;
+    color: #cccccc;
+}
+
+/* Modal header */
+::deep .modal-header {
+    background-color: #2d2d30;
+    border-bottom: 1px solid #3e3e42;
+    color: #ffffff;
+}
+
+::deep .modal-title {
+    color: #ffffff;
+}
+
+::deep .modal-header .btn-close {
+    filter: invert(1) grayscale(100%) brightness(200%);
+    opacity: 0.8;
+}
+
+::deep .modal-header .btn-close:hover {
+    opacity: 1;
+}
+
+/* Modal body */
+::deep .modal-body {
+    background-color: #252526;
+    color: #cccccc;
+}
+
+/* Modal footer */
+::deep .modal-footer {
+    background-color: #252526;
+    border-top: 1px solid #3e3e42;
+}
+
+/* Form labels */
+::deep .modal-body .form-label {
+    color: #ffffff;
+    font-weight: 600;
+}
+
+::deep .modal-body .text-muted,
+::deep .modal-body small {
+    color: #9da5b4 !important;
+}
+
+/* Search input */
+::deep .modal-body .form-control {
+    background-color: #2d2d30;
+    border: 1px solid #3e3e42;
+    color: #cccccc;
+}
+
+::deep .modal-body .form-control:focus {
+    background-color: #2d2d30;
+    border-color: #007acc;
+    color: #cccccc;
+    box-shadow: 0 0 0 0.25rem rgba(0, 122, 204, 0.25);
+}
+
+::deep .modal-body .form-control::placeholder {
+    color: #6a737d;
+}
+
+/* Example list container */
+::deep .modal-body .example-list {
+    background-color: #1e1e1e;
+    border: 1px solid #3e3e42 !important;
+}
+
+/* Checkboxes - proper positioning and visibility */
+::deep .modal-body .form-check {
+    padding: 4px 0;
+    padding-left: 1.5rem; /* Ensure space for checkbox */
+    position: relative;
+}
+
+::deep .modal-body .form-check-input {
+    position: absolute;
+    left: 0;
+    top: 0.25rem;
+    margin-left: 0;
+    width: 1rem;
+    height: 1rem;
+    background-color: #2d2d30;
+    border: 1px solid #3e3e42;
+    cursor: pointer;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    border-radius: 0.25em;
+}
+
+::deep .modal-body .form-check-input:checked {
+    background-color: #007acc;
+    border-color: #007acc;
+}
+
+::deep .modal-body .form-check-input:checked::after {
+    content: "✓";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-size: 0.75rem;
+    font-weight: bold;
+    line-height: 1;
+}
+
+::deep .modal-body .form-check-input:focus {
+    border-color: #007acc;
+    box-shadow: 0 0 0 0.25rem rgba(0, 122, 204, 0.25);
+}
+
+::deep .modal-body .form-check-label {
+    color: #cccccc;
+    cursor: pointer;
+    display: inline-block;
+    padding-left: 0.25rem;
+}
+
+::deep .modal-body .form-check-label:hover {
+    color: #ffffff;
+}
+
+/* Select dropdown */
+::deep .modal-body .form-select {
+    background-color: #2d2d30;
+    border: 1px solid #3e3e42;
+    color: #cccccc;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23cccccc' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2 5l6 6 6-6'/%3e%3c/svg%3e");
+}
+
+::deep .modal-body .form-select:focus {
+    background-color: #2d2d30;
+    border-color: #007acc;
+    color: #cccccc;
+    box-shadow: 0 0 0 0.25rem rgba(0, 122, 204, 0.25);
+}
+
+::deep .modal-body .form-select option {
+    background-color: #2d2d30;
+    color: #cccccc;
+}
+
+/* Temperature slider */
+::deep .modal-body .form-range {
+    background-color: transparent;
+}
+
+::deep .modal-body .form-range::-webkit-slider-track {
+    background-color: #3e3e42;
+    border-radius: 4px;
+}
+
+::deep .modal-body .form-range::-webkit-slider-thumb {
+    background-color: #007acc;
+    border: 2px solid #ffffff;
+}
+
+::deep .modal-body .form-range::-webkit-slider-thumb:hover {
+    background-color: #005a9e;
+}
+
+::deep .modal-body .form-range::-moz-range-track {
+    background-color: #3e3e42;
+    border-radius: 4px;
+}
+
+::deep .modal-body .form-range::-moz-range-thumb {
+    background-color: #007acc;
+    border: 2px solid #ffffff;
+}
+
+/* Alert styling */
+::deep .modal-body .alert-danger {
+    background-color: #3a1d1d;
+    border-color: #f48771;
+    color: #f48771;
+}
+
+::deep .modal-body .alert-danger .btn-close {
+    filter: invert(1) grayscale(100%) brightness(200%);
+}
+
+/* Loading spinner */
+::deep .modal-body .spinner-border {
+    color: #007acc;
+}
+
+/* Buttons */
+::deep .modal-footer .btn-secondary {
+    background-color: #3e3e42;
+    border-color: #3e3e42;
+    color: #cccccc;
+}
+
+::deep .modal-footer .btn-secondary:hover {
+    background-color: #4e4e52;
+    border-color: #4e4e52;
+    color: #ffffff;
+}
+
+::deep .modal-footer .btn-secondary:disabled {
+    background-color: #2d2d30;
+    border-color: #3e3e42;
+    color: #6a737d;
+}
+
+::deep .modal-footer .btn-primary {
+    background-color: #007acc;
+    border-color: #007acc;
+    color: #ffffff;
+}
+
+::deep .modal-footer .btn-primary:hover {
+    background-color: #005a9e;
+    border-color: #005a9e;
+}
+
+::deep .modal-footer .btn-primary:disabled {
+    background-color: #004578;
+    border-color: #004578;
+    color: #6a737d;
+}
+
+/* Scrollbar styling for example list */
+::deep .modal-body .example-list::-webkit-scrollbar {
+    width: 10px;
+}
+
+::deep .modal-body .example-list::-webkit-scrollbar-track {
+    background: #1e1e1e;
+}
+
+::deep .modal-body .example-list::-webkit-scrollbar-thumb {
+    background: #3e3e42;
+    border-radius: 5px;
+}
+
+::deep .modal-body .example-list::-webkit-scrollbar-thumb:hover {
+    background: #4e4e52;
+}

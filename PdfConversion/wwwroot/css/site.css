@@ -124,3 +124,235 @@ a, .btn-link {
     width: 4px !important;
 }
 
+/* ===================================================================
+   VS Code Dark Modern Theme for AI Generation Modal
+   =================================================================== */
+
+/* Modal overlay */
+.modal {
+    --bs-modal-bg: #252526;
+    --bs-modal-border-color: #3e3e42;
+}
+
+/* Modal dialog styling */
+.modal-content {
+    background-color: #252526 !important;
+    border: 1px solid #3e3e42 !important;
+    color: #cccccc !important;
+}
+
+/* Modal header */
+.modal-header {
+    background-color: #2d2d30 !important;
+    border-bottom: 1px solid #3e3e42 !important;
+    color: #ffffff !important;
+}
+
+.modal-title {
+    color: #ffffff !important;
+}
+
+.modal-header .btn-close {
+    filter: invert(1) grayscale(100%) brightness(200%);
+    opacity: 0.8;
+}
+
+.modal-header .btn-close:hover {
+    opacity: 1;
+}
+
+/* Modal body */
+.modal-body {
+    background-color: #252526 !important;
+    color: #cccccc !important;
+}
+
+/* Modal footer */
+.modal-footer {
+    background-color: #252526 !important;
+    border-top: 1px solid #3e3e42 !important;
+}
+
+/* Form labels */
+.modal-body .form-label {
+    color: #ffffff !important;
+    font-weight: 600;
+}
+
+.modal-body .text-muted,
+.modal-body small {
+    color: #9da5b4 !important;
+}
+
+/* Search input */
+.modal-body .form-control {
+    background-color: #2d2d30 !important;
+    border: 1px solid #3e3e42 !important;
+    color: #cccccc !important;
+}
+
+.modal-body .form-control:focus {
+    background-color: #2d2d30 !important;
+    border-color: #007acc !important;
+    color: #cccccc !important;
+    box-shadow: 0 0 0 0.25rem rgba(0, 122, 204, 0.25) !important;
+}
+
+.modal-body .form-control::placeholder {
+    color: #6a737d;
+}
+
+/* Example list container */
+.modal-body .example-list {
+    background-color: #1e1e1e !important;
+    border: 1px solid #3e3e42 !important;
+}
+
+/* Checkboxes */
+.modal-body .form-check {
+    padding: 4px 0;
+}
+
+.modal-body .form-check-input {
+    background-color: #2d2d30 !important;
+    border: 1px solid #3e3e42 !important;
+}
+
+.modal-body .form-check-input:checked {
+    background-color: #007acc !important;
+    border-color: #007acc !important;
+}
+
+.modal-body .form-check-input:focus {
+    border-color: #007acc !important;
+    box-shadow: 0 0 0 0.25rem rgba(0, 122, 204, 0.25) !important;
+}
+
+.modal-body .form-check-label {
+    color: #cccccc !important;
+    cursor: pointer;
+}
+
+.modal-body .form-check-label:hover {
+    color: #ffffff !important;
+}
+
+/* Select dropdown */
+.modal-body .form-select {
+    background-color: #2d2d30 !important;
+    border: 1px solid #3e3e42 !important;
+    color: #cccccc !important;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23cccccc' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2 5l6 6 6-6'/%3e%3c/svg%3e") !important;
+}
+
+.modal-body .form-select:focus {
+    background-color: #2d2d30 !important;
+    border-color: #007acc !important;
+    color: #cccccc !important;
+    box-shadow: 0 0 0 0.25rem rgba(0, 122, 204, 0.25) !important;
+}
+
+.modal-body .form-select option {
+    background-color: #2d2d30 !important;
+    color: #cccccc !important;
+}
+
+/* Temperature slider */
+.modal-body .form-range {
+    background-color: transparent;
+}
+
+.modal-body .form-range::-webkit-slider-track {
+    background-color: #3e3e42 !important;
+    border-radius: 4px;
+}
+
+.modal-body .form-range::-webkit-slider-thumb {
+    background-color: #007acc !important;
+    border: 2px solid #ffffff !important;
+}
+
+.modal-body .form-range::-webkit-slider-thumb:hover {
+    background-color: #005a9e !important;
+}
+
+.modal-body .form-range::-moz-range-track {
+    background-color: #3e3e42 !important;
+    border-radius: 4px;
+}
+
+.modal-body .form-range::-moz-range-thumb {
+    background-color: #007acc !important;
+    border: 2px solid #ffffff !important;
+}
+
+/* Alert styling */
+.modal-body .alert-danger {
+    background-color: #3a1d1d !important;
+    border-color: #f48771 !important;
+    color: #f48771 !important;
+}
+
+.modal-body .alert-danger .btn-close {
+    filter: invert(1) grayscale(100%) brightness(200%);
+}
+
+/* Loading spinner */
+.modal-body .spinner-border {
+    color: #007acc !important;
+}
+
+/* Buttons */
+.modal-footer .btn-secondary {
+    background-color: #3e3e42 !important;
+    border-color: #3e3e42 !important;
+    color: #cccccc !important;
+}
+
+.modal-footer .btn-secondary:hover {
+    background-color: #4e4e52 !important;
+    border-color: #4e4e52 !important;
+    color: #ffffff !important;
+}
+
+.modal-footer .btn-secondary:disabled {
+    background-color: #2d2d30 !important;
+    border-color: #3e3e42 !important;
+    color: #6a737d !important;
+}
+
+.modal-footer .btn-primary {
+    background-color: #007acc !important;
+    border-color: #007acc !important;
+    color: #ffffff !important;
+}
+
+.modal-footer .btn-primary:hover {
+    background-color: #005a9e !important;
+    border-color: #005a9e !important;
+}
+
+.modal-footer .btn-primary:disabled {
+    background-color: #004578 !important;
+    border-color: #004578 !important;
+    color: #6a737d !important;
+}
+
+/* Scrollbar styling for example list */
+.modal-body .example-list::-webkit-scrollbar {
+    width: 10px;
+}
+
+.modal-body .example-list::-webkit-scrollbar-track {
+    background: #1e1e1e;
+}
+
+.modal-body .example-list::-webkit-scrollbar-thumb {
+    background: #3e3e42;
+    border-radius: 5px;
+}
+
+.modal-body .example-list::-webkit-scrollbar-thumb:hover {
+    background: #4e4e52;
+}
+

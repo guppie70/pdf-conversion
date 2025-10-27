@@ -1,0 +1,587 @@
+/* AI Hierarchy Generator Test Page Styles - VS Code Dark Modern Theme */
+
+/* VS Code Dark Modern Color Palette */
+.hierarchy-test-container {
+    --bg-primary: #1e1e1e;
+    --bg-secondary: #252526;
+    --bg-tertiary: #2d2d30;
+    --bg-elevated: #3e3e42;
+    --border-color: #3e3e42;
+    --border-subtle: #2b2b2b;
+    --text-primary: #cccccc;
+    --text-secondary: #9da5b4;
+    --text-bright: #ffffff;
+    --text-muted: #858585;
+    --text-very-muted: #6a6a6a;
+    --accent-blue: #007acc;
+    --accent-blue-hover: #1a8ad6;
+    --success-green: #4ec9b0;
+    --warning-yellow: #dcdcaa;
+    --error-red: #f48771;
+    --info-blue: #9cdcfe;
+    --scrollbar-track: #252526;
+    --scrollbar-thumb: #424242;
+    --scrollbar-thumb-hover: #4e4e4e;
+}
+
+.hierarchy-test-container {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 1rem;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    min-height: 100vh;
+}
+
+.header {
+    margin-bottom: 1rem;
+}
+
+.header h3 {
+    margin-bottom: 0.25rem;
+    color: var(--text-bright);
+}
+
+.header p {
+    color: var(--text-secondary);
+}
+
+.three-panel-layout {
+    display: grid;
+    grid-template-columns: 350px 1fr 1fr;
+    gap: 1rem;
+    height: calc(100vh - 150px);
+    overflow: hidden;
+}
+
+/* Panel Styles */
+.panel {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.375rem;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.panel-header {
+    padding: 1rem;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.panel-header h5 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-bright);
+}
+
+.panel-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem;
+}
+
+/* Configuration Panel */
+.config-panel .form-label {
+    font-size: 0.875rem;
+    margin-bottom: 0.375rem;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.config-panel .form-select,
+.config-panel .form-control {
+    font-size: 0.875rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+}
+
+.config-panel .form-select:focus,
+.config-panel .form-control:focus {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-blue);
+    color: var(--text-primary);
+    box-shadow: 0 0 0 0.25rem rgba(0, 122, 204, 0.25);
+    outline: none;
+}
+
+.config-panel .form-select:disabled,
+.config-panel .form-control:disabled {
+    background: var(--bg-primary);
+    color: var(--text-very-muted);
+    opacity: 0.6;
+}
+
+.config-panel .form-select option {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.config-panel .form-range::-webkit-slider-track {
+    background: var(--border-color);
+}
+
+.config-panel .form-range::-webkit-slider-thumb {
+    background: var(--accent-blue);
+}
+
+.config-panel .form-range::-moz-range-track {
+    background: var(--border-color);
+}
+
+.config-panel .form-range::-moz-range-thumb {
+    background: var(--accent-blue);
+}
+
+.example-list {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 0.25rem;
+    padding: 0.5rem;
+    background: var(--bg-primary);
+}
+
+.example-list .form-check {
+    margin-bottom: 0.5rem;
+}
+
+.example-list .form-check-input {
+    background-color: var(--bg-tertiary);
+    border-color: var(--border-color);
+}
+
+.example-list .form-check-input:checked {
+    background-color: var(--accent-blue);
+    border-color: var(--accent-blue);
+}
+
+.example-list .form-check-input:focus {
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 0 0.25rem rgba(0, 122, 204, 0.25);
+}
+
+.example-list .form-check-label {
+    font-size: 0.875rem;
+    cursor: pointer;
+    color: var(--text-primary);
+}
+
+.loading-state {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-secondary);
+}
+
+/* Preview Panel */
+.preview-content {
+    margin-top: 1rem;
+}
+
+.preview-content h6 {
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: var(--text-bright);
+}
+
+.preview-content p {
+    color: var(--text-secondary);
+}
+
+.preview-text {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.25rem;
+    padding: 0.75rem;
+    font-family: 'Courier New', Consolas, Monaco, monospace;
+    font-size: 0.75rem;
+    max-height: 400px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    color: #d4d4d4;
+    line-height: 1.5;
+}
+
+/* Results Panel */
+.results-content {
+    margin-top: 1rem;
+}
+
+.metric-card {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.25rem;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.metric-card label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+}
+
+.metric-card .metric-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text-bright);
+}
+
+/* Hierarchy Tree Rendering */
+.hierarchy-item {
+    margin-bottom: 0.5rem;
+    padding: 0.5rem;
+    border-left: 3px solid var(--border-color);
+    border-radius: 0.25rem;
+    background: var(--bg-tertiary);
+}
+
+.hierarchy-item.uncertain {
+    border-left-color: var(--warning-yellow);
+    background: #3a3620;
+}
+
+.hierarchy-item.level-0 {
+    border-left-color: var(--accent-blue);
+    background: #1e3a5f;
+}
+
+.hierarchy-item.level-1 {
+    border-left-color: var(--success-green);
+}
+
+.hierarchy-item.level-2 {
+    border-left-color: var(--info-blue);
+}
+
+.hierarchy-item.level-3 {
+    border-left-color: #c792ea;
+}
+
+.item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.25rem;
+}
+
+.item-name {
+    font-family: 'Courier New', Consolas, Monaco, monospace;
+    font-size: 0.875rem;
+    font-weight: 600;
+    flex: 1;
+    color: var(--success-green);
+}
+
+.item-details {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.item-reasoning {
+    font-size: 0.75rem;
+    color: var(--info-blue);
+    padding: 0.25rem 0.5rem;
+    background: rgba(156, 220, 254, 0.15);
+    border-radius: 0.25rem;
+    margin-top: 0.25rem;
+}
+
+/* Uncertainty Cards */
+.uncertainty-card {
+    background: #3a3620;
+    border: 1px solid var(--warning-yellow);
+    border-radius: 0.25rem;
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.uncertainty-card strong {
+    color: var(--warning-yellow);
+}
+
+.uncertainty-card .small {
+    color: var(--text-secondary);
+}
+
+/* JSON Output */
+.json-output {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.25rem;
+    padding: 1rem;
+    font-family: 'Courier New', Consolas, Monaco, monospace;
+    font-size: 0.75rem;
+    max-height: 600px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    color: #d4d4d4;
+    line-height: 1.5;
+}
+
+/* Nav Tabs */
+.nav-tabs {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.nav-tabs .nav-link {
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-secondary);
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    cursor: pointer;
+    background: transparent;
+    transition: all 0.2s ease;
+}
+
+.nav-tabs .nav-link:hover:not(.active) {
+    border-bottom-color: var(--border-color);
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+}
+
+.nav-tabs .nav-link.active {
+    border-bottom-color: var(--accent-blue);
+    color: var(--text-bright);
+    font-weight: 600;
+    background: transparent;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 1400px) {
+    .three-panel-layout {
+        grid-template-columns: 300px 1fr 1fr;
+    }
+}
+
+@media (max-width: 1200px) {
+    .three-panel-layout {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr 1fr;
+        height: auto;
+    }
+
+    .config-panel {
+        max-height: 600px;
+    }
+
+    .preview-panel,
+    .results-panel {
+        min-height: 500px;
+    }
+}
+
+/* Scrollbar Styling */
+.panel-content::-webkit-scrollbar,
+.preview-text::-webkit-scrollbar,
+.json-output::-webkit-scrollbar,
+.example-list::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+.panel-content::-webkit-scrollbar-track,
+.preview-text::-webkit-scrollbar-track,
+.json-output::-webkit-scrollbar-track,
+.example-list::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+    border-radius: 4px;
+}
+
+.panel-content::-webkit-scrollbar-thumb,
+.preview-text::-webkit-scrollbar-thumb,
+.json-output::-webkit-scrollbar-thumb,
+.example-list::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 4px;
+}
+
+.panel-content::-webkit-scrollbar-thumb:hover,
+.preview-text::-webkit-scrollbar-thumb:hover,
+.json-output::-webkit-scrollbar-thumb:hover,
+.example-list::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+}
+
+/* Firefox scrollbar */
+.panel-content,
+.preview-text,
+.json-output,
+.example-list {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+/* Alert Components */
+.alert {
+    border-radius: 0.25rem;
+}
+
+.alert-secondary {
+    background: var(--bg-tertiary);
+    border-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+.alert-info {
+    background: #1e3a5f;
+    border-color: var(--accent-blue);
+    color: var(--text-primary);
+}
+
+.alert-warning {
+    background: #3a3620;
+    border-color: var(--warning-yellow);
+    color: var(--text-primary);
+}
+
+.alert-danger {
+    background: #3f1f1f;
+    border-color: var(--error-red);
+    color: var(--text-primary);
+}
+
+.alert-success {
+    background: #1f3f2f;
+    border-color: var(--success-green);
+    color: var(--text-primary);
+}
+
+/* Button Overrides */
+.btn-primary {
+    background-color: var(--accent-blue);
+    border-color: var(--accent-blue);
+}
+
+.btn-primary:hover:not(:disabled) {
+    background-color: var(--accent-blue-hover);
+    border-color: var(--accent-blue-hover);
+}
+
+.btn-primary:disabled {
+    background-color: var(--bg-elevated);
+    border-color: var(--border-color);
+    opacity: 0.5;
+}
+
+/* Badge Overrides */
+.badge {
+    font-weight: 500;
+}
+
+.badge.bg-success {
+    background-color: var(--success-green) !important;
+    color: var(--bg-primary);
+}
+
+.badge.bg-danger {
+    background-color: var(--error-red) !important;
+    color: var(--bg-primary);
+}
+
+.badge.bg-warning {
+    background-color: var(--warning-yellow) !important;
+    color: var(--bg-primary);
+}
+
+.badge.bg-info {
+    background-color: var(--info-blue) !important;
+    color: var(--bg-primary);
+}
+
+/* Code and Pre elements */
+code,
+pre {
+    background: var(--bg-primary);
+    color: #d4d4d4;
+    border: 1px solid var(--border-color);
+    border-radius: 0.25rem;
+    padding: 0.2rem 0.4rem;
+}
+
+pre code {
+    border: none;
+    padding: 0;
+}
+
+/* Hierarchy XML Container */
+.hierarchy-xml-container {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.xml-preview {
+    flex: 1;
+    overflow-y: auto;
+    font-family: 'Courier New', Consolas, Monaco, monospace;
+    font-size: 0.875rem;
+    line-height: 1.4;
+}
+
+/* Small text */
+.text-muted,
+small.text-muted {
+    color: var(--text-secondary) !important;
+}
+
+.small {
+    color: var(--text-primary);
+}
+
+/* Debug Files UI */
+.debug-files-list {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.debug-file-item {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+}
+
+.debug-file-item .card-header {
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    padding: 0.75rem 1rem;
+}
+
+.debug-file-item .card-body {
+    padding: 0.75rem 1rem;
+}
+
+.debug-file-viewer {
+    border: 1px solid var(--border-color);
+    border-radius: 0.375rem;
+    padding: 1rem;
+    background: var(--bg-secondary);
+}
+
+.debug-file-viewer .code-preview {
+    max-height: 600px;
+    overflow-y: auto;
+    margin-top: 0.5rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.25rem;
+    padding: 0.75rem;
+    font-family: 'Courier New', Consolas, Monaco, monospace;
+    font-size: 0.75rem;
+    color: #d4d4d4;
+    line-height: 1.5;
+}
