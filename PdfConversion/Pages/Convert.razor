@@ -357,24 +357,50 @@
             }
 
             // Apply the restored selections
-            if (!string.IsNullOrEmpty(savedProjectId) && Projects?.Any(p => p.ProjectId == savedProjectId) == true)
+            if (!string.IsNullOrEmpty(savedProjectId))
             {
-                _config.ProjectId = savedProjectId;
-                await LoadProjectFilesAsync(savedProjectId);
+                // Check if project exists in loaded projects
+                // Note: Projects list contains Project objects where the full path is "{Organization}/{ProjectId}"
+                var projectExists = Projects?.Any(p => $"{p.Organization}/{p.ProjectId}" == savedProjectId) == true;
 
-                // Restore source file selection
-                if (!string.IsNullOrEmpty(savedSourceFile) && SourceFiles?.Contains(savedSourceFile) == true)
+                if (projectExists)
                 {
-                    _config.SourceFile = savedSourceFile;
-                }
+                    Logger.LogInformation("Applying restored selections: Project={Project}, Source={Source}, Hierarchy={Hierarchy}",
+                        savedProjectId, savedSourceFile, savedHierarchyFile);
 
-                // Restore hierarchy file selection
-                if (!string.IsNullOrEmpty(savedHierarchyFile) && HierarchyFiles?.Contains(savedHierarchyFile) == true)
+                    _config.ProjectId = savedProjectId;
+                    await LoadProjectFilesAsync(savedProjectId);
+
+                    // Restore source file selection
+                    if (!string.IsNullOrEmpty(savedSourceFile) && SourceFiles?.Contains(savedSourceFile) == true)
+                    {
+                        _config.SourceFile = savedSourceFile;
+                        Logger.LogInformation("Restored source file: {File}", savedSourceFile);
+                    }
+                    else if (!string.IsNullOrEmpty(savedSourceFile))
+                    {
+                        Logger.LogWarning("Source file '{File}' not found in project files", savedSourceFile);
+                    }
+
+                    // Restore hierarchy file selection
+                    if (!string.IsNullOrEmpty(savedHierarchyFile) && HierarchyFiles?.Contains(savedHierarchyFile) == true)
+                    {
+                        _config.HierarchyFile = savedHierarchyFile;
+                        Logger.LogInformation("Restored hierarchy file: {File}", savedHierarchyFile);
+                    }
+                    else if (!string.IsNullOrEmpty(savedHierarchyFile))
+                    {
+                        Logger.LogWarning("Hierarchy file '{File}' not found in project files", savedHierarchyFile);
+                    }
+
+                    StateHasChanged();
+                }
+                else
                 {
-                    _config.HierarchyFile = savedHierarchyFile;
+                    Logger.LogWarning("Project '{Project}' not found in loaded projects. Available projects: {Available}",
+                        savedProjectId,
+                        string.Join(", ", Projects?.Select(p => $"{p.Organization}/{p.ProjectId}") ?? Array.Empty<string>()));
                 }
-
-                StateHasChanged();
             }
         }
         catch (Exception ex)
@@ -390,18 +416,36 @@
         SourceFiles = allFiles.Where(f => f.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)).ToList();
 
         // Load hierarchy files (XML files in metadata subfolder)
-        var metadataPath = Path.Combine("/app/data/input/optiver/projects", projectId, "metadata");
-        if (Directory.Exists(metadataPath))
+        // projectId is in format "organization/project-id" (e.g., "taxxor/ar25-1")
+        // Parse to extract organization and project-id
+        var parts = projectId.Split('/', 2);
+        if (parts.Length == 2)
         {
-            HierarchyFiles = Directory.GetFiles(metadataPath, "*.xml")
-                .Select(Path.GetFileName)
-                .Where(f => !string.IsNullOrEmpty(f))
-                .Cast<string>()
-                .ToList();
+            var organization = parts[0];
+            var projectIdShort = parts[1];
+            var metadataPath = Path.Combine("/app/data/input", organization, "projects", projectIdShort, "metadata");
+
+            if (Directory.Exists(metadataPath))
+            {
+                HierarchyFiles = Directory.GetFiles(metadataPath, "*.xml")
+                    .Select(Path.GetFileName)
+                    .Where(f => !string.IsNullOrEmpty(f))
+                    .Cast<string>()
+                    .ToList();
+
+                Logger.LogInformation("Loaded {HierarchyCount} hierarchy files from {Path}",
+                    HierarchyFiles.Count, metadataPath);
+            }
+            else
+            {
+                HierarchyFiles = new List<string>();
+                Logger.LogWarning("Metadata directory not found: {Path}", metadataPath);
+            }
         }
         else
         {
             HierarchyFiles = new List<string>();
+            Logger.LogWarning("Invalid projectId format: {ProjectId} (expected 'organization/project-id')", projectId);
         }
 
         Logger.LogInformation("Loaded {SourceCount} source files and {HierarchyCount} hierarchy files for project {ProjectId}",
