@@ -160,7 +160,7 @@
                                                type="checkbox"
                                                id="@example.Path"
                                                checked="@example.IsSelected"
-                                               @onchange="@(() => ToggleExample(example))" />
+                                               @onchange="@(async () => await ToggleExample(example))" />
                                         <label class="form-check-label small" for="@example.Path">
                                             @example.DisplayName
                                         </label>
@@ -614,10 +614,10 @@
             CurrentHierarchy = null;
             HasChanges = false;
 
-            // Load headers
+            // Load headers - pass paths explicitly to avoid parameter binding issues
             if (HeadersPanel != null)
             {
-                await HeadersPanel.LoadHeadersAsync();
+                await HeadersPanel.LoadHeadersAsync(NormalizedXmlPath, HierarchyXmlPath);
             }
 
             if (showToast)
@@ -661,10 +661,10 @@
             Logger.LogInformation("Loaded hierarchy from {Path}", SelectedHierarchyXml);
             ToastNotification.ShowSuccess($"Loaded hierarchy: {Path.GetFileName(SelectedHierarchyXml)}");
 
-            // Refresh headers panel to mark used headers
+            // Refresh headers panel to mark used headers - pass paths explicitly
             if (HeadersPanel != null)
             {
-                await HeadersPanel.LoadHeadersAsync();
+                await HeadersPanel.LoadHeadersAsync(NormalizedXmlPath, HierarchyXmlPath);
             }
         }
         catch (Exception ex)
@@ -933,6 +933,14 @@
         await LoadOllamaModelsAsync();
         LoadTrainingHierarchies();
 
+        // Restore training hierarchy selections from user preferences
+        var selection = await UserSelectionService.GetSelectionAsync();
+        if (selection?.LastSelectedTrainingHierarchies != null && selection.LastSelectedTrainingHierarchies.Any())
+        {
+            RestoreTrainingSelections(selection.LastSelectedTrainingHierarchies);
+            Logger.LogInformation("Restored {Count} training hierarchy selections", selection.LastSelectedTrainingHierarchies.Count);
+        }
+
         StateHasChanged();
     }
 
@@ -954,15 +962,35 @@
                     .OrderBy(f => f)
                     .ToList();
 
-                // Default to transformation.xslt if available
-                if (_availableXsltFiles.Any(f => f.Contains("transformation.xslt")))
+                // Smart default selection based on source XML filename
+                string? defaultXslt = null;
+
+                // Check if source XML filename contains "docling"
+                if (!string.IsNullOrEmpty(SelectedSourceXml))
                 {
-                    _selectedAiXslt = _availableXsltFiles.First(f => f.Contains("transformation.xslt"));
+                    var sourceFileName = Path.GetFileName(SelectedSourceXml).ToLowerInvariant();
+                    if (sourceFileName.Contains("docling"))
+                    {
+                        // Select docling transformation
+                        defaultXslt = _availableXsltFiles.FirstOrDefault(f => f.Contains("docling/transformation.xslt"));
+                        Logger.LogInformation("Source XML contains 'docling', defaulting to docling/transformation.xslt");
+                    }
+                    else
+                    {
+                        // Select adobe transformation
+                        defaultXslt = _availableXsltFiles.FirstOrDefault(f => f.Contains("adobe/transformation.xslt"));
+                        Logger.LogInformation("Source XML does not contain 'docling', defaulting to adobe/transformation.xslt");
+                    }
                 }
-                else if (_availableXsltFiles.Any())
+
+                // Fallback: use any transformation.xslt if smart selection didn't find anything
+                if (string.IsNullOrEmpty(defaultXslt))
                 {
-                    _selectedAiXslt = _availableXsltFiles.First();
+                    defaultXslt = _availableXsltFiles.FirstOrDefault(f => f.Contains("transformation.xslt"));
                 }
+
+                // Final fallback: use first available XSLT
+                _selectedAiXslt = defaultXslt ?? _availableXsltFiles.FirstOrDefault() ?? string.Empty;
             }
         }
         catch (Exception ex)
@@ -1035,7 +1063,7 @@
         }
     }
 
-    private void ToggleExample(ExampleHierarchy example)
+    private async Task ToggleExample(ExampleHierarchy example)
     {
         example.IsSelected = !example.IsSelected;
 
@@ -1052,6 +1080,9 @@
                 _aiError = $"Failed to load example: {Path.GetFileName(example.Path)}";
             }
         }
+
+        // Save current selections after toggle
+        await UserSelectionService.UpdateSelectionAsync(trainingHierarchies: GetSelectedHierarchyPaths());
     }
 
     private async Task GenerateWithAi()
@@ -1144,6 +1175,45 @@
         {
             _isGeneratingAi = false;
             StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Get full paths of currently selected training hierarchies
+    /// </summary>
+    private List<string> GetSelectedHierarchyPaths()
+    {
+        return _exampleHierarchies
+            .Where(e => e.IsSelected)
+            .Select(e => e.Path)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Restore training hierarchy selections from saved paths
+    /// </summary>
+    private void RestoreTrainingSelections(List<string> paths)
+    {
+        foreach (var example in _exampleHierarchies)
+        {
+            if (paths.Contains(example.Path))
+            {
+                example.IsSelected = true;
+
+                // Preload content for selected examples
+                if (example.Content == null)
+                {
+                    try
+                    {
+                        example.Content = File.ReadAllText(example.Path);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError(ex, "Failed to load saved training hierarchy: {Path}", example.Path);
+                        example.IsSelected = false;
+                    }
+                }
+            }
         }
     }
 }

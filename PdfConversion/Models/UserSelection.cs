@@ -59,4 +59,10 @@ public class UserSelection
     /// Last selected output format on DoclingConvert page ("docbook", "html", or "markdown")
     /// </summary>
     public string LastDoclingOutputFormat { get; set; } = "docbook";
+
+    /// <summary>
+    /// Last selected training hierarchy file paths for AI modal training material selections
+    /// (e.g., ["/app/data/training-material/hierarchies/optiver/ar24-1/hierarchy.xml"])
+    /// </summary>
+    public List<string> LastSelectedTrainingHierarchies { get; set; } = new();
 }

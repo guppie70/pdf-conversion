@@ -121,7 +121,8 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
     }
 
     /// <summary>
-    /// Builds the 4-part prompt for LLM hierarchy generation
+    /// Builds the 4-part prompt for LLM hierarchy generation by loading template from markdown file
+    /// and replacing placeholders with actual content
     /// </summary>
     private string BuildPrompt(string normalizedXml, List<string> exampleHierarchies)
     {
@@ -137,162 +138,46 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
                                "{Original:N0} → {Cleaned:N0}",
             savings, savingsPercent, originalSize, cleanedSize);
 
-        var prompt = @"# TASK: Generate Document Hierarchy Structure
+        // Load prompt template from markdown file
+        var promptTemplatePath = "/app/data/llm-hierarchy-generation.md";
+        string promptTemplate;
 
-You are analyzing an annual report document to create a hierarchical structure for navigation.
-Output ONLY valid JSON - no explanation text before or after the JSON.
-
-## PART 1: RULES AND GUIDELINES
-
-### Document Analysis Rules:
-1. Identify main sections by analyzing header elements (<h1>, <h2>, <h3>)
-2. Front matter (cover, TOC) gets level 1 without TOC numbering
-3. Main content sections get level 1 with TOC numbering (data-tocnumber)
-4. Subsections inherit level from parent + 1
-5. Financial statements and notes require special attention to structure
-
-### Hierarchy Decision Guidelines:
-- Cover pages: level 1, no TOC numbering
-- Table of Contents: level 1, no TOC numbering
-- Executive content (CEO message, etc.): level 1, start TOC numbering (data-tocstart=""true"")
-- Main sections: level 1, sequential TOC numbers (""1"", ""2"", ""3"")
-- Subsections: level 2, decimal TOC numbers (""2.1"", ""2.2"")
-- Deep subsections: level 3, further decimal (""4.6.1"")
-- Financial notes: use ""note 1"", ""note 2"" format with data-tocstyle=""notes123""
-- Back matter: level 1, mark TOC end (data-tocend=""true"")
-
-### CRITICAL: Complete Document Processing Rules
-1. Process the ENTIRE document systematically, section by section
-2. Do NOT focus disproportionately on longer sections - all sections are equally important
-3. Scan for ALL elements with data-number attributes (these indicate main sections)
-4. Sections with less content are still required in the hierarchy
-5. A sparse section is NOT a missing section - include it even if brief
-
-### Confidence Scoring Criteria:
-- 100%: Clear structure, unambiguous headers, standard patterns
-- 90-95%: Clear structure with minor ambiguity
-- 80-89%: Reasonable structure but some interpretation needed
-- 70-79%: Uncertain placement, needs human review
-- <70%: Low confidence, flagged as uncertain
-
-### Common Patterns to Recognize:
-- Annual report front matter: cover, contents, executive summary
-- Management commentary: CEO message, company profile, strategy
-- Financial performance: results, analysis, KPIs
-- Risk sections: risk management, governance
-- Financial statements: income, balance sheet, cash flow, equity, notes
-- Sustainability/ESG sections: environmental, social, governance
-- Back matter: contacts, disclaimer, back cover
-
-## PART 2: EXAMPLE HIERARCHIES
-
-Below are sample hierarchies showing the expected structure and patterns:
-
-";
-
-        // Add example hierarchies
-        for (int i = 0; i < exampleHierarchies.Count; i++)
+        try
         {
-            prompt += $"### Example {i + 1}:\n```xml\n{exampleHierarchies[i]}\n```\n\n";
+            promptTemplate = File.ReadAllText(promptTemplatePath);
+            _logger.LogInformation("[HierarchyGenerator] Loaded prompt template from {Path} ({Length} chars)",
+                promptTemplatePath, promptTemplate.Length);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[HierarchyGenerator] Failed to load prompt template from {Path}, using fallback",
+                promptTemplatePath);
+            throw new InvalidOperationException(
+                $"Could not load prompt template from {promptTemplatePath}. Ensure file exists.", ex);
         }
 
-        prompt += @"## PART 2.5: DOCUMENT STRUCTURE PREVIEW
+        // Build example hierarchies section
+        var examplesBuilder = new StringBuilder();
+        for (int i = 0; i < exampleHierarchies.Count; i++)
+        {
+            examplesBuilder.AppendLine($"### Example {i + 1}:");
+            examplesBuilder.AppendLine("```xml");
+            examplesBuilder.AppendLine(exampleHierarchies[i]);
+            examplesBuilder.AppendLine("```");
+            examplesBuilder.AppendLine();
+        }
 
-Before analyzing the full content, here are ALL the sections found in this document:
+        // Extract document structure preview
+        var structurePreview = ExtractDocumentStructurePreview(cleanedXml);
 
-" + ExtractDocumentStructurePreview(cleanedXml) + @"
+        // Replace placeholders in template
+        var prompt = promptTemplate
+            .Replace("{{EXAMPLE_HIERARCHIES}}", examplesBuilder.ToString())
+            .Replace("{{DOCUMENT_STRUCTURE_PREVIEW}}", structurePreview)
+            .Replace("{{NORMALIZED_XHTML}}", cleanedXml);
 
-CRITICAL REQUIREMENT: Your output MUST include ALL sections listed above.
-Do not omit any section due to content length or density.
-
-## PART 3: CURRENT DOCUMENT TO ANALYZE
-
-Analyze the following normalized XHTML document and create a hierarchy:
-
-```xml
-" + cleanedXml + @"
-```
-
-## PART 4: OUTPUT FORMAT
-
-Generate a JSON response with this EXACT structure (no additional text):
-
-{
-  ""reasoning"": ""Brief explanation of overall structure decisions"",
-  ""root"": {
-    ""id"": ""report-root"",
-    ""level"": 0,
-    ""linkName"": ""Annual Report [YEAR]"",
-    ""dataRef"": ""report-root.xml"",
-    ""path"": ""/"",
-    ""confidence"": 100,
-    ""subItems"": [
-      {
-        ""id"": ""unique-id-kebab-case"",
-        ""level"": 1,
-        ""linkName"": ""Section Title"",
-        ""dataRef"": ""section-filename.xml"",
-        ""path"": ""/"",
-        ""confidence"": 95,
-        ""tocStart"": true,
-        ""tocNumber"": ""1"",
-        ""tocStyle"": ""default"",
-        ""reasoning"": ""Why this item was placed here"",
-        ""subItems"": [
-          {
-            ""id"": ""subsection-id"",
-            ""level"": 2,
-            ""linkName"": ""Subsection Title"",
-            ""dataRef"": ""subsection-filename.xml"",
-            ""path"": ""/"",
-            ""confidence"": 85,
-            ""tocNumber"": ""1.1"",
-            ""reasoning"": ""Detected by heading level and numbering"",
-            ""subItems"": []
-          }
-        ]
-      }
-    ]
-  }
-}
-
-### Required Fields:
-- id: unique identifier (kebab-case derived from linkName)
-- level: hierarchical level (0=root, 1=main, 2=sub, 3=deep)
-- linkName: display name for navigation
-- dataRef: filename for section content (kebab-case + .xml)
-- path: always ""/""
-- confidence: 0-100 score
-- subItems: array of child items (empty array if none)
-
-### Optional Fields:
-- tocStart: true for first numbered section
-- tocEnd: true for last section (back cover)
-- tocNumber: section number (""1"", ""2.1"", ""note 1"")
-- tocStyle: ""default"" or ""notes123""
-- reasoning: explanation for decisions (especially when confidence < 90%)
-
-### ID and DataRef Naming:
-- Convert linkName to kebab-case
-- Remove special characters and spaces
-- Append random suffix only if needed for uniqueness
-- Examples: ""executive-summary"", ""financial-performance"", ""consolidated-balance-sheets""
-
-### VALIDATION CHECKLIST - Verify before outputting JSON:
-
-Before generating your response, confirm:
-☐ ALL sections with data-number attributes are included in hierarchy
-☐ Section numbering is complete (1, 2, 3, 4, 5... with no gaps)
-☐ Each main section includes its numbered subsections (2.1-2.5, 4.1-4.6, etc.)
-☐ Front matter sections (cover, TOC, executive summary, company profile) are included
-☐ Root node contains ALL top-level sections as direct children
-☐ No sections were skipped due to length differences or content density
-☐ All sections from the structure preview above appear in the output
-
-If ANY checkbox fails, review the entire document again before generating JSON.
-
-Generate the JSON now:
-";
+        _logger.LogInformation("[HierarchyGenerator] Built prompt from template: {Length} chars total",
+            prompt.Length);
 
         return prompt;
     }

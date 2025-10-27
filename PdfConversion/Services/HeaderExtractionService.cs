@@ -60,27 +60,27 @@ public class HeaderExtractionService : IHeaderExtractionService
                 headerCounters[level] = 0;
             }
 
-            // Find all header elements
-            foreach (var level in HeaderLevels)
+            // Find all header elements in document order
+            var allHeaderElements = doc.Descendants()
+                .Where(e => HeaderLevels.Contains(e.Name.LocalName))
+                .ToList();
+
+            foreach (var element in allHeaderElements)
             {
-                var elements = doc.Descendants(level).ToList();
+                var level = element.Name.LocalName;
+                headerCounters[level]++;
 
-                foreach (var element in elements)
+                var header = new DocumentHeader
                 {
-                    headerCounters[level]++;
+                    Id = $"{level}_{headerCounters[level]}",
+                    Level = level,
+                    Title = GetElementText(element),
+                    XPath = GetXPath(element),
+                    Context = GetContext(element),
+                    IsUsed = false
+                };
 
-                    var header = new DocumentHeader
-                    {
-                        Id = $"{level}_{headerCounters[level]}",
-                        Level = level,
-                        Title = GetElementText(element),
-                        XPath = GetXPath(element),
-                        Context = GetContext(element),
-                        IsUsed = false
-                    };
-
-                    headers.Add(header);
-                }
+                headers.Add(header);
             }
 
             _logger.LogInformation("Extracted {Count} headers from {FilePath}", headers.Count, xmlFilePath);
