@@ -22,6 +22,8 @@ services:
       - DOTNET_USE_POLLING_FILE_WATCHER=true
     networks:
       - blazornetwork
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - xslt3service
     restart: unless-stopped

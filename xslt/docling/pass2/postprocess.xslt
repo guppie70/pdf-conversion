@@ -130,6 +130,22 @@
         </xsl:choose>
     </xsl:function>
 
+    <!-- Recursive template: collect consecutive header rows -->
+    <xsl:template name="collect-consecutive-header-rows">
+        <xsl:param name="rows" as="element(tr)*"/>
+        <xsl:param name="max-rows" as="xs:integer"/>
+        <xsl:param name="collected" as="xs:integer" select="0"/>
+
+        <xsl:if test="$collected lt $max-rows and exists($rows[1]) and local:is-header-row($rows[1])">
+            <xsl:sequence select="$rows[1]"/>
+            <xsl:call-template name="collect-consecutive-header-rows">
+                <xsl:with-param name="rows" select="$rows[position() gt 1]"/>
+                <xsl:with-param name="max-rows" select="$max-rows"/>
+                <xsl:with-param name="collected" select="$collected + 1"/>
+            </xsl:call-template>
+        </xsl:if>
+    </xsl:template>
+
     <!-- Process tbody: detect header rows and move to thead, handle title row -->
     <xsl:template match="tbody" mode="pass2-tbody" priority="10">
         <xsl:param name="max-cells" as="xs:integer" tunnel="yes"/>
@@ -186,6 +202,36 @@
                 <xsl:with-param name="max-cells" select="$max-cells" tunnel="yes"/>
             </xsl:apply-templates>
         </tbody>
+    </xsl:template>
+
+    <!-- Cell normalization: ensure thead uses th, tbody uses td -->
+
+    <!-- Convert td to th when inside thead -->
+    <xsl:template match="thead//td" mode="pass2-table" priority="15">
+        <th>
+            <xsl:apply-templates select="@* | node()" mode="pass2-table"/>
+        </th>
+    </xsl:template>
+
+    <!-- Keep th as th when inside thead -->
+    <xsl:template match="thead//th" mode="pass2-table" priority="15">
+        <xsl:copy>
+            <xsl:apply-templates select="@* | node()" mode="pass2-table"/>
+        </xsl:copy>
+    </xsl:template>
+
+    <!-- Convert th to td when inside tbody -->
+    <xsl:template match="tbody//th" mode="pass2-table" priority="15">
+        <td>
+            <xsl:apply-templates select="@* | node()" mode="pass2-table"/>
+        </td>
+    </xsl:template>
+
+    <!-- Keep td as td when inside tbody -->
+    <xsl:template match="tbody//td" mode="pass2-table" priority="15">
+        <xsl:copy>
+            <xsl:apply-templates select="@* | node()" mode="pass2-table"/>
+        </xsl:copy>
     </xsl:template>
 
 </xsl:stylesheet>

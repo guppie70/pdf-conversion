@@ -333,4 +333,34 @@
         </xsl:if>
     </xsl:template>
 
+    <!-- Cell normalization: ensure thead uses th, tbody uses td -->
+
+    <!-- Convert td to th when inside thead -->
+    <xsl:template match="thead//td" mode="pass2" priority="15">
+        <th>
+            <xsl:apply-templates select="@* | node()" mode="pass2"/>
+        </th>
+    </xsl:template>
+
+    <!-- Keep th as th when inside thead -->
+    <xsl:template match="thead//th" mode="pass2" priority="15">
+        <xsl:copy>
+            <xsl:apply-templates select="@* | node()" mode="pass2"/>
+        </xsl:copy>
+    </xsl:template>
+
+    <!-- Convert th to td when inside tbody -->
+    <xsl:template match="tbody//th" mode="pass2" priority="15">
+        <td>
+            <xsl:apply-templates select="@* | node()" mode="pass2"/>
+        </td>
+    </xsl:template>
+
+    <!-- Keep td as td when inside tbody -->
+    <xsl:template match="tbody//td" mode="pass2" priority="15">
+        <xsl:copy>
+            <xsl:apply-templates select="@* | node()" mode="pass2"/>
+        </xsl:copy>
+    </xsl:template>
+
 </xsl:stylesheet>
