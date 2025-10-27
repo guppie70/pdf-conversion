@@ -483,6 +483,13 @@
     color: #ffffff !important;
 }
 
+.status-table .info-label {
+    font-weight: 600 !important;
+    width: auto;
+    font-size: 0.9rem;
+    color: #cccccc !important;
+}
+
 .status-table .text-end {
     text-align: right;
     width: 150px;
