@@ -2614,6 +2614,14 @@
                     Logger.LogInformation("Loading selection from UserSelectionService JSON: Project={Project}, SourceXml={SourceXml}, Xslt={Xslt}",
                         selection.LastSelectedProject, selection.LastSelectedSourceXml, selection.LastSelectedXslt);
 
+                    // Validate ProjectId format (should be "customer/project-id")
+                    if (!selection.LastSelectedProject.Contains('/'))
+                    {
+                        Logger.LogWarning("⚠️ Invalid ProjectId format in user-selections.json: '{ProjectId}' (expected 'customer/project-id' format). Selections may not restore correctly.",
+                            selection.LastSelectedProject);
+                        ToastNotification.ShowWarning($"Invalid project format in saved selections: '{selection.LastSelectedProject}'. Please select your files manually.");
+                    }
+
                     // UserSelection now stores full path format (e.g., "customer/project-id")
                     // Transform page uses the same format, so use it directly
                     savedSelection = new SavedSelection
@@ -2654,6 +2662,21 @@
                             var filePath = $"{savedSelection.ProjectId}/{savedSelection.FileName}";
                             await OnFilePathChanged(filePath);
                         }
+                        else
+                        {
+                            Logger.LogWarning("⚠️ Cannot restore file selection - missing data: ProjectId='{Project}', FileName='{File}'. Please select a file manually.",
+                                savedSelection.ProjectId ?? "(null)",
+                                savedSelection.FileName ?? "(null)");
+
+                            if (string.IsNullOrEmpty(savedSelection.FileName))
+                            {
+                                ToastNotification.ShowWarning("No file was previously selected. Please select a file to continue.");
+                            }
+                            else if (string.IsNullOrEmpty(savedSelection.ProjectId))
+                            {
+                                ToastNotification.ShowWarning("No project was previously selected. Please select a project.");
+                            }
+                        }
                     }
                     finally
                     {
@@ -2668,7 +2691,8 @@
             }
             catch (Exception ex)
             {
-                Logger.LogWarning(ex, "Could not restore saved selection");
+                Logger.LogError(ex, "❌ Error loading saved selection from UserSelectionService");
+                ToastNotification.ShowWarning("Could not restore previous selections. Please select your files manually.");
                 isRestoringFromStorage = false;
             }
         }

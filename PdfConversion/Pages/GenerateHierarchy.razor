@@ -406,7 +406,9 @@
         {
             if (!string.IsNullOrEmpty(SelectedSourceXml))
             {
-                await UserSelectionService.UpdateSelectionAsync(sourceXml: SelectedSourceXml);
+                // Save only the filename for consistency with Transform page
+                var filename = Path.GetFileName(SelectedSourceXml);
+                await UserSelectionService.UpdateSelectionAsync(sourceXml: filename);
                 await AutoTransformAndLoadAsync();
             }
         }
