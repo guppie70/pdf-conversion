@@ -9,8 +9,10 @@
 @inject IXsltTransformationService XsltTransformationService
 @inject IHierarchyGeneratorService HierarchyGenerator
 @inject IOllamaService OllamaService
+@inject IHierarchyRequestLogger HierarchyRequestLogger
 @inject IJSRuntime JSRuntime
 @inject ILogger<GenerateHierarchy> Logger
+@inject HttpClient HttpClient
 
 <PageTitle>Generate Hierarchy</PageTitle>
 
@@ -20,6 +22,11 @@
         <div class="header-actions">
             <button class="btn btn-success" @onclick="SaveHierarchyAsync" disabled="@(!HasChanges || string.IsNullOrEmpty(SelectedProject))">
                 <i class="bi bi-save"></i> Save
+            </button>
+            <button class="btn btn-secondary"
+                    @onclick="ShowRuleBasedModal"
+                    disabled="@(string.IsNullOrEmpty(SelectedSourceXml))">
+                <i class="bi bi-gear"></i> Generate with Rules
             </button>
             <button class="btn btn-primary"
                     @onclick="ShowAiGenerationModal"
@@ -95,6 +102,12 @@
         <div class="left-panel">
             <div class="panel-header">
                 <h5>Hierarchy Tree</h5>
+                @if (_showTestApiButton)
+                {
+                    <button class="btn-test-api" @onclick="OpenTestApi">
+                        <i class="bi bi-link-45deg"></i> Test API
+                    </button>
+                }
             </div>
             <div class="panel-content">
                 @if (CurrentHierarchy != null)
@@ -266,6 +279,82 @@
             </div>
         </div>
     }
+
+    @if (_showRuleBasedModal)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+            <div class="modal-dialog modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Rule-Based Hierarchy Generation</h5>
+                        <button type="button" class="btn-close" @onclick="CloseRuleBasedModal" disabled="@_isGeneratingRuleBased"></button>
+                    </div>
+                    <div class="modal-body">
+                        @if (_ruleBasedError != null)
+                        {
+                            <div class="alert alert-danger alert-dismissible">
+                                @_ruleBasedError
+                                <button type="button" class="btn-close" @onclick="() => _ruleBasedError = null"></button>
+                            </div>
+                        }
+
+                        <div class="mb-3">
+                            <h6 class="fw-bold">About Rule-Based Generation</h6>
+                            <p class="text-muted mb-2">
+                                Rule-based generation uses deterministic algorithms to build a hierarchy from your document headers.
+                                It's fast (instant), consistent, and doesn't require AI models.
+                            </p>
+                            <ul class="small text-muted mb-0">
+                                <li>Analyzes heading structure (h1, h2, h3, etc.)</li>
+                                <li>Creates hierarchical relationships based on heading levels</li>
+                                <li>Generates standardized IDs and data-refs</li>
+                                <li>No training examples needed</li>
+                            </ul>
+                        </div>
+
+                        <!-- XSLT Selection -->
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">XSLT Transformation</label>
+                            <select class="form-select" @bind="_selectedRuleBasedXslt">
+                                <option value="">-- Select XSLT File --</option>
+                                @foreach (var file in _availableXsltFiles)
+                                {
+                                    <option value="@file">@file.Replace("/app/xslt/", "")</option>
+                                }
+                            </select>
+                            @if (!string.IsNullOrEmpty(_selectedRuleBasedXslt))
+                            {
+                                <small class="text-muted d-block mt-1">
+                                    @_selectedRuleBasedXslt.Replace("/app/xslt/", "") selected
+                                </small>
+                            }
+                        </div>
+
+                        @if (_isGeneratingRuleBased)
+                        {
+                            <div class="text-center py-4">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Generating...</span>
+                                </div>
+                                <p class="mt-2 text-muted">Generating hierarchy...</p>
+                            </div>
+                        }
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CloseRuleBasedModal" disabled="@_isGeneratingRuleBased">
+                            Cancel
+                        </button>
+                        <button type="button"
+                                class="btn btn-primary"
+                                @onclick="GenerateWithRules"
+                                disabled="@(_isGeneratingRuleBased || string.IsNullOrEmpty(_selectedRuleBasedXslt))">
+                            <i class="bi bi-gear"></i> Generate
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
 </div>
 
 @code {
@@ -283,6 +372,7 @@
     private bool _isGeneratingAi = false;
     private bool _ollamaHealthy = false;
     private bool _isAiGenerated = false;  // Track if current hierarchy is AI-generated
+    private bool _isRuleBasedGenerated = false;  // Track if current hierarchy is rule-based generated
     private string? _aiError = null;
     private HierarchyValidationResult? _validationResult = null;
     private List<ExampleHierarchy> _exampleHierarchies = new();
@@ -292,6 +382,13 @@
     private double _aiTemperature = 0.3;
     private string _selectedAiXslt = "/app/xslt/transformation.xslt";
     private List<string> _availableXsltFiles = new();
+    private bool _showTestApiButton = false;
+
+    // Rule-Based Generation state
+    private bool _showRuleBasedModal = false;
+    private bool _isGeneratingRuleBased = false;
+    private string? _ruleBasedError = null;
+    private string _selectedRuleBasedXslt = "/app/xslt/transformation.xslt";
 
     // ExampleHierarchy class for training data
     private class ExampleHierarchy
@@ -688,6 +785,7 @@
             CurrentHierarchy = await HierarchyService.LoadHierarchyAsync(SelectedHierarchyXml);
             HasChanges = false;
             _isAiGenerated = false;  // Manual hierarchies are not AI-generated
+            _isRuleBasedGenerated = false;  // Manual hierarchies are not rule-based generated
             _validationResult = null;  // Clear validation result for manually loaded hierarchies
             Logger.LogInformation("Loaded hierarchy from {Path}", SelectedHierarchyXml);
             // Success toast removed - user can see hierarchy loaded in the UI
@@ -745,6 +843,31 @@
 
                 filePath = Path.Combine(metadataDir, "ai-hierarchy.xml");
                 Logger.LogInformation("Saving AI-generated hierarchy to metadata folder: {Path}", filePath);
+            }
+            else if (_isRuleBasedGenerated)
+            {
+                // Rule-based hierarchies go to metadata folder with specific name
+                var parts = SelectedProject.Split('/');
+                if (parts.Length != 2)
+                {
+                    Logger.LogError("Invalid project format: {Project}", SelectedProject);
+                    ToastNotification.ShowError("Invalid project format");
+                    return;
+                }
+
+                var customer = parts[0];
+                var projectId = parts[1];
+                var metadataDir = $"/app/data/input/{customer}/projects/{projectId}/metadata";
+
+                // Ensure metadata directory exists
+                if (!Directory.Exists(metadataDir))
+                {
+                    Directory.CreateDirectory(metadataDir);
+                    Logger.LogInformation("Created metadata directory: {Dir}", metadataDir);
+                }
+
+                filePath = Path.Combine(metadataDir, "rules-hierarchy.xml");
+                Logger.LogInformation("Saving rule-based hierarchy to metadata folder: {Path}", filePath);
             }
             else if (!string.IsNullOrEmpty(SelectedHierarchyXml))
             {
@@ -1174,6 +1297,22 @@
                 return;
             }
 
+            // Log request parameters before generation
+            var selectedExamplePaths = _exampleHierarchies
+                .Where(e => e.IsSelected)
+                .Select(e => e.Path)
+                .ToList();
+
+            HierarchyRequestLogger.LogRequest(
+                SelectedProject ?? string.Empty,
+                SelectedSourceXml ?? string.Empty,
+                _selectedAiXslt,
+                selectedExamplePaths
+            );
+
+            // Temporarily set configuration to LLM mode
+            Environment.SetEnvironmentVariable("HierarchyGeneration__Mode", "LLM");
+
             // Generate hierarchy with AI
             Logger.LogInformation("Generating hierarchy with {ModelName} using {Count} examples",
                 _selectedAiModel, selectedExamples.Count);
@@ -1192,6 +1331,10 @@
             CurrentHierarchy = hierarchyStructure;
             HasChanges = true;
             _isAiGenerated = true;  // Mark this hierarchy as AI-generated
+            _isRuleBasedGenerated = false;  // Not rule-based
+
+            // Show Test API button after generation completes
+            _showTestApiButton = true;
 
             // Close modal
             _showAiModal = false;
@@ -1207,6 +1350,8 @@
         }
         finally
         {
+            // Reset environment variable
+            Environment.SetEnvironmentVariable("HierarchyGeneration__Mode", null);
             _isGeneratingAi = false;
             StateHasChanged();
         }
@@ -1248,6 +1393,161 @@
                     }
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Opens the hierarchy test API in a new window with the last generation parameters
+    /// </summary>
+    private async Task OpenTestApi()
+    {
+        try
+        {
+            var lastRequest = HierarchyRequestLogger.GetLastRequest();
+
+            if (lastRequest == null)
+            {
+                Logger.LogWarning("No last request parameters available");
+                return;
+            }
+
+            // Build test URL with parameters
+            var testUrl = $"http://localhost:8085/hierarchy-test-api?project={Uri.EscapeDataString(lastRequest.Project)}&sourceXml={Uri.EscapeDataString(lastRequest.SourceXml)}&xslt={Uri.EscapeDataString(lastRequest.Xslt)}&examples={Uri.EscapeDataString(lastRequest.Examples)}";
+
+            Logger.LogInformation("Opening test API with URL: {Url}", testUrl);
+
+            // Open in new window using JavaScript
+            await JSRuntime.InvokeVoidAsync("open", testUrl, "_blank");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to open test API");
+            ToastNotification.ShowError($"Failed to open test API: {ex.Message}");
+        }
+    }
+
+    // Rule-Based Generation Methods
+
+    private void ShowRuleBasedModal()
+    {
+        _ruleBasedError = null;
+        _showRuleBasedModal = true;
+
+        // Load XSLT files
+        LoadXsltFiles();
+
+        // Smart default selection based on source XML filename
+        if (_availableXsltFiles.Any() && !string.IsNullOrEmpty(SelectedSourceXml))
+        {
+            var sourceFileName = Path.GetFileName(SelectedSourceXml).ToLowerInvariant();
+            if (sourceFileName.Contains("docling"))
+            {
+                _selectedRuleBasedXslt = _availableXsltFiles.FirstOrDefault(f => f.Contains("docling/transformation.xslt")) ?? string.Empty;
+            }
+            else
+            {
+                _selectedRuleBasedXslt = _availableXsltFiles.FirstOrDefault(f => f.Contains("adobe/transformation.xslt")) ?? string.Empty;
+            }
+        }
+
+        StateHasChanged();
+    }
+
+    private void CloseRuleBasedModal()
+    {
+        _showRuleBasedModal = false;
+        _ruleBasedError = null;
+        StateHasChanged();
+    }
+
+    private async Task GenerateWithRules()
+    {
+        _isGeneratingRuleBased = true;
+        _ruleBasedError = null;
+
+        try
+        {
+            // Verify we have source XML selected
+            if (string.IsNullOrEmpty(SelectedSourceXml))
+            {
+                _ruleBasedError = "Please select a source XML file first.";
+                return;
+            }
+
+            // Validate XSLT selection
+            if (string.IsNullOrEmpty(_selectedRuleBasedXslt))
+            {
+                _ruleBasedError = "Please select an XSLT transformation file.";
+                return;
+            }
+
+            // Read and transform source XML
+            var sourceXmlContent = await File.ReadAllTextAsync(SelectedSourceXml);
+
+            // Read XSLT file
+            var xsltContent = await File.ReadAllTextAsync(_selectedRuleBasedXslt);
+
+            // Transform with proper options and file path for include resolution
+            Logger.LogInformation("Transforming source XML with XSLT: {Xslt}", _selectedRuleBasedXslt);
+            var transformResult = await XsltTransformationService.TransformAsync(
+                sourceXmlContent,
+                xsltContent,
+                new TransformationOptions
+                {
+                    UseXslt3Service = true,
+                    NormalizeHeaders = false
+                },
+                _selectedRuleBasedXslt  // Pass file path for module resolution
+            );
+
+            if (!transformResult.IsSuccess)
+            {
+                _ruleBasedError = $"XSLT transformation failed: {transformResult.ErrorMessage}";
+                return;
+            }
+
+            // Generate hierarchy with rule-based generator (no examples needed)
+            Logger.LogInformation("Generating hierarchy with rule-based generator");
+
+            // Temporarily set configuration to RuleBased mode
+            Environment.SetEnvironmentVariable("HierarchyGeneration__Mode", "RuleBased");
+
+            var proposal = await HierarchyGenerator.GenerateHierarchyAsync(
+                normalizedXml: transformResult.OutputContent,
+                exampleHierarchies: new List<string>(),  // Empty list for rule-based
+                modelName: string.Empty,  // Not used for rule-based
+                cancellationToken: CancellationToken.None
+            );
+
+            // Store validation result for UI display (rule-based shouldn't hallucinate)
+            _validationResult = proposal.ValidationResult;
+
+            // Convert HierarchyProposal to HierarchyStructure and load into editor
+            var hierarchyStructure = proposal.ToHierarchyStructure();
+            CurrentHierarchy = hierarchyStructure;
+            HasChanges = true;
+            _isAiGenerated = false;  // Mark this hierarchy as NOT AI-generated
+            _isRuleBasedGenerated = true;  // Mark this hierarchy as rule-based generated
+
+            // Don't show Test API button for rule-based
+            _showTestApiButton = false;
+
+            // Close modal
+            _showRuleBasedModal = false;
+
+            Logger.LogInformation("Rule-based hierarchy generated with {Count} items", proposal.TotalItems);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Rule-based hierarchy generation failed");
+            _ruleBasedError = $"Generation failed: {ex.Message}";
+        }
+        finally
+        {
+            // Reset environment variable
+            Environment.SetEnvironmentVariable("HierarchyGeneration__Mode", null);
+            _isGeneratingRuleBased = false;
+            StateHasChanged();
         }
     }
 }

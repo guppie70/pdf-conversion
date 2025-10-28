@@ -1142,6 +1142,48 @@
             XmlContent = null;
             OutputContent = null;
 
+            // Auto-select XSLT file based on source XML filename pattern
+            if (fileName.Contains("docling", StringComparison.OrdinalIgnoreCase))
+            {
+                var desiredXslt = "docling/transformation.xslt";
+                if (XsltFiles != null && XsltFiles.Contains(desiredXslt) && SelectedXsltFile != desiredXslt)
+                {
+                    Logger.LogInformation("Auto-selecting XSLT file '{Xslt}' based on source XML filename pattern '{FileName}'", desiredXslt, fileName);
+                    SelectedXsltFile = desiredXslt;
+
+                    // Load the XSLT content immediately
+                    try
+                    {
+                        var xsltPath = $"/app/xslt/{SelectedXsltFile}";
+                        if (File.Exists(xsltPath))
+                        {
+                            XsltContent = await File.ReadAllTextAsync(xsltPath);
+                            Logger.LogInformation("Auto-loaded XSLT file from {Path}", xsltPath);
+
+                            // Update Monaco editor if initialized
+                            if (monacoInitialized)
+                            {
+                                await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.setValue", XsltContent);
+                            }
+
+                            // Update file watcher
+                            try
+                            {
+                                XsltFileWatcher.StartWatching(xsltPath);
+                            }
+                            catch (Exception watchEx)
+                            {
+                                Logger.LogError(watchEx, "Failed to start XSLT file watcher during auto-selection");
+                            }
+                        }
+                    }
+                    catch (Exception xsltEx)
+                    {
+                        Logger.LogError(xsltEx, "Error auto-loading XSLT file during source XML selection");
+                    }
+                }
+            }
+
             IsLoadingXml = true;
             UpdateToolbarState();
             StateHasChanged();

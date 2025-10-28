@@ -119,7 +119,9 @@ builder.Services.AddSingleton<IBatchTransformationService, BatchTransformationSe
 // Register Ollama service for AI hierarchy generation
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<IOllamaService, OllamaService>();
+builder.Services.AddScoped<RuleBasedHierarchyGenerator>();
 builder.Services.AddScoped<IHierarchyGeneratorService, HierarchyGeneratorService>();
+builder.Services.AddSingleton<IHierarchyRequestLogger, HierarchyRequestLogger>();
 
 // Configure HttpClient for XSLT3Service
 var xslt3ServiceUrl = builder.Configuration.GetValue<string>("XSLT3_SERVICE_URL") ?? "http://xslt3service:4806";
@@ -263,6 +265,27 @@ app.MapGet("/transform-test", async (HttpContext context, IXsltTransformationSer
         context.Response.ContentType = "text/plain";
         await context.Response.WriteAsync($"Error: {ex.Message}");
     }
+});
+
+// Map API endpoint to retrieve last AI generation request parameters
+app.MapGet("/api/hierarchy/last-request-params", (IHierarchyRequestLogger requestLogger) =>
+{
+    var lastRequest = requestLogger.GetLastRequest();
+
+    if (lastRequest == null)
+    {
+        return Results.Ok(new { hasData = false });
+    }
+
+    return Results.Ok(new
+    {
+        hasData = true,
+        project = lastRequest.Project,
+        sourceXml = lastRequest.SourceXml,
+        xslt = lastRequest.Xslt,
+        examples = lastRequest.Examples,
+        timestamp = lastRequest.Timestamp
+    });
 });
 
 // Map hierarchy-test-api endpoint for rapid prompt testing
@@ -450,6 +473,23 @@ app.MapGet("/hierarchy-test-api", async (
             timestamp = DateTime.UtcNow
         });
     }
+});
+
+// Map sandbox endpoint for testing prompt generation without calling LLM
+// Logic extracted to PdfConversion.Endpoints.SandboxEndpoint for better maintainability
+// Example: curl http://localhost:8085/sandbox              # anonymized (default: false)
+// Example: curl http://localhost:8085/sandbox?anonymize=true   # anonymized examples
+app.MapGet("/sandbox", async (
+    HttpContext context,
+    IXsltTransformationService xsltService,
+    IHierarchyGeneratorService hierarchyService,
+    ILogger<Program> logger) =>
+{
+    await PdfConversion.Endpoints.SandboxEndpoint.HandleAsync(
+        context,
+        xsltService,
+        hierarchyService,
+        logger);
 });
 
 // Add health check endpoints

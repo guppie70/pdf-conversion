@@ -250,8 +250,13 @@ public class ConversionService : IConversionService
             // Read source XML content
             var xmlContent = await _projectService.ReadInputFileAsync(projectId, sourceFile);
 
-            // Read main XSLT file
-            var xsltPath = "/app/xslt/transformation.xslt";
+            // Auto-detect XSLT based on source filename
+            var xsltPath = sourceFile.Contains("docling", StringComparison.OrdinalIgnoreCase)
+                ? "/app/xslt/docling/transformation.xslt"
+                : "/app/xslt/adobe/transformation.xslt";
+
+            _logger.LogInformation("Using XSLT file: {XsltPath} (detected from source: {SourceFile})", xsltPath, sourceFile);
+
             if (!File.Exists(xsltPath))
             {
                 throw new FileNotFoundException($"XSLT transformation file not found: {xsltPath}");
@@ -272,8 +277,8 @@ public class ConversionService : IConversionService
                 }
             };
 
-            // Perform transformation
-            var result = await _xsltService.TransformAsync(xmlContent, xsltContent, options);
+            // Perform transformation (pass xsltPath so includes can be resolved)
+            var result = await _xsltService.TransformAsync(xmlContent, xsltContent, options, xsltPath);
 
             if (!result.IsSuccess)
             {
@@ -301,6 +306,17 @@ public class ConversionService : IConversionService
         {
             _logger.LogInformation("Validating conversion configuration for project {ProjectId}", projectId);
 
+            // Extract customer and project from projectId format "customer/projectId"
+            var projectParts = projectId.Split('/', 2);
+            if (projectParts.Length != 2)
+            {
+                result.IsValid = false;
+                result.ErrorMessage = $"Invalid projectId format: {projectId}. Expected 'customer/projectId'";
+                return result;
+            }
+            var customer = projectParts[0];
+            var project = projectParts[1];
+
             // 1. Validate project exists
             if (!await _projectService.ProjectExistsAsync(projectId))
             {
@@ -310,7 +326,7 @@ public class ConversionService : IConversionService
             }
 
             // 2. Validate source file exists
-            var sourceFilePath = Path.Combine("/app/data/input/optiver/projects", projectId, sourceFile);
+            var sourceFilePath = Path.Combine("/app/data/input", customer, "projects", project, sourceFile);
             var sourceValidation = await ValidateSourceFileAsync(sourceFilePath);
             if (!sourceValidation.IsValid)
             {
@@ -320,7 +336,7 @@ public class ConversionService : IConversionService
             }
 
             // 3. Validate hierarchy file exists and structure
-            var hierarchyFilePath = Path.Combine("/app/data/input/optiver/projects", projectId, "metadata", hierarchyFile);
+            var hierarchyFilePath = Path.Combine("/app/data/input", customer, "projects", project, "metadata", hierarchyFile);
             var hierarchyValidation = await ValidateHierarchyFileAsync(hierarchyFilePath);
             if (!hierarchyValidation.IsValid)
             {
@@ -531,7 +547,16 @@ public class ConversionService : IConversionService
     {
         try
         {
-            var outputPath = Path.Combine("/app/data/output/optiver/projects", projectId, "data");
+            // Extract customer and project from projectId format "customer/projectId"
+            var projectParts = projectId.Split('/', 2);
+            if (projectParts.Length != 2)
+            {
+                return ValidationResult.Failure($"Invalid projectId format: {projectId}. Expected 'customer/projectId'");
+            }
+            var customer = projectParts[0];
+            var project = projectParts[1];
+
+            var outputPath = Path.Combine("/app/data/output", customer, "projects", project, "data");
 
             // Check if parent directory exists
             var parentDir = Path.GetDirectoryName(outputPath);
@@ -587,7 +612,16 @@ public class ConversionService : IConversionService
     {
         try
         {
-            var outputPath = $"/app/data/output/optiver/projects/{projectId}/data";
+            // Extract customer and project from projectId format "customer/projectId"
+            var projectParts = projectId.Split('/', 2);
+            if (projectParts.Length != 2)
+            {
+                throw new ArgumentException($"Invalid projectId format: {projectId}. Expected 'customer/projectId'");
+            }
+            var customer = projectParts[0];
+            var project = projectParts[1];
+
+            var outputPath = Path.Combine("/app/data/output", customer, "projects", project, "data");
 
             _logger.LogInformation("Preparing output folder for project {ProjectId}", projectId);
 
@@ -686,9 +720,21 @@ public class ConversionService : IConversionService
 
             logCallback("✓ All validations passed");
 
+            // Extract customer and project from projectId format "customer/projectId"
+            var projectParts = projectId.Split('/', 2);
+            if (projectParts.Length != 2)
+            {
+                result.Success = false;
+                result.Errors.Add($"Invalid projectId format: {projectId}. Expected 'customer/projectId'");
+                logCallback($"✗ Invalid projectId format: {projectId}");
+                return result;
+            }
+            var customer = projectParts[0];
+            var project = projectParts[1];
+
             // 2. Load hierarchy
             logCallback("Loading hierarchy...");
-            var hierarchyPath = Path.Combine("/app/data/input/optiver/projects", projectId, "metadata", hierarchyFile);
+            var hierarchyPath = Path.Combine("/app/data/input", customer, "projects", project, "metadata", hierarchyFile);
             var hierarchyItems = await LoadHierarchyAsync(hierarchyPath);
             result.TotalSections = hierarchyItems.Count;
             logCallback($"✓ Loaded {hierarchyItems.Count} hierarchy items");
@@ -1003,7 +1049,7 @@ public class ConversionService : IConversionService
                     var sectionXml = PopulateTemplate(template, match.HierarchyItem, normalizedContent);
 
                     // Write to file (always complete current file write before cancelling)
-                    var outputPath = Path.Combine("/app/data/output/optiver/projects", projectId, "data", match.HierarchyItem.DataRef);
+                    var outputPath = Path.Combine("/app/data/output", customer, "projects", project, "data", match.HierarchyItem.DataRef);
                     var xhtmlContent = XhtmlSerializationHelper.SerializeXhtmlDocument(sectionXml);
                     await File.WriteAllTextAsync(outputPath, xhtmlContent, cancellationToken);
 

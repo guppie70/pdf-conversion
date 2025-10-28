@@ -142,6 +142,9 @@
 }
 
 .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     padding: 0.75rem 1rem;
     background: #2d2d30;
     border-bottom: 1px solid #3e3e42;
@@ -447,4 +450,49 @@
 
 ::deep .modal-body .example-list::-webkit-scrollbar-thumb:hover {
     background: #4e4e52;
+}
+
+/* ===================================================================
+   Test API Button - VS Code Dark Modern Theme
+   =================================================================== */
+
+.btn-test-api {
+    /* VS Code Secondary Button Style */
+    background-color: #313131;
+    color: #CCCCCC;
+    border: 1px solid #3C3C3C;
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 0.8125rem; /* 13px */
+    font-family: Segoe UI, system-ui, -apple-system, sans-serif;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+
+.btn-test-api:hover {
+    background-color: #3C3C3C;
+    border-color: #0078D4;
+}
+
+.btn-test-api:active {
+    background-color: #2B2B2B;
+}
+
+.btn-test-api:focus {
+    outline: 1px solid #0078D4;
+    outline-offset: 2px;
+}
+
+.btn-test-api i {
+    font-size: 14px;
+}
+
+/* Ensure button stays compact in panel header */
+.panel-header .btn-test-api {
+    padding: 4px 8px;
+    font-size: 0.75rem; /* 12px - smaller for panel header */
 }
