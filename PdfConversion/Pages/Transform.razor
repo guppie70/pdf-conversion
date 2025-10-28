@@ -1916,7 +1916,7 @@
             var xsltPath = $"/app/xslt/{SelectedXsltFile}";
             await File.WriteAllTextAsync(xsltPath, XsltContent!);
 
-            ToastNotification.ShowSuccess($"XSLT file saved successfully: {SelectedXsltFile}");
+            // Success toast removed - file save is logged
             Logger.LogInformation("XSLT file saved to {Path}", xsltPath);
         }
         catch (Exception ex)
@@ -1960,7 +1960,7 @@
 
             await File.WriteAllTextAsync(xmlFilePath, XmlContent!);
 
-            ToastNotification.ShowSuccess($"Source XML saved: {SelectedFileName}");
+            // Success toast removed - file save is logged
             Logger.LogInformation("Source XML saved to {Path}, waiting 2 seconds for file watcher...", xmlFilePath);
 
             // Wait longer to ensure file watcher processes the change with flag set
@@ -2008,7 +2008,7 @@
 
             if (success)
             {
-                ToastNotification.ShowSuccess(message);
+                // Success toast removed - success indicated by FixCharactersSuccess flag and alert message
                 Logger.LogInformation("Fix Characters completed: {Message}", message);
 
                 // Reload XML content to reflect changes
@@ -2068,7 +2068,7 @@
 
             if (success)
             {
-                ToastNotification.ShowSuccess(message);
+                // Success toast removed - success indicated by SanitizeSuccess flag and alert message
                 Logger.LogInformation("Sanitize completed: {Message}", message);
 
                 // Brief delay to ensure file is written to disk
@@ -2185,7 +2185,7 @@
             if (!string.IsNullOrEmpty(OutputContent))
             {
                 await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", OutputContent);
-                ToastNotification.ShowSuccess("Output copied to clipboard");
+                // Success toast removed - clipboard operation is instant
                 Logger.LogInformation("Output copied to clipboard");
             }
         }
@@ -2204,7 +2204,7 @@
             if (!string.IsNullOrEmpty(path))
             {
                 await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", path);
-                ToastNotification.ShowSuccess("Path copied to clipboard");
+                // Success toast removed - clipboard operation is instant
                 Logger.LogInformation("File path copied to clipboard: {Path}", path);
             }
         }
@@ -2223,7 +2223,7 @@
             if (!string.IsNullOrEmpty(text))
             {
                 await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", text);
-                ToastNotification.ShowSuccess("XPath copied to clipboard");
+                // Success toast removed - clipboard operation is instant
                 Logger.LogInformation("XPath copied to clipboard");
             }
         }
@@ -2457,7 +2457,7 @@
                 var base64 = System.Convert.ToBase64String(bytes);
 
                 await JSRuntime.InvokeVoidAsync("downloadFile", fileName, "application/xhtml+xml", base64);
-                ToastNotification.ShowSuccess($"Downloaded {fileName}");
+                // Success toast removed - browser download notification is sufficient
                 Logger.LogInformation("Downloaded output as {FileName}", fileName);
             }
         }

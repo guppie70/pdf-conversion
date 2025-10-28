@@ -620,10 +620,7 @@
                 await HeadersPanel.LoadHeadersAsync(NormalizedXmlPath, HierarchyXmlPath);
             }
 
-            if (showToast)
-            {
-                ToastNotification.ShowSuccess($"Loaded document: {Path.GetFileName(SelectedSourceXml)}");
-            }
+            // Success toast removed - user can see document loaded by headers appearing
             Logger.LogInformation("Loaded document headers from {Path}", SelectedSourceXml);
         }
         catch (Exception ex)
@@ -659,7 +656,7 @@
             HasChanges = false;
             _isAiGenerated = false;  // Manual hierarchies are not AI-generated
             Logger.LogInformation("Loaded hierarchy from {Path}", SelectedHierarchyXml);
-            ToastNotification.ShowSuccess($"Loaded hierarchy: {Path.GetFileName(SelectedHierarchyXml)}");
+            // Success toast removed - user can see hierarchy loaded in the UI
 
             // Refresh headers panel to mark used headers - pass paths explicitly
             if (HeadersPanel != null)
@@ -739,7 +736,7 @@
             await HierarchyService.SaveHierarchyAsync(filePath, CurrentHierarchy);
             HasChanges = false;
             Logger.LogInformation("Saved hierarchy to {Path}", filePath);
-            ToastNotification.ShowSuccess($"Saved hierarchy: {Path.GetFileName(filePath)}");
+            // Success toast removed - HasChanges = false indicates save success
 
             // Refresh headers panel to update used status
             if (HeadersPanel != null)
