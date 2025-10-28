@@ -249,6 +249,12 @@
     background: var(--bg-tertiary);
 }
 
+.hierarchy-item.hallucinated {
+    background-color: rgba(244, 135, 113, 0.1);
+    border-left: 3px solid var(--error-red);
+    padding-left: 8px;
+}
+
 .hierarchy-item.uncertain {
     border-left-color: var(--warning-yellow);
     background: #3a3620;

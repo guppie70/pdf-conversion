@@ -59,6 +59,38 @@
         </div>
     }
 
+    @if (_validationResult != null && !_validationResult.IsValid)
+    {
+        <div class="alert alert-warning mt-2">
+            <div class="d-flex align-items-start">
+                <i class="bi bi-exclamation-triangle-fill me-2 mt-1" style="font-size: 1.2em;"></i>
+                <div class="flex-grow-1">
+                    <h6 class="mb-2">⚠️ Hierarchy Contains Hallucinations</h6>
+                    <p class="mb-2">@_validationResult.Summary</p>
+                    <details>
+                        <summary class="text-decoration-underline" style="cursor: pointer;">
+                            Show hallucinated items (@_validationResult.HallucinatedItems.Count)
+                        </summary>
+                        <ul class="mt-2 mb-0">
+                            @foreach (var item in _validationResult.HallucinatedItems.Take(20))
+                            {
+                                <li><code>@item</code></li>
+                            }
+                            @if (_validationResult.HallucinatedItems.Count > 20)
+                            {
+                                <li class="text-muted">... and @(_validationResult.HallucinatedItems.Count - 20) more</li>
+                            }
+                        </ul>
+                    </details>
+                    <p class="mb-0 mt-2 small">
+                        <strong>What this means:</strong> These section names don't exist in your source document.
+                        You can manually remove them below or regenerate with different settings.
+                    </p>
+                </div>
+            </div>
+        </div>
+    }
+
     <div class="hierarchy-workspace">
         <div class="left-panel">
             <div class="panel-header">
@@ -252,6 +284,7 @@
     private bool _ollamaHealthy = false;
     private bool _isAiGenerated = false;  // Track if current hierarchy is AI-generated
     private string? _aiError = null;
+    private HierarchyValidationResult? _validationResult = null;
     private List<ExampleHierarchy> _exampleHierarchies = new();
     private string _hierarchySearchFilter = string.Empty;
     private List<OllamaModel> _availableAiModels = new();
@@ -655,6 +688,7 @@
             CurrentHierarchy = await HierarchyService.LoadHierarchyAsync(SelectedHierarchyXml);
             HasChanges = false;
             _isAiGenerated = false;  // Manual hierarchies are not AI-generated
+            _validationResult = null;  // Clear validation result for manually loaded hierarchies
             Logger.LogInformation("Loaded hierarchy from {Path}", SelectedHierarchyXml);
             // Success toast removed - user can see hierarchy loaded in the UI
 
@@ -1149,6 +1183,9 @@
                 modelName: _selectedAiModel,
                 cancellationToken: CancellationToken.None
             );
+
+            // Store validation result for UI display
+            _validationResult = proposal.ValidationResult;
 
             // Convert HierarchyProposal to HierarchyStructure and load into editor
             var hierarchyStructure = proposal.ToHierarchyStructure();

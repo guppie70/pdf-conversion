@@ -104,6 +104,8 @@
     display: inline-block;
 }
 
+
+
 .level-badge {
     display: inline-block;
     padding: 0.125rem 0.375rem;
@@ -187,4 +189,24 @@
     color: #0d6efd;
     background-color: rgba(13, 110, 253, 0.1);
     border-radius: 3px;
+}
+
+/* Hallucination styling */
+.tree-item.hallucinated {
+    background-color: rgba(248, 81, 73, 0.1); /* --error-red with opacity */
+    border-left: 3px solid #F85149; /* --error-red */
+    margin-left: -3px; /* Move border to the left edge */
+    padding-left: 11px; /* Compensate: 8px original + 3px for border */
+}
+
+.tree-item.hallucinated .tree-item-content {
+    background-color: transparent;
+}
+
+.tree-item.hallucinated .tree-item-content:hover {
+    background-color: rgba(248, 81, 73, 0.15);
+}
+
+.hallucinated .tree-spacer {
+    width: 13px!important;
 }

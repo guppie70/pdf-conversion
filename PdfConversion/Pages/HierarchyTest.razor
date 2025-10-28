@@ -20,6 +20,38 @@
         <p class="text-muted mb-0">Test AI-powered hierarchy generation using Ollama LLM</p>
     </div>
 
+    @if (_generatedProposal?.ValidationResult != null && !_generatedProposal.ValidationResult.IsValid)
+    {
+        <div class="alert alert-warning mt-3">
+            <div class="d-flex align-items-start">
+                <i class="bi bi-exclamation-triangle-fill me-2 mt-1" style="font-size: 1.2em;"></i>
+                <div class="flex-grow-1">
+                    <h6 class="mb-2">⚠️ Hierarchy Contains Hallucinations</h6>
+                    <p class="mb-2">@_generatedProposal.ValidationResult.Summary</p>
+                    <details>
+                        <summary class="text-decoration-underline" style="cursor: pointer;">
+                            Show hallucinated items (@_generatedProposal.ValidationResult.HallucinatedItems.Count)
+                        </summary>
+                        <ul class="mt-2 mb-0">
+                            @foreach (var item in _generatedProposal.ValidationResult.HallucinatedItems.Take(20))
+                            {
+                                <li><code>@item</code></li>
+                            }
+                            @if (_generatedProposal.ValidationResult.HallucinatedItems.Count > 20)
+                            {
+                                <li class="text-muted">... and @(_generatedProposal.ValidationResult.HallucinatedItems.Count - 20) more</li>
+                            }
+                        </ul>
+                    </details>
+                    <p class="mb-0 mt-2 small">
+                        <strong>What this means:</strong> These section names don't exist in your source document.
+                        You can manually remove them below or regenerate with different settings.
+                    </p>
+                </div>
+            </div>
+        </div>
+    }
+
     <div class="three-panel-layout">
         <!-- Left Panel: Configuration -->
         <div class="panel config-panel">
@@ -214,8 +246,13 @@
                     @if (_errorMessage != null)
                     {
                         <div class="alert alert-danger mt-3 mb-0">
-                            <i class="bi bi-exclamation-triangle"></i>
-                            @_errorMessage
+                            <div class="d-flex align-items-start">
+                                <i class="bi bi-exclamation-triangle me-2 mt-1"></i>
+                                <div>
+                                    <strong>Error:</strong>
+                                    <pre class="mb-0 mt-2" style="white-space: pre-wrap; font-size: 0.9em;">@_errorMessage</pre>
+                                </div>
+                            </div>
                         </div>
                     }
                 }
@@ -887,7 +924,29 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Hierarchy generation failed");
-            _errorMessage = ex.Message;
+
+            // Capture full exception details including inner exceptions
+            var fullError = ex.ToString();
+
+            // For UI display, show a more concise but complete message
+            if (ex.InnerException != null)
+            {
+                _errorMessage = $"{ex.Message}\n\nDetails: {ex.InnerException.Message}";
+            }
+            else
+            {
+                _errorMessage = ex.Message;
+            }
+
+            // Log to JavaScript console for debugging
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("console.error", "Hierarchy generation failed:", fullError);
+            }
+            catch
+            {
+                // Ignore JSRuntime errors
+            }
         }
         finally
         {
@@ -945,23 +1004,45 @@
     {
         var indent = new string(' ', depth * 2);
 
+        // Build CSS classes
+        var cssClasses = new List<string> { "hierarchy-item", $"level-{item.Level}" };
+        if (item.IsHallucinated)
+            cssClasses.Add("hallucinated");
+        if (item.IsUncertain)
+            cssClasses.Add("uncertain");
+
         builder.OpenElement(0, "div");
-        builder.AddAttribute(1, "class", $"hierarchy-item level-{item.Level} {(item.IsUncertain ? "uncertain" : "")}");
+        builder.AddAttribute(1, "class", string.Join(" ", cssClasses));
 
         // Item header
         builder.OpenElement(2, "div");
         builder.AddAttribute(3, "class", "item-header");
 
-        builder.OpenElement(4, "span");
-        builder.AddAttribute(5, "class", "item-name");
-        builder.AddContent(6, $"{indent}└─ {item.LinkName}");
+        // Icon indicator
+        builder.OpenElement(4, "i");
+        builder.AddAttribute(5, "class", $"bi {GetItemIcon(item)} me-2");
         builder.CloseElement();
+
+        builder.OpenElement(6, "span");
+        builder.AddAttribute(7, "class", "item-name");
+        builder.AddContent(8, $"{indent}└─ {item.LinkName}");
+        builder.CloseElement();
+
+        if (item.IsHallucinated)
+        {
+            builder.OpenElement(9, "span");
+            builder.AddAttribute(10, "class", "badge bg-danger ms-2");
+            builder.AddAttribute(11, "title", "Not found in source document");
+            builder.AddContent(12, "Hallucination");
+            builder.CloseElement();
+        }
 
         if (item.Confidence.HasValue)
         {
-            builder.OpenElement(7, "span");
-            builder.AddAttribute(8, "class", $"badge {GetConfidenceBadgeClass(item.Confidence.Value)}");
-            builder.AddContent(9, $"{item.Confidence}%");
+            builder.OpenElement(13, "span");
+            builder.AddAttribute(14, "class", $"badge {GetConfidenceBadgeClass(item.Confidence.Value)} ms-2");
+            builder.AddAttribute(15, "title", item.Reasoning ?? "Confidence score");
+            builder.AddContent(16, $"{item.Confidence}%");
             builder.CloseElement();
         }
 
@@ -993,6 +1074,17 @@
             builder.AddContent(17, RenderHierarchyItem(child, depth + 1));
         }
     };
+
+    private string GetItemIcon(HierarchyItem item)
+    {
+        if (item.IsHallucinated)
+            return "bi-exclamation-circle-fill text-danger";
+
+        if (item.IsUncertain)
+            return "bi-question-circle-fill text-warning";
+
+        return "bi-check-circle-fill text-success";
+    }
 
     private string GetConfidenceBadgeClass(int confidence)
     {

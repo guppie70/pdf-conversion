@@ -63,6 +63,11 @@ public class HierarchyItem
     public bool IsUncertain { get; set; }
 
     /// <summary>
+    /// Optional: Whether this item was hallucinated (not found in source document)
+    /// </summary>
+    public bool IsHallucinated { get; set; }
+
+    /// <summary>
     /// Optional: AI reasoning/explanation for this placement
     /// </summary>
     public string? Reasoning { get; set; }

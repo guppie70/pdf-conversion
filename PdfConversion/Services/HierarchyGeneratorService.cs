@@ -1,10 +1,23 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using PdfConversion.Models;
+using PdfConversion.Utils;
 
 namespace PdfConversion.Services;
+
+/// <summary>
+/// Validation result for hierarchy whitelist matching
+/// </summary>
+public class HierarchyValidationResult
+{
+    public bool IsValid { get; set; }
+    public List<string> HallucinatedItems { get; set; } = new();
+    public List<string> Warnings { get; set; } = new();
+    public string Summary { get; set; } = string.Empty;
+}
 
 public interface IHierarchyGeneratorService
 {
@@ -48,6 +61,10 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
                                    "XML length: {XmlLength} chars, Examples: {ExampleCount}",
                 modelName, normalizedXml.Length, exampleHierarchies.Count);
 
+            // Extract headers to build whitelist (needed for both prompt and validation)
+            var headers = ExtractHeadersFromXml(normalizedXml);
+            var whitelistHeaders = headers.Select(h => h.Text).ToList();
+
             // Build 4-part prompt
             var prompt = BuildPrompt(normalizedXml, exampleHierarchies);
 
@@ -86,8 +103,8 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
             // Save debug files for troubleshooting (save FULL prompt, not truncated)
             await SaveDebugResponseAsync(jsonResponse, prompt);
 
-            // Parse and validate JSON response
-            var proposal = ParseJsonResponse(jsonResponse);
+            // Parse and validate JSON response (with whitelist validation)
+            var proposal = ParseJsonResponse(jsonResponse, whitelistHeaders);
 
             _logger.LogInformation("[HierarchyGenerator] Successfully generated hierarchy: " +
                                    "{TotalItems} items, {Confidence}% confidence, {Uncertainties} uncertain items",
@@ -121,22 +138,40 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
     }
 
     /// <summary>
-    /// Builds the 4-part prompt for LLM hierarchy generation by loading template from markdown file
-    /// and replacing placeholders with actual content
+    /// Builds the whitelist-first prompt for LLM hierarchy generation.
+    /// Uses extracted headers as primary input instead of full XML.
     /// </summary>
     private string BuildPrompt(string normalizedXml, List<string> exampleHierarchies)
     {
-        // Clean XML to reduce prompt size and improve generation speed
-        var cleanedXml = CleanXmlForPrompt(normalizedXml);
+        // Extract headers to build whitelist
+        var headers = ExtractHeadersFromXml(normalizedXml);
 
-        var originalSize = normalizedXml.Length;
-        var cleanedSize = cleanedXml.Length;
-        var savings = originalSize - cleanedSize;
-        var savingsPercent = originalSize > 0 ? (savings / (double)originalSize) * 100 : 0;
+        if (!headers.Any())
+        {
+            throw new InvalidOperationException(
+                "No headers found in normalized XML. Cannot generate hierarchy from empty document.");
+        }
 
-        _logger.LogInformation("[HierarchyGenerator] XML cleaning saved {Savings:N0} chars ({Percent:F1}%): " +
-                               "{Original:N0} → {Cleaned:N0}",
-            savings, savingsPercent, originalSize, cleanedSize);
+        // Build markdown-formatted whitelist
+        var whitelist = BuildMarkdownWhitelist(headers);
+
+        // Simplify example hierarchies (remove unnecessary attributes)
+        // Then anonymize to prevent LLM from copying example header names
+        var simplifiedExamples = exampleHierarchies
+            .Select(SimplifyHierarchyXml)
+            .Select(AnonymizeHierarchyXml)  // Add anonymization step
+            .ToList();
+
+        // Build example hierarchies section
+        var examplesBuilder = new StringBuilder();
+        for (int i = 0; i < simplifiedExamples.Count; i++)
+        {
+            examplesBuilder.AppendLine($"### Example {i + 1}:");
+            examplesBuilder.AppendLine("```xml");
+            examplesBuilder.AppendLine(simplifiedExamples[i]);
+            examplesBuilder.AppendLine("```");
+            examplesBuilder.AppendLine();
+        }
 
         // Load prompt template from markdown file
         var promptTemplatePath = "/app/data/llm-hierarchy-generation.md";
@@ -150,34 +185,34 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[HierarchyGenerator] Failed to load prompt template from {Path}, using fallback",
+            _logger.LogError(ex, "[HierarchyGenerator] Failed to load prompt template from {Path}",
                 promptTemplatePath);
             throw new InvalidOperationException(
                 $"Could not load prompt template from {promptTemplatePath}. Ensure file exists.", ex);
         }
 
-        // Build example hierarchies section
-        var examplesBuilder = new StringBuilder();
-        for (int i = 0; i < exampleHierarchies.Count; i++)
-        {
-            examplesBuilder.AppendLine($"### Example {i + 1}:");
-            examplesBuilder.AppendLine("```xml");
-            examplesBuilder.AppendLine(exampleHierarchies[i]);
-            examplesBuilder.AppendLine("```");
-            examplesBuilder.AppendLine();
-        }
-
-        // Extract document structure preview
-        var structurePreview = ExtractDocumentStructurePreview(cleanedXml);
-
         // Replace placeholders in template
         var prompt = promptTemplate
             .Replace("{{EXAMPLE_HIERARCHIES}}", examplesBuilder.ToString())
-            .Replace("{{DOCUMENT_STRUCTURE_PREVIEW}}", structurePreview)
-            .Replace("{{NORMALIZED_XHTML}}", cleanedXml);
+            .Replace("{{DOCUMENT_STRUCTURE_PREVIEW}}", whitelist)
+            .Replace("{COUNT}", headers.Count.ToString());
 
-        _logger.LogInformation("[HierarchyGenerator] Built prompt from template: {Length} chars total",
-            prompt.Length);
+        _logger.LogInformation("[HierarchyGenerator] Built whitelist-first prompt: " +
+            "{TotalLength} chars, {Headers} headers, {Examples} examples",
+            prompt.Length, headers.Count, exampleHierarchies.Count);
+
+        // Log size comparison
+        var xmlSize = normalizedXml.Length;
+        var promptSize = prompt.Length;
+        var savings = xmlSize - promptSize;
+        var savingsPercent = xmlSize > 0 ? (savings / (double)xmlSize) * 100 : 0;
+
+        if (savings > 0)
+        {
+            _logger.LogInformation("[HierarchyGenerator] Whitelist approach saved {Savings:N0} chars ({Percent:F1}%): " +
+                "Would have been {XmlSize:N0}, now {PromptSize:N0}",
+                savings, savingsPercent, xmlSize, promptSize);
+        }
 
         return prompt;
     }
@@ -251,72 +286,306 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
     }
 
     /// <summary>
-    /// Extracts all heading elements from the document to provide structure preview.
-    /// This helps LLMs identify all sections before processing full content.
+    /// Extracts all header elements (h1, h2, h3) from the normalized XML to build whitelist.
+    /// Returns list of header text with data-number attributes if present.
+    /// Parses trailing numbers from header text (e.g., "Financial performance 2" → "Financial performance" with data-number="2").
     /// </summary>
-    /// <param name="cleanedXml">The cleaned XHTML document</param>
-    /// <returns>Formatted structure preview showing all headings</returns>
-    private string ExtractDocumentStructurePreview(string cleanedXml)
+    /// <param name="normalizedXml">The normalized XHTML document</param>
+    /// <returns>List of header information objects</returns>
+    private List<HeaderInfo> ExtractHeadersFromXml(string normalizedXml)
     {
         try
         {
-            var doc = XDocument.Parse(cleanedXml);
-            var sb = new StringBuilder();
+            var doc = XDocument.Parse(normalizedXml);
+            var headers = new List<HeaderInfo>();
 
-            // Get all h1, h2, h3 elements
-            var headings = doc.Descendants()
-                .Where(e => e.Name.LocalName.Equals("h1", StringComparison.OrdinalIgnoreCase) ||
-                           e.Name.LocalName.Equals("h2", StringComparison.OrdinalIgnoreCase) ||
-                           e.Name.LocalName.Equals("h3", StringComparison.OrdinalIgnoreCase))
+            // Pattern to match trailing section numbers: "Header Text 1.2.3"
+            var trailingNumberPattern = new Regex(@"^(.+?)\s+([\d\.]+)$", RegexOptions.Compiled);
+
+            // Get all h1, h2, h3, h4, h5, h6 elements
+            var headerElements = doc.Descendants()
+                .Where(e => e.Name.LocalName.ToLower().StartsWith("h") &&
+                           e.Name.LocalName.Length == 2 &&
+                           char.IsDigit(e.Name.LocalName[1]))
                 .ToList();
 
-            if (headings.Count == 0)
+            foreach (var element in headerElements)
             {
-                return "No structured headings found in document.";
+                var text = element.Value.Trim();
+                if (string.IsNullOrWhiteSpace(text))
+                    continue; // Skip empty headers
+
+                // Check for data-number attribute first
+                var dataNumber = element.Attribute("data-number")?.Value;
+
+                // If no data-number attribute, try to extract from trailing text
+                if (string.IsNullOrEmpty(dataNumber))
+                {
+                    var match = trailingNumberPattern.Match(text);
+                    if (match.Success)
+                    {
+                        text = match.Groups[1].Value.Trim();  // Clean header text
+                        dataNumber = match.Groups[2].Value;   // Extracted number
+                    }
+                }
+
+                headers.Add(new HeaderInfo
+                {
+                    Text = text,
+                    DataNumber = dataNumber,
+                    Level = element.Name.LocalName.ToLower()
+                });
             }
 
-            foreach (var heading in headings)
-            {
-                var level = heading.Name.LocalName.ToLower();
-                var text = heading.Value.Trim();
-                var dataNumber = heading.Attribute("data-number")?.Value;
+            _logger.LogInformation("[HierarchyGenerator] Extracted {Count} headers from normalized XML, " +
+                "{WithDataNumber} with data-number attributes",
+                headers.Count,
+                headers.Count(h => !string.IsNullOrEmpty(h.DataNumber)));
 
-                // Truncate very long headings
-                if (text.Length > 100)
-                {
-                    text = text.Substring(0, 97) + "...";
-                }
-
-                // Indent based on heading level
-                var indent = level switch
-                {
-                    "h1" => "",
-                    "h2" => "  ",
-                    "h3" => "    ",
-                    _ => ""
-                };
-
-                // Format with or without data-number
-                if (!string.IsNullOrEmpty(dataNumber))
-                {
-                    sb.AppendLine($"{indent}- <{level} data-number=\"{dataNumber}\">{text}</{level}>");
-                }
-                else
-                {
-                    sb.AppendLine($"{indent}- <{level}>{text}</{level}>");
-                }
-            }
-
-            var preview = sb.ToString();
-            _logger.LogInformation("[HierarchyGenerator] Extracted {Count} headings for structure preview", headings.Count);
-
-            return preview;
+            return headers;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "[HierarchyGenerator] Failed to extract document structure preview");
-            return "Could not extract document structure preview.";
+            _logger.LogError(ex, "[HierarchyGenerator] Failed to extract headers from XML");
+            throw new InvalidOperationException("Failed to extract headers from normalized XML", ex);
         }
+    }
+
+    /// <summary>
+    /// Builds markdown-formatted whitelist of headers for LLM prompt.
+    /// Returns numbered list with data-number attributes shown.
+    /// </summary>
+    /// <param name="headers">List of extracted headers</param>
+    /// <returns>Markdown formatted whitelist string</returns>
+    private string BuildMarkdownWhitelist(List<HeaderInfo> headers)
+    {
+        var sb = new StringBuilder();
+
+        for (int i = 0; i < headers.Count; i++)
+        {
+            var header = headers[i];
+            var lineNumber = i + 1;
+
+            // Truncate very long headers
+            var displayText = header.Text.Length > 100
+                ? header.Text.Substring(0, 97) + "..."
+                : header.Text;
+
+            // Format with or without data-number
+            if (!string.IsNullOrEmpty(header.DataNumber))
+            {
+                sb.AppendLine($"{lineNumber}. {displayText} (data-number=\"{header.DataNumber}\")");
+            }
+            else
+            {
+                sb.AppendLine($"{lineNumber}. {displayText}");
+            }
+        }
+
+        _logger.LogInformation("[HierarchyGenerator] Built markdown whitelist: {Count} headers",
+            headers.Count);
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Simplifies hierarchy XML by removing attributes that LLM doesn't need.
+    /// Keeps: level, linkName, data-tocnumber, data-tocstart, data-tocend
+    /// Removes: id, dataRef, path, confidence, reasoning
+    /// </summary>
+    /// <param name="fullHierarchyXml">Full hierarchy XML</param>
+    /// <returns>Simplified hierarchy XML</returns>
+    private string SimplifyHierarchyXml(string fullHierarchyXml)
+    {
+        try
+        {
+            var doc = XDocument.Parse(fullHierarchyXml);
+
+            // Attributes to remove (LLM doesn't need these, C# calculates them)
+            var attributesToRemove = new[]
+            {
+                "id", "data-ref", "path", "confidence",
+                "reasoning", "is-uncertain"
+            };
+
+            // Process all item elements
+            foreach (var element in doc.Descendants().Where(e => e.Name.LocalName == "item"))
+            {
+                foreach (var attrName in attributesToRemove)
+                {
+                    element.Attribute(attrName)?.Remove();
+                }
+            }
+
+            // Remove web_page elements (redundant with linkName)
+            foreach (var webPageElement in doc.Descendants().Where(e => e.Name.LocalName == "web_page").ToList())
+            {
+                // Extract linkname before removing
+                var linknameElement = webPageElement.Element("linkname");
+                if (linknameElement != null)
+                {
+                    // Add linkName as attribute to parent item if not present
+                    var parentItem = webPageElement.Parent;
+                    if (parentItem != null && parentItem.Attribute("linkName") == null)
+                    {
+                        parentItem.Add(new XAttribute("linkName", linknameElement.Value));
+                    }
+                }
+
+                webPageElement.Remove();
+            }
+
+            // Remove sub_items wrapper, keep items directly under parent
+            foreach (var subItemsElement in doc.Descendants().Where(e => e.Name.LocalName == "sub_items").ToList())
+            {
+                var parentItem = subItemsElement.Parent;
+                if (parentItem != null)
+                {
+                    // Move children directly to parent
+                    var children = subItemsElement.Elements().ToList();
+                    subItemsElement.Remove();
+
+                    foreach (var child in children)
+                    {
+                        parentItem.Add(child);
+                    }
+                }
+            }
+
+            var simplified = doc.ToString();
+
+            _logger.LogInformation("[HierarchyGenerator] Simplified hierarchy XML: " +
+                "{Original} → {Simplified} chars ({Reduction}% reduction)",
+                fullHierarchyXml.Length, simplified.Length,
+                ((fullHierarchyXml.Length - simplified.Length) / (double)fullHierarchyXml.Length) * 100);
+
+            return simplified;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[HierarchyGenerator] Failed to simplify hierarchy XML, using original");
+            return fullHierarchyXml; // Fallback to original if simplification fails
+        }
+    }
+
+    /// <summary>
+    /// Anonymizes header names in example hierarchies to prevent LLM from copying them.
+    /// Replaces actual header text with generic placeholders like "Section A", "Section B", "Subsection A.1".
+    /// This allows the LLM to learn nesting patterns without being tempted to use example headers.
+    /// </summary>
+    /// <param name="hierarchyXml">Simplified hierarchy XML</param>
+    /// <returns>Anonymized hierarchy XML with placeholder names</returns>
+    private string AnonymizeHierarchyXml(string hierarchyXml)
+    {
+        try
+        {
+            var doc = XDocument.Parse(hierarchyXml);
+            var sectionCounter = 0;
+            var levelCounters = new Dictionary<int, int>();
+
+            void AnonymizeItem(XElement item, int parentLevel = 0)
+            {
+                var level = int.Parse(item.Attribute("level")?.Value ?? "1");
+
+                // Reset child counters when we go up levels
+                foreach (var key in levelCounters.Keys.Where(k => k > level).ToList())
+                {
+                    levelCounters.Remove(key);
+                }
+
+                // Increment counter for this level
+                if (!levelCounters.ContainsKey(level))
+                {
+                    levelCounters[level] = 0;
+                }
+                levelCounters[level]++;
+
+                // Generate placeholder name based on level
+                string placeholder;
+                if (level == 1)
+                {
+                    // Top level: "Section A", "Section B", etc.
+                    placeholder = $"Section {(char)('A' + sectionCounter)}";
+                    sectionCounter++;
+                }
+                else
+                {
+                    // Nested: "Subsection A.1", "Subsection A.2", etc.
+                    var parentLetter = (char)('A' + (sectionCounter - 1));
+                    placeholder = $"Subsection {parentLetter}.{levelCounters[level]}";
+                }
+
+                // Replace linkName attribute
+                var linkNameAttr = item.Attribute("linkName");
+                if (linkNameAttr != null)
+                {
+                    linkNameAttr.Value = placeholder;
+                }
+
+                // Recursively anonymize children (check both direct children and those in sub_items)
+                var childItems = item.Elements("item").ToList();
+                var subItemsContainer = item.Element("sub_items");
+                if (subItemsContainer != null)
+                {
+                    childItems.AddRange(subItemsContainer.Elements("item"));
+                }
+
+                foreach (var child in childItems)
+                {
+                    AnonymizeItem(child, level);
+                }
+            }
+
+            // Anonymize all items (find level=0 or level=1 root items and process recursively)
+            var rootItems = doc.Descendants("item")
+                .Where(e => e.Attribute("level")?.Value == "0" ||
+                           (e.Attribute("level")?.Value == "1" && !e.Ancestors("item").Any()))
+                .ToList();
+
+            if (rootItems.Count == 0)
+            {
+                // Fallback: just find all top-level items (no item ancestors)
+                rootItems = doc.Descendants("item")
+                    .Where(e => !e.Ancestors("item").Any())
+                    .ToList();
+            }
+
+            _logger.LogDebug("[HierarchyGenerator] Anonymizing {Count} root items", rootItems.Count);
+
+            foreach (var rootItem in rootItems)
+            {
+                AnonymizeItem(rootItem);
+            }
+
+            var result = doc.ToString(SaveOptions.DisableFormatting);
+
+            // Verify anonymization worked
+            if (result.Contains("Section A") || result.Contains("Subsection"))
+            {
+                _logger.LogInformation("[HierarchyGenerator] Successfully anonymized hierarchy XML");
+            }
+            else
+            {
+                _logger.LogWarning("[HierarchyGenerator] Anonymization may have failed - no placeholders found");
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[HierarchyGenerator] Failed to anonymize hierarchy XML, returning simplified version");
+            return hierarchyXml; // Fallback to non-anonymized
+        }
+    }
+
+    /// <summary>
+    /// Helper class for header information extracted from XML
+    /// </summary>
+    private class HeaderInfo
+    {
+        public string Text { get; set; } = string.Empty;
+        public string? DataNumber { get; set; }
+        public string Level { get; set; } = string.Empty; // "h1", "h2", etc.
     }
 
     /// <summary>
@@ -349,9 +618,10 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
     }
 
     /// <summary>
-    /// Parses and validates the LLM JSON response into a HierarchyProposal
+    /// Parses and validates the LLM JSON response into a HierarchyProposal.
+    /// Handles minimal JSON format (whitelist-first approach).
     /// </summary>
-    private HierarchyProposal ParseJsonResponse(string jsonResponse)
+    private HierarchyProposal ParseJsonResponse(string jsonResponse, List<string> whitelistedHeaders)
     {
         try
         {
@@ -373,7 +643,7 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
 
             _logger.LogDebug("[HierarchyGenerator] Cleaned JSON length: {Length} chars", cleanJson.Length);
 
-            // Deserialize to DTO structure
+            // Deserialize to minimal DTO structure
             var options = new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
@@ -382,17 +652,39 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
 
             var dto = JsonSerializer.Deserialize<HierarchyResponseDto>(cleanJson, options);
 
-            if (dto == null || dto.Root == null)
+            if (dto == null || dto.Structure == null || !dto.Structure.Any())
             {
-                throw new InvalidOperationException("LLM returned null or invalid hierarchy structure");
+                throw new InvalidOperationException(
+                    "LLM returned null or empty hierarchy structure");
             }
 
-            // Convert DTO to HierarchyItem tree
-            var rootItem = ConvertDtoToHierarchyItem(dto.Root);
+            // Create root item
+            var rootItem = new HierarchyItem
+            {
+                Id = "report-root",
+                Level = 0,
+                LinkName = "Annual Report",
+                DataRef = "report-root.xml",
+                Path = "/",
+                SubItems = dto.Structure
+                    .Select(child => EnrichFromDto(child, currentLevel: 1))
+                    .ToList()
+            };
 
             // Calculate statistics
             var allItems = new List<HierarchyItem>();
             CollectAllItems(rootItem, allItems);
+
+            // Validate whitelist match (collect issues, don't throw)
+            var validationResult = ValidateWhitelistMatch(allItems, whitelistedHeaders);
+
+            if (!validationResult.IsValid)
+            {
+                _logger.LogWarning(
+                    "[HierarchyGenerator] Validation detected issues: {Summary}. " +
+                    "Returning hierarchy with warnings for user review.",
+                    validationResult.Summary);
+            }
 
             var uncertainties = allItems
                 .Where(item => item.Confidence.HasValue && item.Confidence.Value < 70)
@@ -416,7 +708,7 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
             }
 
             _logger.LogInformation("[HierarchyGenerator] Parsed hierarchy: {Total} items, " +
-                                   "{WithConfidence} with scores, {Uncertain} uncertain",
+                                   "{WithConfidence} with confidence scores, {Uncertain} uncertain",
                 allItems.Count, itemsWithConfidence.Count, uncertainties.Count);
 
             return new HierarchyProposal
@@ -425,7 +717,8 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
                 OverallConfidence = overallConfidence,
                 Uncertainties = uncertainties,
                 Reasoning = dto.Reasoning ?? string.Empty,
-                TotalItems = allItems.Count
+                TotalItems = allItems.Count,
+                ValidationResult = validationResult
             };
         }
         catch (JsonException ex)
@@ -461,34 +754,109 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
     }
 
     /// <summary>
-    /// Converts a DTO item to a HierarchyItem recursively
+    /// Enriches a minimal DTO by calculating C#-generated fields using existing utilities.
+    /// Converts from LLM's minimal format to full HierarchyItem with all required fields.
     /// </summary>
-    private HierarchyItem ConvertDtoToHierarchyItem(HierarchyItemDto dto)
+    private HierarchyItem EnrichFromDto(HierarchyItemSimpleDto dto, int currentLevel)
     {
-        var item = new HierarchyItem
-        {
-            Id = dto.Id ?? string.Empty,
-            Level = dto.Level,
-            LinkName = dto.LinkName ?? string.Empty,
-            DataRef = dto.DataRef ?? string.Empty,
-            Path = dto.Path ?? "/",
-            Confidence = dto.Confidence,
-            Reasoning = dto.Reasoning,
-            TocStart = dto.TocStart ?? false,
-            TocEnd = dto.TocEnd ?? false,
-            TocNumber = dto.TocNumber,
-            TocStyle = dto.TocStyle
-        };
+        // Use existing FilenameUtils to generate ID
+        var normalizedId = FilenameUtils.NormalizeFileName(dto.Name);
 
-        // Recursively convert sub items
-        if (dto.SubItems != null)
+        return new HierarchyItem
         {
-            item.SubItems = dto.SubItems
-                .Select(ConvertDtoToHierarchyItem)
-                .ToList();
+            // FROM LLM
+            LinkName = dto.Name.Trim(),
+            Confidence = dto.Confidence,
+            Reasoning = dto.UncertaintyReason,
+            IsUncertain = dto.Confidence.HasValue && dto.Confidence.Value < 70,
+
+            // CALCULATED BY C#
+            Id = normalizedId,
+            DataRef = $"{normalizedId}.xml",
+            Level = currentLevel,
+            Path = "/",
+
+            // RECURSIVELY ENRICH CHILDREN
+            SubItems = dto.Children?
+                .Select(child => EnrichFromDto(child, currentLevel + 1))
+                .ToList() ?? new List<HierarchyItem>()
+        };
+    }
+
+    /// <summary>
+    /// Validates that LLM output is a valid subset of the whitelist (no hallucinations).
+    /// LLM can OMIT headers (they become in-section content), but CANNOT ADD headers not in whitelist.
+    /// Returns HierarchyValidationResult with details rather than throwing exceptions.
+    /// </summary>
+    private HierarchyValidationResult ValidateWhitelistMatch(List<HierarchyItem> allItems, List<string> whitelistedHeaders)
+    {
+        var result = new HierarchyValidationResult { IsValid = true };
+
+        // Extract output names (excluding root)
+        var outputNames = allItems
+            .Where(item => item.Level > 0) // Skip root (level 0)
+            .Select(item => item.LinkName.Trim())
+            .ToList();
+
+        var whitelistSet = new HashSet<string>(whitelistedHeaders, StringComparer.Ordinal);
+
+        // Check for hallucinated items (items NOT in whitelist)
+        var hallucinated = outputNames
+            .Where(name => !whitelistSet.Contains(name))
+            .Distinct()
+            .ToList();
+
+        if (hallucinated.Any())
+        {
+            result.IsValid = false;
+            result.HallucinatedItems = hallucinated;
+            result.Summary = $"⚠️ Found {hallucinated.Count} hallucinated item(s) not in whitelist";
+
+            // Mark items as hallucinated in the hierarchy
+            MarkHallucinatedItems(allItems, whitelistSet);
         }
 
-        return item;
+        // Calculate omissions (headers in whitelist but not in output - these become in-section headers)
+        var outputSet = new HashSet<string>(outputNames, StringComparer.Ordinal);
+        var omitted = whitelistedHeaders
+            .Where(name => !outputSet.Contains(name))
+            .ToList();
+
+        // Log statistics
+        _logger.LogInformation(
+            "[HierarchyGenerator] Validation result: {Valid}, {HierarchyCount} items, " +
+            "{OmittedCount} omitted, {HallucinatedCount} hallucinated",
+            result.IsValid, outputNames.Count, omitted.Count, hallucinated.Count);
+
+        if (omitted.Any())
+        {
+            _logger.LogDebug(
+                "[HierarchyGenerator] In-section headers ({Count}): {Headers}",
+                omitted.Count,
+                string.Join(", ", omitted.Take(20).Select(h => $"\"{h}\"")));
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Marks hallucinated items in the hierarchy tree
+    /// </summary>
+    private void MarkHallucinatedItems(List<HierarchyItem> items, HashSet<string> whitelistSet)
+    {
+        foreach (var item in items)
+        {
+            if (item.Level > 0 && !whitelistSet.Contains(item.LinkName.Trim()))
+            {
+                item.IsHallucinated = true;
+                item.Reasoning = "⚠️ This item was not found in the source document (hallucination)";
+            }
+
+            if (item.SubItems != null && item.SubItems.Any())
+            {
+                MarkHallucinatedItems(item.SubItems, whitelistSet);
+            }
+        }
     }
 
     /// <summary>
@@ -504,54 +872,31 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
     }
 
     /// <summary>
-    /// DTO classes for JSON deserialization
-    /// Uses nullable types to handle optional fields from LLM response
+    /// Minimal DTO classes for JSON deserialization (whitelist-first approach).
+    /// LLM only provides name, confidence, uncertaintyReason, and children.
+    /// C# calculates: id, dataRef, level, path, etc.
     /// </summary>
     private class HierarchyResponseDto
     {
         [JsonPropertyName("reasoning")]
         public string? Reasoning { get; set; }
 
-        [JsonPropertyName("root")]
-        public HierarchyItemDto? Root { get; set; }
+        [JsonPropertyName("structure")]
+        public List<HierarchyItemSimpleDto>? Structure { get; set; }
     }
 
-    private class HierarchyItemDto
+    private class HierarchyItemSimpleDto
     {
-        [JsonPropertyName("id")]
-        public string? Id { get; set; }
-
-        [JsonPropertyName("level")]
-        public int Level { get; set; }
-
-        [JsonPropertyName("linkName")]
-        public string? LinkName { get; set; }
-
-        [JsonPropertyName("dataRef")]
-        public string? DataRef { get; set; }
-
-        [JsonPropertyName("path")]
-        public string? Path { get; set; }
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
 
         [JsonPropertyName("confidence")]
         public int? Confidence { get; set; }
 
-        [JsonPropertyName("reasoning")]
-        public string? Reasoning { get; set; }
+        [JsonPropertyName("uncertaintyReason")]
+        public string? UncertaintyReason { get; set; }
 
-        [JsonPropertyName("tocStart")]
-        public bool? TocStart { get; set; }
-
-        [JsonPropertyName("tocEnd")]
-        public bool? TocEnd { get; set; }
-
-        [JsonPropertyName("tocNumber")]
-        public string? TocNumber { get; set; }
-
-        [JsonPropertyName("tocStyle")]
-        public string? TocStyle { get; set; }
-
-        [JsonPropertyName("subItems")]
-        public List<HierarchyItemDto>? SubItems { get; set; }
+        [JsonPropertyName("children")]
+        public List<HierarchyItemSimpleDto>? Children { get; set; }
     }
 }

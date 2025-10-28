@@ -3,7 +3,7 @@
 @using System.Text.Json
 @inject IJSRuntime JSRuntime
 
-<div class="tree-item @GetDragClasses()"
+<div class="tree-item @GetDragClasses() @(Item.IsHallucinated ? "hallucinated" : "")"
      style="margin-left: @(Level * 20)px"
      draggable="@(Level > 0 ? "true" : "false")"
      @ondragstart="HandleDragStart"
@@ -54,6 +54,12 @@
             <span class="confidence-badge confidence-@GetConfidenceClass(Item.Confidence.Value)">
                 @Item.Confidence%
             </span>
+        }
+
+        @if (Item.IsHallucinated)
+        {
+            <i class="bi bi-exclamation-circle-fill text-danger" title="Not found in source document"></i>
+            <span class="badge bg-danger ms-1">Hallucination</span>
         }
 
         @if (Item.IsUncertain)

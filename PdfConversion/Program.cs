@@ -265,6 +265,193 @@ app.MapGet("/transform-test", async (HttpContext context, IXsltTransformationSer
     }
 });
 
+// Map hierarchy-test-api endpoint for rapid prompt testing
+// This endpoint allows testing hierarchy generation without UI interaction
+// Example: curl "http://localhost:8085/hierarchy-test-api?project=taxxor/projects/ar25-1&sourceXml=docling-output.xml&xslt=docling/transformation.xslt&examples=optiver/projects/ar24-6&model=deepseek-coder:33b"
+app.MapGet("/hierarchy-test-api", async (
+    HttpContext context,
+    IHierarchyGeneratorService hierarchyService,
+    IProjectManagementService projectService,
+    ILogger<Program> logger) =>
+{
+    try
+    {
+        // Parse required parameters
+        var project = context.Request.Query["project"].FirstOrDefault();
+        var sourceXml = context.Request.Query["sourceXml"].FirstOrDefault();
+        var xslt = context.Request.Query["xslt"].FirstOrDefault();
+        var examplesParam = context.Request.Query["examples"].FirstOrDefault();
+        var model = context.Request.Query["model"].FirstOrDefault() ?? "deepseek-coder:33b";
+
+        // Validate required parameters
+        if (string.IsNullOrEmpty(project) || string.IsNullOrEmpty(sourceXml) ||
+            string.IsNullOrEmpty(xslt) || string.IsNullOrEmpty(examplesParam))
+        {
+            context.Response.StatusCode = 400;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsJsonAsync(new
+            {
+                success = false,
+                error = "Missing required parameters. Expected: project, sourceXml, xslt, examples",
+                example = "curl \"http://localhost:8085/hierarchy-test-api?project=taxxor/ar25-1&sourceXml=docling-output.xml&xslt=docling/transformation.xslt&examples=taxxor/ar23,taxxor/ar24\""
+            });
+            return;
+        }
+
+        logger.LogInformation("Hierarchy test API: project={Project}, sourceXml={SourceXml}, xslt={Xslt}, examples={Examples}, model={Model}",
+            project, sourceXml, xslt, examplesParam, model);
+
+        // Load project
+        var projectPath = Path.Combine("/app/data/input", project);
+        if (!Directory.Exists(projectPath))
+        {
+            context.Response.StatusCode = 404;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsJsonAsync(new
+            {
+                success = false,
+                error = $"Project not found: {projectPath}"
+            });
+            return;
+        }
+
+        // Find source XML file
+        var sourceXmlPath = Path.Combine(projectPath, sourceXml);
+        if (!File.Exists(sourceXmlPath))
+        {
+            context.Response.StatusCode = 404;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsJsonAsync(new
+            {
+                success = false,
+                error = $"Source XML not found: {sourceXmlPath}"
+            });
+            return;
+        }
+
+        // Find XSLT file
+        var xsltPath = Path.Combine("/app/xslt", xslt);
+        if (!File.Exists(xsltPath))
+        {
+            context.Response.StatusCode = 404;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsJsonAsync(new
+            {
+                success = false,
+                error = $"XSLT file not found: {xsltPath}"
+            });
+            return;
+        }
+
+        // Read source XML
+        var normalizedXml = await File.ReadAllTextAsync(sourceXmlPath);
+
+        // Parse example hierarchy IDs and load files
+        var exampleIds = examplesParam.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var exampleHierarchies = new List<string>();
+        var missingExamples = new List<string>();
+
+        foreach (var exampleId in exampleIds)
+        {
+            var examplePath = Path.Combine("/app/data/output", exampleId.Trim());
+            var hierarchyFile = Path.Combine(examplePath, "hierarchy.xml");
+
+            if (!File.Exists(hierarchyFile))
+            {
+                missingExamples.Add(hierarchyFile);
+                continue;
+            }
+
+            var hierarchyContent = await File.ReadAllTextAsync(hierarchyFile);
+            exampleHierarchies.Add(hierarchyContent);
+        }
+
+        if (missingExamples.Any())
+        {
+            logger.LogWarning("Some example hierarchies not found: {MissingExamples}", string.Join(", ", missingExamples));
+        }
+
+        if (!exampleHierarchies.Any())
+        {
+            context.Response.StatusCode = 404;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsJsonAsync(new
+            {
+                success = false,
+                error = "No valid example hierarchy files found",
+                missingFiles = missingExamples
+            });
+            return;
+        }
+
+        logger.LogInformation("Loaded {Count} example hierarchies", exampleHierarchies.Count);
+
+        // Call hierarchy generation service
+        var startTime = DateTime.UtcNow;
+        var proposal = await hierarchyService.GenerateHierarchyAsync(
+            normalizedXml,
+            exampleHierarchies,
+            model,
+            CancellationToken.None);
+
+        var duration = (DateTime.UtcNow - startTime).TotalSeconds;
+
+        // Calculate whitelist and omitted counts
+        var doc = System.Xml.Linq.XDocument.Parse(normalizedXml);
+        var headers = doc.Descendants()
+            .Where(e => e.Name.LocalName.StartsWith("h") &&
+                       e.Name.LocalName.Length == 2 &&
+                       char.IsDigit(e.Name.LocalName[1]))
+            .ToList();
+        var whitelistCount = headers.Count;
+        var hierarchyItemCount = proposal.TotalItems;
+        var omittedCount = whitelistCount - hierarchyItemCount;
+
+        // Calculate approximate prompt/response sizes
+        var promptSize = normalizedXml.Length + (exampleHierarchies.Sum(e => e.Length));
+        var responseSize = proposal.Root.ToString().Length; // Rough estimate
+
+        // Return success metrics
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new
+        {
+            success = proposal.ValidationResult?.IsValid ?? true,
+            promptSize,
+            responseSize,
+            hierarchyItemCount,
+            whitelistCount,
+            omittedCount,
+            hallucinatedCount = proposal.ValidationResult?.HallucinatedItems.Count ?? 0,
+            hallucinatedItems = proposal.ValidationResult?.HallucinatedItems ?? new List<string>(),
+            overallConfidence = proposal.OverallConfidence,
+            uncertaintyCount = proposal.Uncertainties.Count,
+            reasoning = proposal.Reasoning,
+            durationSeconds = duration,
+            model,
+            timestamp = DateTime.UtcNow,
+            validationSummary = proposal.ValidationResult?.Summary
+        }, new JsonSerializerOptions
+        {
+            WriteIndented = true
+        });
+
+        logger.LogInformation("Hierarchy generation completed successfully in {Duration}s", duration);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Error in hierarchy-test-api endpoint");
+        context.Response.StatusCode = 500;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new
+        {
+            success = false,
+            error = ex.Message,
+            stackTrace = ex.StackTrace,
+            timestamp = DateTime.UtcNow
+        });
+    }
+});
+
 // Add health check endpoints
 app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
 {

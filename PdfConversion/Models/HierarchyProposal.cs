@@ -1,3 +1,5 @@
+using PdfConversion.Services;
+
 namespace PdfConversion.Models;
 
 /// <summary>
@@ -30,6 +32,11 @@ public class HierarchyProposal
     /// Total number of items in the hierarchy (including root)
     /// </summary>
     public int TotalItems { get; set; }
+
+    /// <summary>
+    /// Validation result indicating if hallucinations were detected
+    /// </summary>
+    public HierarchyValidationResult? ValidationResult { get; set; }
 
     /// <summary>
     /// Converts this proposal to a HierarchyStructure
