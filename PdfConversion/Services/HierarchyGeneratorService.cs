@@ -882,6 +882,80 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
     }
 
     /// <summary>
+    /// Anonymizes numbers in text content to prevent data leakage while preserving structure.
+    /// Replaces dates, money amounts, percentages, and other numeric values with random values.
+    /// </summary>
+    /// <param name="text">Text containing potentially sensitive numeric data</param>
+    /// <returns>Text with anonymized numbers</returns>
+    private string AnonymizeTextNumbers(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+
+        var random = new Random();
+
+        // 1. Dates - Years (1900-2099)
+        text = Regex.Replace(text, @"\b(19|20)\d{2}\b",
+            m => {
+                var year = random.Next(1900, 2100);
+                return year.ToString();
+            });
+
+        // 2. Full dates (31 December 2024, December 31 2024, etc.)
+        var months = new[] { "January", "February", "March", "April", "May", "June",
+                            "July", "August", "September", "October", "November", "December" };
+        text = Regex.Replace(text, @"\b\d{1,2}\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}\b",
+            m => {
+                var day = random.Next(1, 29);
+                var month = months[random.Next(months.Length)];
+                var year = random.Next(1900, 2100);
+                return $"{day} {month} {year}";
+            }, RegexOptions.IgnoreCase);
+
+        // 3. Money amounts with dollar signs and commas ($138,611,000 or $92.50)
+        text = Regex.Replace(text, @"\$\d{1,3}(,\d{3})*(\.\d{2})?",
+            m => {
+                var hasDecimals = m.Value.Contains(".");
+                var value = random.Next(1000000, 999999999);
+                if (hasDecimals)
+                    return "$" + value.ToString("N2");
+                else
+                    return "$" + value.ToString("N0");
+            });
+
+        // 4. Percentages (31.5%, 100%)
+        text = Regex.Replace(text, @"\b\d+\.?\d*%",
+            m => {
+                var hasDecimals = m.Value.Contains(".");
+                if (hasDecimals)
+                    return (random.Next(0, 10000) / 100.0).ToString("F1") + "%";
+                else
+                    return random.Next(1, 100) + "%";
+            });
+
+        // 5. Large numbers with commas (138,611,000)
+        text = Regex.Replace(text, @"\b\d{1,3}(,\d{3})+\b",
+            m => {
+                var value = random.Next(100000, 999999999);
+                return value.ToString("N0");
+            });
+
+        // 6. Decimal numbers (31.5, 1.234)
+        text = Regex.Replace(text, @"\b\d+\.\d+\b",
+            m => {
+                var decimals = m.Value.Split('.')[1].Length;
+                var value = random.Next(1, 1000) + random.NextDouble();
+                return value.ToString($"F{decimals}");
+            });
+
+        // 7. Simple integers (but avoid replacing years already handled)
+        // Be conservative here to avoid breaking formatting
+        text = Regex.Replace(text, @"(?<!\d)\b\d{1,2}\b(?!\d)",
+            m => random.Next(1, 99).ToString());
+
+        return text;
+    }
+
+    /// <summary>
     /// Builds markdown-formatted whitelist of headers for LLM prompt with rich context.
     /// Returns numbered list with data-number attributes and context metadata.
     /// </summary>
@@ -937,10 +1011,11 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
                 sb.AppendLine();
             }
 
-            // Line 4: Content preview (if available)
+            // Line 4: Content preview (if available) - ANONYMIZE NUMBERS
             if (!string.IsNullOrWhiteSpace(h.ContentPreview) && h.ContentPreview.Length > 3) // More than "..."
             {
-                sb.AppendLine($"    Preview: \"{h.ContentPreview}\"");
+                var anonymizedPreview = AnonymizeTextNumbers(h.ContentPreview);
+                sb.AppendLine($"    Preview: \"{anonymizedPreview}\"");
             }
 
             // Line 5: Pattern detection

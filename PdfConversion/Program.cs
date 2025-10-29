@@ -483,12 +483,14 @@ app.MapGet("/hierarchy-test-api", async (
 app.MapGet("/sandbox", async (
     HttpContext context,
     IXsltTransformationService xsltService,
-    IHierarchyGeneratorService hierarchyService,
+    IHierarchyGeneratorService hierarchyGeneratorService,
+    IHierarchyService hierarchyService,
     ILogger<Program> logger) =>
 {
     await PdfConversion.Endpoints.SandboxEndpoint.HandleAsync(
         context,
         xsltService,
+        hierarchyGeneratorService,
         hierarchyService,
         logger);
 });
