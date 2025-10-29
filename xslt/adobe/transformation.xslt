@@ -30,12 +30,14 @@
     <xsl:include href="pass2/postprocess.xslt"/>
     <xsl:include href="pass3/table-symmetry.xslt"/>
     <xsl:include href="pass4/tbody-normalize.xslt"/>
+    <xsl:include href="pass5/strip-content.xslt"/>
 
-    <!-- Four-pass transformation:
+    <!-- Five-pass transformation:
          Pass 1 (Adobe XML → XHTML, default mode)
          Pass 2 (cleanup, mode="pass2" in pass2/postprocess.xslt)
          Pass 3 (table symmetry, mode="pass3" in pass3/table-symmetry.xslt)
-         Pass 4 (tbody normalization, mode="pass4" in pass4/tbody-normalize.xslt) -->
+         Pass 4 (tbody normalization, mode="pass4" in pass4/tbody-normalize.xslt)
+         Pass 5 (content stripping, mode="pass5" in pass5/strip-content.xslt) -->
 
     <!-- Identity transform base templates (mode="#all" - works in both passes) -->
 
@@ -51,6 +53,11 @@
     </xsl:template>
 
     <xsl:template match="@xml:lang" mode="#all" priority="0"/>
+
+    <!-- Preserve data-strip attributes through all passes (except pass5 which removes them) -->
+    <xsl:template match="@data-strip" mode="pass2 pass3 pass4" priority="5">
+        <xsl:copy/>
+    </xsl:template>
 
     <xsl:template match="text()" mode="#all" priority="-1">
         <xsl:choose>
@@ -168,7 +175,12 @@
         </xsl:variable>
 
         <!-- Pass 4: Normalize tbody cells (convert <th> to <td>) -->
-        <xsl:apply-templates select="$pass3-result" mode="pass4"/>
+        <xsl:variable name="pass4-result">
+            <xsl:apply-templates select="$pass3-result" mode="pass4"/>
+        </xsl:variable>
+
+        <!-- Pass 5: Remove content marked with data-strip="true" until data-strip="false" -->
+        <xsl:apply-templates select="$pass4-result" mode="pass5"/>
     </xsl:template>
 
     <!-- Pass 1: Adobe XML to intermediate XHTML (default mode) -->

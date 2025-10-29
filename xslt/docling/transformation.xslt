@@ -27,11 +27,13 @@
     <xsl:include href="modules/images.xslt"/>
     <xsl:include href="pass2/postprocess.xslt"/>
     <xsl:include href="pass3/table-symmetry.xslt"/>
+    <xsl:include href="pass4/strip-content.xslt"/>
 
-    <!-- Three-pass transformation:
+    <!-- Four-pass transformation:
          Pass 1 (Docling HTML → XHTML with table wrapping, default mode)
          Pass 2 (cleanup/normalization, mode="pass2" in pass2/postprocess.xslt)
-         Pass 3 (table symmetry, mode="pass3" in pass3/table-symmetry.xslt) -->
+         Pass 3 (table symmetry, mode="pass3" in pass3/table-symmetry.xslt)
+         Pass 4 (content stripping, mode="pass4" in pass4/strip-content.xslt) -->
 
     <!-- Identity transform base templates (mode="#all" - works in all passes) -->
 
@@ -47,6 +49,11 @@
     </xsl:template>
 
     <xsl:template match="@xml:lang" mode="#all" priority="0"/>
+
+    <!-- Preserve data-strip attributes through all passes (except pass4 which removes them) -->
+    <xsl:template match="@data-strip" mode="pass2 pass3" priority="5">
+        <xsl:copy/>
+    </xsl:template>
 
     <xsl:template match="text()" mode="#all" priority="-1">
         <xsl:choose>
@@ -64,7 +71,7 @@
         <xsl:copy/>
     </xsl:template>
 
-    <!-- Document structure templates - three-pass processing -->
+    <!-- Document structure templates - four-pass processing -->
 
     <xsl:template match="/">
         <!-- Pass 1: Docling HTML → Intermediate XHTML -->
@@ -154,7 +161,12 @@
         </xsl:variable>
 
         <!-- Pass 3: Fix asymmetric tables by adding missing cells -->
-        <xsl:apply-templates select="$pass2-result" mode="pass3"/>
+        <xsl:variable name="pass3-result">
+            <xsl:apply-templates select="$pass2-result" mode="pass3"/>
+        </xsl:variable>
+
+        <!-- Pass 4: Remove content marked with data-strip="true" until data-strip="false" -->
+        <xsl:apply-templates select="$pass3-result" mode="pass4"/>
     </xsl:template>
 
     <!-- Pass 1: DocBook structure unwrapping (default mode) -->
@@ -169,7 +181,8 @@
 
     <xsl:template match="p" priority="10">
         <xsl:variable name="text" select="normalize-space(.)"/>
-        <xsl:if test="$text != ''">
+        <!-- Always preserve p elements with data-strip attribute, even if empty -->
+        <xsl:if test="$text != '' or @data-strip">
             <xsl:copy>
                 <xsl:apply-templates select="@*"/>
                 <xsl:apply-templates/>
