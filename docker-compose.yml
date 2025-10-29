@@ -20,6 +20,7 @@ services:
       - ASPNETCORE_URLS=http://+:8085
       - XSLT3_SERVICE_URL=http://xslt3service:4806
       - DOTNET_USE_POLLING_FILE_WATCHER=true
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     networks:
       - blazornetwork
     extra_hosts:
