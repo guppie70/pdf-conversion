@@ -6,8 +6,10 @@
 @inject ProjectMetadataService MetadataService
 @inject IXslt3ServiceClient Xslt3Client
 @inject IOllamaService OllamaService
+@inject IProjectDeletionService ProjectDeletionService
 @inject HttpClient Http
 @inject IJSRuntime JSRuntime
+@inject ILogger<Home> Logger
 @implements IDisposable
 
 <PageTitle>Projects</PageTitle>
@@ -64,6 +66,7 @@
                                         <th class="col-project-id">Project ID</th>
                                         <th class="col-display">Project Name</th>
                                         <th class="col-status">Status</th>
+                                        <th class="col-actions">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -121,6 +124,13 @@
                                                 {
                                                     <span class="status-text">@GetStatusDisplayText(projectStatus)</span>
                                                 }
+                                            </td>
+                                            <td class="actions-cell">
+                                                <button class="btn-delete"
+                                                        @onclick="@(() => ShowDeleteConfirmation(project.Customer, project.ProjectId, project.DisplayString))"
+                                                        title="Delete project">
+                                                    <i class="bi bi-trash3-fill"></i>
+                                                </button>
                                             </td>
                                         </tr>
                                     }
@@ -302,6 +312,16 @@
             <span>Failed to save label: @NotificationError</span>
         </div>
     }
+
+    <ConfirmationModal
+        IsVisible="@showDeleteConfirmation"
+        Title="Delete Project"
+        Message="@deleteConfirmationMessage"
+        ConfirmButtonText="Delete"
+        OnConfirm="@ConfirmDelete"
+        OnCancel="@CancelDelete" />
+
+    <ToastNotification @ref="toastNotification" />
 </div>
 
 @code {
@@ -753,6 +773,137 @@
             ProjectLifecycleStatus.InProgress => "In Progress",
             _ => status.ToString()
         };
+    }
+
+    // Project deletion state
+    private bool showDeleteConfirmation = false;
+    private string deleteConfirmationMessage = string.Empty;
+    private string? pendingDeleteCustomer = null;
+    private string? pendingDeleteProjectId = null;
+    private string? pendingDeleteDisplayString = null;
+    private ToastNotification? toastNotification;
+
+    private void ShowDeleteConfirmation(string customer, string projectId, string displayString)
+    {
+        pendingDeleteCustomer = customer;
+        pendingDeleteProjectId = projectId;
+        pendingDeleteDisplayString = displayString;
+        deleteConfirmationMessage = $"Are you sure you want to delete '{displayString}'? This action cannot be undone.";
+        showDeleteConfirmation = true;
+    }
+
+    private void CancelDelete()
+    {
+        showDeleteConfirmation = false;
+        pendingDeleteCustomer = null;
+        pendingDeleteProjectId = null;
+        pendingDeleteDisplayString = null;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        showDeleteConfirmation = false;
+
+        if (string.IsNullOrEmpty(pendingDeleteCustomer) || string.IsNullOrEmpty(pendingDeleteProjectId))
+        {
+            return;
+        }
+
+        try
+        {
+            // Store info before deletion for auto-selection logic
+            var deletedCustomer = pendingDeleteCustomer;
+            var deletedProjectId = pendingDeleteProjectId;
+            var deletedDisplayString = pendingDeleteDisplayString ?? deletedProjectId;
+
+            Logger.LogInformation("Deleting project {Customer}/{ProjectId}", deletedCustomer, deletedProjectId);
+
+            // Call the service directly
+            var result = await ProjectDeletionService.DeleteProjectAsync(deletedCustomer, deletedProjectId);
+
+            if (result?.Success == true)
+            {
+                if (result.HasWarnings)
+                {
+                    // Partial success
+                    var warnings = result.Details?.GetWarningsSummary() ?? "Some operations failed";
+                    ToastNotification.ShowWarning($"Project deleted with warnings: {warnings}");
+                }
+                else
+                {
+                    // Full success
+                    ToastNotification.ShowSuccess($"Project '{deletedDisplayString}' deleted successfully");
+                }
+
+                // Auto-select next project
+                await AutoSelectNextProjectAsync(deletedCustomer, deletedProjectId);
+
+                // Reload project list
+                await LoadProjectsAsync();
+
+                // Update project count
+                ProjectCount = ProjectsByCustomer.Values.Sum(list => list.Count);
+            }
+            else
+            {
+                var errorMessage = result?.Message ?? "Unknown error occurred";
+                ToastNotification.ShowError($"Failed to delete project: {errorMessage}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error deleting project {Customer}/{ProjectId}", pendingDeleteCustomer, pendingDeleteProjectId);
+            ToastNotification.ShowError($"Error deleting project: {ex.Message}");
+        }
+        finally
+        {
+            pendingDeleteCustomer = null;
+            pendingDeleteProjectId = null;
+            pendingDeleteDisplayString = null;
+        }
+    }
+
+    private async Task AutoSelectNextProjectAsync(string deletedCustomer, string deletedProjectId)
+    {
+        try
+        {
+            // Get all projects for the customer
+            if (ProjectsByCustomer.TryGetValue(deletedCustomer, out var projects))
+            {
+                var projectList = projects.OrderBy(p => p.ProjectId).ToList();
+                var deletedIndex = projectList.FindIndex(p => p.ProjectId == deletedProjectId);
+
+                if (deletedIndex >= 0)
+                {
+                    // Select next project in the list, or previous if deleted was last
+                    ProjectInfo? nextProject = null;
+
+                    if (deletedIndex < projectList.Count - 1)
+                    {
+                        // Select next project
+                        nextProject = projectList[deletedIndex + 1];
+                    }
+                    else if (deletedIndex > 0)
+                    {
+                        // Select previous project (deleted was last)
+                        nextProject = projectList[deletedIndex - 1];
+                    }
+
+                    if (nextProject != null)
+                    {
+                        Logger.LogInformation("Auto-selecting next project: {Customer}/{ProjectId}",
+                            nextProject.Customer, nextProject.ProjectId);
+
+                        // Update user selections (this will be used by other pages like Transform)
+                        // You may need to call IUserSelectionService here if you want to persist the selection
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to auto-select next project after deletion");
+        }
     }
 
     public void Dispose()

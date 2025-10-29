@@ -207,17 +207,22 @@
 
 /* Column Widths */
 .col-project-id {
-    width: 20%; /* Reduced width for short project IDs (e.g., ar24-3) */
+    width: 18%; /* Reduced width for short project IDs (e.g., ar24-3) */
 }
 
 .col-display {
-    width: 60%;
+    width: 52%;
     min-width: 300px;
 }
 
 .col-status {
-    width: 20%;
+    width: 18%;
     min-width: 150px;
+}
+
+.col-actions {
+    width: 12%;
+    min-width: 80px;
 }
 
 /* Project ID Cell */
@@ -721,4 +726,46 @@
     background-color: #2d2d30;
     outline: 2px solid #0d6efd;
     outline-offset: -2px;
+}
+
+/* Actions Cell */
+.actions-cell {
+    text-align: center;
+    padding: 0.5rem 1rem;
+}
+
+/* Delete Button - VS Code Dark Modern */
+.btn-delete {
+    background: transparent;
+    border: none;
+    color: #F85149; /* --error-red */
+    font-size: 18px;
+    cursor: pointer;
+    padding: 6px 10px;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.7;
+}
+
+.btn-delete:hover {
+    background: rgba(248, 81, 73, 0.1); /* Light red background on hover */
+    opacity: 1;
+}
+
+.btn-delete:active {
+    background: rgba(248, 81, 73, 0.2);
+    transform: scale(0.95);
+}
+
+.btn-delete:focus-visible {
+    outline: 2px solid #0078D4; /* --accent-blue */
+    outline-offset: 2px;
+}
+
+/* Bootstrap Icons styling */
+.btn-delete i {
+    pointer-events: none;
 }

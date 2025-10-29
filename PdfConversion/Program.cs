@@ -97,6 +97,7 @@ builder.Services.AddSingleton<IXmlFileWatcherService, XmlFileWatcherService>();
 builder.Services.AddSingleton<IUserSelectionService, UserSelectionService>();
 builder.Services.AddSingleton<IProjectLabelService, ProjectLabelService>();
 builder.Services.AddSingleton<IProjectDirectoryWatcherService, ProjectDirectoryWatcherService>();
+builder.Services.AddScoped<IProjectDeletionService, ProjectDeletionService>();
 
 // Register MetadataSyncService (single instance for both hosted service and injection)
 builder.Services.AddSingleton<IMetadataSyncService, MetadataSyncService>();
@@ -287,6 +288,45 @@ app.MapGet("/api/hierarchy/last-request-params", (IHierarchyRequestLogger reques
         examples = lastRequest.Examples,
         timestamp = lastRequest.Timestamp
     });
+});
+
+// Map DELETE endpoint for project deletion
+app.MapDelete("/api/projects/{customer}/{projectId}", async (
+    string customer,
+    string projectId,
+    IProjectDeletionService deletionService,
+    ILogger<Program> logger) =>
+{
+    try
+    {
+        logger.LogInformation("DELETE request received for project: {Customer}/{ProjectId}", customer, projectId);
+
+        var result = await deletionService.DeleteProjectAsync(customer, projectId);
+
+        if (!result.Success)
+        {
+            logger.LogError("Project deletion failed: {Message}", result.Message);
+            return Results.Json(result, statusCode: 500);
+        }
+
+        if (result.HasWarnings)
+        {
+            logger.LogWarning("Project deletion completed with warnings: {Warnings}", result.Details.GetWarningsSummary());
+            return Results.Json(result, statusCode: 200);
+        }
+
+        logger.LogInformation("Project deletion completed successfully");
+        return Results.Json(result, statusCode: 200);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Unexpected error in DELETE endpoint for {Customer}/{ProjectId}", customer, projectId);
+        return Results.Json(new
+        {
+            success = false,
+            message = $"Internal server error: {ex.Message}"
+        }, statusCode: 500);
+    }
 });
 
 // Map hierarchy-test-api endpoint for rapid prompt testing
