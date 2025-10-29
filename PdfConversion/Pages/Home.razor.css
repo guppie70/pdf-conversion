@@ -11,9 +11,59 @@
 
 /* Header Section */
 .home-header {
-    margin-bottom: 2rem;
+    margin-bottom: 1.5rem;
     padding-bottom: 1rem;
     border-bottom: 2px solid #3e3e42;
+}
+
+/* Sort Controls - Now in right column */
+.sort-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    padding: 1rem 1.25rem;
+    background-color: #252526;
+    border: 1px solid #3e3e42;
+    border-radius: 0.5rem;
+}
+
+.sort-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #cccccc;
+    margin: 0;
+}
+
+.sort-label i {
+    font-size: 1rem;
+    color: #858585;
+}
+
+.sort-select {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9rem;
+    color: #cccccc;
+    background-color: #313131;
+    border: 1px solid #3c3c3c;
+    border-radius: 0.25rem;
+    outline: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.sort-select:hover {
+    background-color: #3c3c3c;
+    border-color: #858585;
+}
+
+.sort-select:focus {
+    border-color: #0078d4;
+    box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.25);
 }
 
 /* Two-column layout */
@@ -177,7 +227,7 @@
 }
 
 .projects-table th {
-    padding: 0.875rem 1.25rem;
+    padding: 0.5rem 1rem;
     text-align: left;
     font-size: 0.85rem;
     font-weight: 600;
@@ -201,7 +251,7 @@
 }
 
 .projects-table td {
-    padding: 1rem 1.25rem;
+    padding: 0.5rem 1rem;
     vertical-align: middle;
 }
 
@@ -240,7 +290,7 @@
 
 /* Display Cell - Double-click to edit */
 .display-cell {
-    padding: 0.75rem 1.25rem;
+    padding: 0.5rem 1rem;
 }
 
 /* Editable Label (default state) */
@@ -731,7 +781,7 @@
 /* Actions Cell */
 .actions-cell {
     text-align: center;
-    padding: 0.5rem 1rem;
+    padding: 0.5rem 0.75rem;
 }
 
 /* Delete Button - VS Code Dark Modern */

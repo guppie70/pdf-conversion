@@ -60,7 +60,7 @@
                         </div>
 
                         <div class="table-responsive">
-                            <table class="projects-table">
+                            <table class="projects-table table-sm">
                                 <thead>
                                     <tr>
                                         <th class="col-project-id">Project ID</th>
@@ -70,7 +70,7 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @foreach (var project in customerGroup.Value.OrderBy(p => p.ProjectId))
+                                    @foreach (var project in SortProjects(customerGroup.Value))
                                     {
                                         var editKey = GetEditKey(project.Customer, project.ProjectId);
                                         var statusKey = GetStatusKey(project.Customer, project.ProjectId);
@@ -143,6 +143,23 @@
         </div>
 
         <div class="col-lg-4">
+            <!-- Sort Controls -->
+            <div class="sort-controls">
+                <label for="sortOrder" class="sort-label">
+                    <i class="bi bi-arrow-down-up"></i>
+                    Sort by:
+                </label>
+                <select id="sortOrder" class="sort-select" @bind="SelectedSortOrder" @bind:after="OnSortOrderChanged">
+                    <option value="@SortOrder.LastModifiedDesc">Last Modified (Newest First)</option>
+                    <option value="@SortOrder.LastModifiedAsc">Last Modified (Oldest First)</option>
+                    <option value="@SortOrder.NameAsc">Name (A-Z)</option>
+                    <option value="@SortOrder.NameDesc">Name (Z-A)</option>
+                    <option value="@SortOrder.ProjectStatusDesc">Project Status</option>
+                    <option value="@SortOrder.ProjectIdAsc">Project ID (A-Z)</option>
+                    <option value="@SortOrder.ProjectIdDesc">Project ID (Z-A)</option>
+                </select>
+            </div>
+
             <div class="card system-status-card">
                 <div class="card-header">
                     <h5 class="mb-0">System Status</h5>
@@ -333,10 +350,25 @@
         Error
     }
 
+    private enum SortOrder
+    {
+        LastModifiedDesc,
+        LastModifiedAsc,
+        NameAsc,
+        NameDesc,
+        ProjectStatusDesc,
+        ProjectIdAsc,
+        ProjectIdDesc
+    }
+
     private Dictionary<string, List<ProjectInfo>> ProjectsByCustomer { get; set; } = new();
     private bool IsLoading { get; set; } = true;
     private string? ErrorMessage { get; set; }
     private DateTime? LastUpdated { get; set; }
+
+    // Sort state
+    private SortOrder SelectedSortOrder { get; set; } = SortOrder.LastModifiedDesc;
+    private const string SortOrderStorageKey = "dev_projectSortOrder";
 
     // Edit state management
     private Dictionary<string, string> _editingProjects = new(); // key: "customer:projectId", value: current edit value
@@ -374,6 +406,9 @@
     {
         try
         {
+            // Load sort order from localStorage
+            await LoadSortOrderFromStorage();
+
             // Subscribe to project directory changes
             ProjectDirectoryWatcherService.ProjectsChanged += OnProjectsChangedAsync;
 
@@ -904,6 +939,88 @@
         {
             Logger.LogWarning(ex, "Failed to auto-select next project after deletion");
         }
+    }
+
+    // Sort-related methods
+    private async Task LoadSortOrderFromStorage()
+    {
+        try
+        {
+            var storedValue = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", SortOrderStorageKey);
+            if (!string.IsNullOrEmpty(storedValue) && Enum.TryParse<SortOrder>(storedValue, out var sortOrder))
+            {
+                SelectedSortOrder = sortOrder;
+                Console.WriteLine($"[Home.razor] Loaded sort order from storage: {SelectedSortOrder}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Home.razor] Failed to load sort order from storage: {ex.Message}");
+        }
+    }
+
+    private async Task OnSortOrderChanged()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", SortOrderStorageKey, SelectedSortOrder.ToString());
+            Console.WriteLine($"[Home.razor] Saved sort order to storage: {SelectedSortOrder}");
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Home.razor] Failed to save sort order to storage: {ex.Message}");
+        }
+    }
+
+    private IEnumerable<ProjectInfo> SortProjects(List<ProjectInfo> projects)
+    {
+        return SelectedSortOrder switch
+        {
+            SortOrder.LastModifiedDesc => projects.OrderByDescending(p => GetProjectLastModified(p.Customer, p.ProjectId)),
+            SortOrder.LastModifiedAsc => projects.OrderBy(p => GetProjectLastModified(p.Customer, p.ProjectId)),
+            SortOrder.NameAsc => projects.OrderBy(p => p.DisplayString),
+            SortOrder.NameDesc => projects.OrderByDescending(p => p.DisplayString),
+            SortOrder.ProjectStatusDesc => projects
+                .OrderBy(p => GetProjectStatusPriority(p.Customer, p.ProjectId))
+                .ThenByDescending(p => GetProjectLastModified(p.Customer, p.ProjectId)),
+            SortOrder.ProjectIdAsc => projects.OrderBy(p => p.ProjectId, StringComparer.OrdinalIgnoreCase),
+            SortOrder.ProjectIdDesc => projects.OrderByDescending(p => p.ProjectId, StringComparer.OrdinalIgnoreCase),
+            _ => projects.OrderByDescending(p => GetProjectLastModified(p.Customer, p.ProjectId))
+        };
+    }
+
+    private int GetProjectStatusPriority(string customer, string projectId)
+    {
+        // Lower number = higher priority (sorts first)
+        // Priority: Ready -> InProgress -> Open -> Parked
+        var status = GetProjectStatus(customer, projectId);
+        return status switch
+        {
+            ProjectLifecycleStatus.Ready => 0,
+            ProjectLifecycleStatus.InProgress => 1,
+            ProjectLifecycleStatus.Open => 2,
+            ProjectLifecycleStatus.Parked => 3,
+            _ => 4
+        };
+    }
+
+    private DateTime GetProjectLastModified(string customer, string projectId)
+    {
+        try
+        {
+            var projectPath = Path.Combine("data/input", customer, "projects", projectId);
+            if (Directory.Exists(projectPath))
+            {
+                var dirInfo = new DirectoryInfo(projectPath);
+                return dirInfo.LastWriteTime;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Home.razor] Failed to get LastModified for {customer}/{projectId}: {ex.Message}");
+        }
+        return DateTime.MinValue;
     }
 
     public void Dispose()
