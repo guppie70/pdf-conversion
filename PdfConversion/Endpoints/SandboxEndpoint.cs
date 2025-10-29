@@ -65,6 +65,10 @@ public static class SandboxEndpoint
         {
             await HandlePromptGenerationAsync(context, xsltService, hierarchyGeneratorService, logger);
         }
+        else if (mode == "test-hierarchy")
+        {
+            await HandleTestHierarchyAsync(context, hierarchyService, logger);
+        }
         else
         {
             // Default: LLM comparison
@@ -1193,7 +1197,7 @@ public static class SandboxEndpoint
         {
             Id = "report-root",
             Level = 0,
-            LinkName = "Annual Report",
+            LinkName = "Annual Report 2024",
             DataRef = "report-root.xml",
             Path = "/",
             SubItems = new List<PdfConversion.Models.HierarchyItem>()
@@ -1502,5 +1506,120 @@ public static class SandboxEndpoint
 
         [System.Text.Json.Serialization.JsonPropertyName("subItems")]
         public List<HierarchyItemDto>? SubItems { get; set; }
+    }
+
+    /// <summary>
+    /// Tests hierarchy XML serialization to verify:
+    /// 1. Root element has id="report-root" and data-ref="report-root.xml"
+    /// 2. LinkName is "Annual Report 2024"
+    /// 3. Confidence attributes are NOT included in XML output
+    ///
+    /// Usage: curl http://localhost:8085/sandbox?mode=test-hierarchy
+    /// </summary>
+    private static async Task HandleTestHierarchyAsync(
+        HttpContext context,
+        IHierarchyService hierarchyService,
+        ILogger logger)
+    {
+        try
+        {
+            logger.LogInformation("[Sandbox] Testing hierarchy XML serialization");
+
+            // Create test hierarchy with confidence values (which should NOT appear in XML)
+            var testHierarchy = new PdfConversion.Models.HierarchyStructure
+            {
+                Root = new PdfConversion.Models.HierarchyItem
+                {
+                    Id = "report-root",
+                    Level = 0,
+                    LinkName = "Annual Report 2024",
+                    DataRef = "report-root.xml",
+                    Path = "/",
+                    Confidence = 95, // This should NOT appear in XML
+                    SubItems = new List<PdfConversion.Models.HierarchyItem>
+                    {
+                        new PdfConversion.Models.HierarchyItem
+                        {
+                            Id = "directors-report",
+                            Level = 1,
+                            LinkName = "Directors Report",
+                            DataRef = "directors-report.xml",
+                            Path = "/directors-report",
+                            Confidence = 85, // This should NOT appear in XML
+                            SubItems = new List<PdfConversion.Models.HierarchyItem>()
+                        },
+                        new PdfConversion.Models.HierarchyItem
+                        {
+                            Id = "financial-statements",
+                            Level = 1,
+                            LinkName = "Financial Statements",
+                            DataRef = "financial-statements.xml",
+                            Path = "/financial-statements",
+                            Confidence = 90, // This should NOT appear in XML
+                            IsUncertain = true, // This SHOULD appear as is-uncertain="true"
+                            Reasoning = "Test reasoning",
+                            SubItems = new List<PdfConversion.Models.HierarchyItem>()
+                        }
+                    }
+                },
+                OverallConfidence = 88 // This is not saved in XML
+            };
+
+            // Save to temporary file and read back
+            var tempPath = Path.Combine(Path.GetTempPath(), $"test-hierarchy-{Guid.NewGuid()}.xml");
+            await hierarchyService.SaveHierarchyAsync(tempPath, testHierarchy);
+            var xml = await File.ReadAllTextAsync(tempPath);
+
+            // Clean up temp file
+            try { File.Delete(tempPath); } catch { }
+
+            // Add verification header
+            var verificationResults = new System.Text.StringBuilder();
+            verificationResults.AppendLine("<!-- HIERARCHY XML TEST RESULTS -->");
+            verificationResults.AppendLine("<!-- ========================== -->");
+
+            // Check for correct root attributes
+            if (xml.Contains("id=\"report-root\""))
+                verificationResults.AppendLine("<!-- ✅ Root ID is 'report-root' -->");
+            else
+                verificationResults.AppendLine("<!-- ❌ Root ID is NOT 'report-root' -->");
+
+            if (xml.Contains("data-ref=\"report-root.xml\""))
+                verificationResults.AppendLine("<!-- ✅ Data-ref is 'report-root.xml' -->");
+            else
+                verificationResults.AppendLine("<!-- ❌ Data-ref is NOT 'report-root.xml' -->");
+
+            if (xml.Contains("<linkname>Annual Report 2024</linkname>"))
+                verificationResults.AppendLine("<!-- ✅ LinkName is 'Annual Report 2024' -->");
+            else
+                verificationResults.AppendLine("<!-- ❌ LinkName is NOT 'Annual Report 2024' -->");
+
+            // Check that confidence attribute is NOT present
+            if (xml.Contains("confidence="))
+                verificationResults.AppendLine("<!-- ❌ Confidence attribute found (should be removed) -->");
+            else
+                verificationResults.AppendLine("<!-- ✅ Confidence attribute NOT present (correct) -->");
+
+            // Check that is-uncertain IS present when true
+            if (xml.Contains("is-uncertain=\"true\""))
+                verificationResults.AppendLine("<!-- ✅ is-uncertain attribute preserved (correct) -->");
+            else
+                verificationResults.AppendLine("<!-- ❌ is-uncertain attribute missing (should be preserved) -->");
+
+            verificationResults.AppendLine("<!-- ========================== -->");
+            verificationResults.AppendLine();
+
+            // Return the XML with verification results
+            context.Response.ContentType = "application/xml";
+            await context.Response.WriteAsync(verificationResults.ToString() + xml);
+
+            logger.LogInformation("[Sandbox] Hierarchy XML test completed");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "[Sandbox] Error testing hierarchy XML");
+            context.Response.StatusCode = 500;
+            await context.Response.WriteAsync($"Error: {ex.Message}");
+        }
     }
 }

@@ -1949,10 +1949,10 @@
         // Create a root item to contain all manual hierarchy items
         var root = new HierarchyItem
         {
-            Id = "root",
-            LinkName = "Root",
+            Id = "report-root",
+            LinkName = "Annual Report 2024",
             Level = 0,
-            DataRef = "/",
+            DataRef = "report-root.xml",
             Path = "/",
             SubItems = _manualHierarchyItems
         };
@@ -2194,14 +2194,11 @@
         {
             foreach (var item in items)
             {
-                // Extract OriginalOrder from Id (format: "manual_{order}")
-                if (item.Id.StartsWith("manual_") && int.TryParse(item.Id.Replace("manual_", ""), out var order))
+                // Look up header by ID directly (works with both "manual_X" and loaded IDs)
+                var header = _manualHeaders.FirstOrDefault(h => h.Id == item.Id);
+                if (header != null)
                 {
-                    var header = _manualHeaders.FirstOrDefault(h => h.OriginalOrder == order);
-                    if (header != null)
-                    {
-                        header.IndentLevel = level;
-                    }
+                    header.IndentLevel = level;
                 }
 
                 if (item.SubItems != null && item.SubItems.Any())
@@ -2708,11 +2705,20 @@
 
         try
         {
+            // Sync current tree state to _manualHeaders to preserve indent/outdent changes
+            UpdateManualHeadersFromTree(_manualHierarchyItems);
+
             var selectedOrders = GetOrdersFromTreeSelection(_selectedManualItemIds);
+
+            if (selectedOrders.Count == 0)
+            {
+                ToastNotification.ShowWarning("No valid items to exclude");
+                return;
+            }
 
             ManualHierarchyBuilder.ExcludeItems(_manualHeaders, selectedOrders);
 
-            // Rebuild tree (excluded items won't appear)
+            // Rebuild tree (excluded items won't appear, but indent levels are preserved)
             _manualHierarchyItems = ManualHierarchyBuilder.ConvertToHierarchy(_manualHeaders);
 
             // Assign sequential order for display badges
@@ -2724,7 +2730,6 @@
             _selectedManualItemIds.Clear();
             HasChanges = true;
             StateHasChanged();
-            Logger.LogInformation("Excluded {Count} headers", selectedOrders.Count);
         }
         catch (Exception ex)
         {
@@ -2740,6 +2745,9 @@
 
         try
         {
+            // Sync current tree state to _manualHeaders to preserve indent/outdent changes
+            UpdateManualHeadersFromTree(_manualHierarchyItems);
+
             ManualHierarchyBuilder.IncludeAllItems(_manualHeaders);
             _manualHierarchyItems = ManualHierarchyBuilder.ConvertToHierarchy(_manualHeaders);
 

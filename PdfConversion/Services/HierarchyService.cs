@@ -159,12 +159,7 @@ public class HierarchyService : IHierarchyService
             new XAttribute("data-ref", item.DataRef)
         );
 
-        // Add optional confidence attributes
-        if (item.Confidence.HasValue)
-        {
-            element.Add(new XAttribute("confidence", item.Confidence.Value));
-        }
-
+        // Add optional attributes (excluding confidence - not saved in XML)
         if (item.IsUncertain)
         {
             element.Add(new XAttribute("is-uncertain", true));

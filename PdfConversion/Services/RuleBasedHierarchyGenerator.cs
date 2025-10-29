@@ -49,7 +49,7 @@ public class RuleBasedHierarchyGenerator
         {
             Id = "report-root",
             Level = 0,
-            LinkName = "Annual Report",
+            LinkName = "Annual Report 2024",
             DataRef = "report-root.xml",
             Path = "/",
             SubItems = new List<HierarchyItem>(),

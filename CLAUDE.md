@@ -8,6 +8,25 @@
 
 **Application URL:** http://localhost:8085
 
+## 🎯 DEFAULT TESTING APPROACH (USE THIS FIRST)
+
+**For ANY testing or development task:**
+```bash
+# 1. Add test mode to SandboxEndpoint.cs
+# 2. Use direct curl command:
+curl "http://localhost:8085/sandbox?mode=your-test"
+
+# Examples:
+curl "http://localhost:8085/sandbox?mode=test-hierarchy"
+curl "http://localhost:8085/sandbox?mode=prompt-gen"
+```
+
+**NEVER:**
+- ❌ Create .sh files in project root
+- ❌ Add test endpoints to Program.cs
+- ❌ Create test files outside approved locations
+- ❌ Use anything except direct curl commands for testing
+
 ---
 
 ## 🚀 Development Patterns & Workflows
@@ -41,6 +60,7 @@ Is this complex logic (algorithm/transformation/parsing)?
 - Complex data processing (parsing, normalization, extraction)
 - Business logic that can be tested in isolation
 - Any logic where you need rapid iteration to get it right
+- **ANY TESTING** - Always use sandbox endpoint with direct curl commands
 
 **WHY:** Sandbox enables sub-second iteration cycles. Full integration takes minutes.
 
@@ -50,6 +70,19 @@ Is this complex logic (algorithm/transformation/parsing)?
 3. Iterate: Edit → Hot-reload (2s) → `curl http://localhost:8085/sandbox` → Verify
 4. Port working logic to actual service
 5. Add unit tests
+
+### 🚨 CRITICAL Testing Rules
+
+**ALWAYS use these patterns:**
+- ✅ **Direct curl commands** - Run tests directly with `curl "http://localhost:8085/sandbox?mode=test"`
+- ✅ **Sandbox endpoints** - Add test modes to SandboxEndpoint.cs for isolated testing
+- ✅ **Hardcoded test data** - Put test data directly in sandbox methods
+
+**NEVER do these:**
+- ❌ **Create .sh files in project root** - Use direct curl commands instead
+- ❌ **Create test files in project root** - Only use approved test data locations
+- ❌ **Use Program.cs for test endpoints** - Always use SandboxEndpoint.cs
+- ❌ **Create temporary test endpoints** - Extend sandbox with new modes instead
 
 ---
 
@@ -919,15 +952,40 @@ public class HeaderService {
 
 **Core Principle:** Isolate complex logic from infrastructure concerns.
 
+#### Available Sandbox Modes
+
+The sandbox endpoint (`/sandbox`) supports multiple testing modes via query parameter:
+
+```bash
+# Default: LLM comparison
+curl http://localhost:8085/sandbox
+
+# Prompt generation mode
+curl "http://localhost:8085/sandbox?mode=prompt-gen"
+
+# Test hierarchy XML serialization (example of custom test mode)
+curl "http://localhost:8085/sandbox?mode=test-hierarchy"
+
+# Add new modes as needed for testing
+curl "http://localhost:8085/sandbox?mode=your-test-mode"
+```
+
+**Adding New Test Modes:**
+1. Open `PdfConversion/Endpoints/SandboxEndpoint.cs`
+2. Add new `else if (mode == "your-test-mode")` in `HandleAsync`
+3. Create `HandleYourTestModeAsync` method
+4. Hardcode test data in the method
+5. Test with direct curl command
+
 #### Structure Rules
 
 **Rule 1: Dedicated Endpoint Files**
 ```
 PdfConversion/
 ├── Endpoints/
-│   ├── SandboxEndpoint.cs      # Primary sandbox
-│   ├── AlgorithmTestEndpoint.cs # Algorithm-specific
-│   └── ValidationEndpoint.cs    # Validation logic
+│   ├── SandboxEndpoint.cs      # Primary sandbox (USE THIS FOR ALL TESTS)
+│   ├── AlgorithmTestEndpoint.cs # Algorithm-specific (rarely needed)
+│   └── ValidationEndpoint.cs    # Validation logic (rarely needed)
 ```
 
 **Rule 2: Static Methods for Simplicity**

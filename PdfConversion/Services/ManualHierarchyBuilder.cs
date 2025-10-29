@@ -355,7 +355,8 @@ public class ManualHierarchyBuilder : IManualHierarchyBuilder
         {
             var item = new HierarchyItem
             {
-                Id = $"manual_{header.OriginalOrder}",
+                // Preserve the original ID if it exists, otherwise generate one
+                Id = !string.IsNullOrEmpty(header.Id) ? header.Id : $"manual_{header.OriginalOrder}",
                 LinkName = header.Title,
                 Level = header.IndentLevel + 1,  // HierarchyItem uses 1-based levels
                 DataRef = header.XPath,
