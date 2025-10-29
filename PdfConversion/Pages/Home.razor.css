@@ -16,31 +16,31 @@
     border-bottom: 2px solid #3e3e42;
 }
 
-/* Sort Controls - Now in right column */
-.sort-controls {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    margin-bottom: 1rem;
-    padding: 1rem 1.25rem;
+/* Sort Controls Card - matching System Status Card styling */
+.sort-controls-card {
     background-color: #252526;
     border: 1px solid #3e3e42;
     border-radius: 0.5rem;
+    margin-bottom: 1rem;
 }
 
-.sort-label {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.9rem;
+.sort-controls-card .card-header {
+    background-color: #2d2d30;
+    border-bottom: 2px solid #3e3e42;
+    padding: 1rem 1.25rem;
+    border-top-left-radius: 0.5rem;
+    border-top-right-radius: 0.5rem;
+}
+
+.sort-controls-card .card-header h5 {
+    font-size: 1rem;
     font-weight: 600;
-    color: #cccccc;
+    color: #ffffff;
     margin: 0;
 }
 
-.sort-label i {
-    font-size: 1rem;
-    color: #858585;
+.sort-controls-card .card-body {
+    padding: 1.25rem;
 }
 
 .sort-select {

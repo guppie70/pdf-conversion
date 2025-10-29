@@ -144,20 +144,21 @@
 
         <div class="col-lg-4">
             <!-- Sort Controls -->
-            <div class="sort-controls">
-                <label for="sortOrder" class="sort-label">
-                    <i class="bi bi-arrow-down-up"></i>
-                    Sort by:
-                </label>
-                <select id="sortOrder" class="sort-select" @bind="SelectedSortOrder" @bind:after="OnSortOrderChanged">
-                    <option value="@SortOrder.LastModifiedDesc">Last Modified (Newest First)</option>
-                    <option value="@SortOrder.LastModifiedAsc">Last Modified (Oldest First)</option>
-                    <option value="@SortOrder.NameAsc">Name (A-Z)</option>
-                    <option value="@SortOrder.NameDesc">Name (Z-A)</option>
-                    <option value="@SortOrder.ProjectStatusDesc">Project Status</option>
-                    <option value="@SortOrder.ProjectIdAsc">Project ID (A-Z)</option>
-                    <option value="@SortOrder.ProjectIdDesc">Project ID (Z-A)</option>
-                </select>
+            <div class="card sort-controls-card">
+                <div class="card-header">
+                    <h5 class="mb-0">Sort Projects</h5>
+                </div>
+                <div class="card-body">
+                    <select id="sortOrder" class="sort-select" @bind="SelectedSortOrder" @bind:after="OnSortOrderChanged">
+                        <option value="@SortOrder.LastModifiedDesc">Last Modified (Newest First)</option>
+                        <option value="@SortOrder.LastModifiedAsc">Last Modified (Oldest First)</option>
+                        <option value="@SortOrder.NameAsc">Name (A-Z)</option>
+                        <option value="@SortOrder.NameDesc">Name (Z-A)</option>
+                        <option value="@SortOrder.ProjectStatusDesc">Project Status</option>
+                        <option value="@SortOrder.ProjectIdAsc">Project ID (A-Z)</option>
+                        <option value="@SortOrder.ProjectIdDesc">Project ID (Z-A)</option>
+                    </select>
+                </div>
             </div>
 
             <div class="card system-status-card">
