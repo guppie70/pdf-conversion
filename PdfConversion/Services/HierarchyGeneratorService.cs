@@ -551,9 +551,10 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
     ///   - "1. Directors" → "Directors" with data-number="1."
     ///   - "(i) Foreign currency" → "Foreign currency" with data-number="(i)"
     /// Also parses trailing numbers: "Financial performance 2" → "Financial performance" with data-number="2"
+    /// NOW INCLUDES: Rich context extraction (word counts, child headers, content preview, etc.)
     /// </summary>
     /// <param name="normalizedXml">The normalized XHTML document</param>
-    /// <returns>List of header information objects</returns>
+    /// <returns>List of header information objects with rich context</returns>
     private List<HeaderInfo> ExtractHeadersFromXml(string normalizedXml)
     {
         try
@@ -581,8 +582,12 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
                            char.IsDigit(e.Name.LocalName[1]))
                 .ToList();
 
-            foreach (var element in headerElements)
+            // Track parent stack for hierarchy context
+            var parentStack = new Stack<(int depth, string text)>();
+
+            for (int i = 0; i < headerElements.Count; i++)
             {
+                var element = headerElements[i];
                 var text = element.Value.Trim();
                 if (string.IsNullOrWhiteSpace(text))
                     continue; // Skip empty headers
@@ -632,16 +637,63 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
                     }
                 }
 
-                headers.Add(new HeaderInfo
+                var info = new HeaderInfo
                 {
                     Text = text,
                     DataNumber = dataNumber,
                     Level = element.Name.LocalName.ToLower()
-                });
+                };
+
+                // Extract depth level from tag name (h1=1, h2=2, etc.)
+                info.DepthLevel = int.Parse(info.Level.Substring(1));
+
+                // Extract content between this header and the next header
+                var contentNodes = GetContentUntilNextHeader(element);
+
+                // Count words (strip HTML, split by whitespace)
+                var textContent = string.Join(" ", contentNodes.Select(n => StripHtml(n.ToString())));
+                info.WordCount = textContent.Split(new[] { ' ', '\n', '\r', '\t' },
+                    StringSplitOptions.RemoveEmptyEntries).Length;
+
+                // Count paragraphs
+                info.ParagraphCount = contentNodes.Count(n => n.Name?.LocalName == "p");
+
+                // Content preview (first 150 chars)
+                info.ContentPreview = textContent.Length > 150
+                    ? textContent.Substring(0, 150) + "..."
+                    : textContent;
+
+                // Count child headers (headers with higher depth before next same-level header)
+                info.ChildHeaderCount = CountChildHeaders(i, headerElements);
+
+                // Detect parent header
+                while (parentStack.Count > 0 && parentStack.Peek().depth >= info.DepthLevel)
+                {
+                    parentStack.Pop();
+                }
+                if (parentStack.Count > 0)
+                {
+                    info.ParentHeaderText = parentStack.Peek().text;
+                }
+                parentStack.Push((info.DepthLevel, info.Text));
+
+                // Detect numbered sequence
+                info.IsPartOfNumberedSequence = DetectNumberedSequence(i, headers, info.DepthLevel, dataNumber);
+
+                // Count siblings at same level
+                var siblingsInfo = CountSiblingsAtSameLevel(i, headerElements, info.DepthLevel);
+                info.SiblingPosition = siblingsInfo.position;
+                info.TotalSiblings = siblingsInfo.total;
+
+                // Check for tables in content
+                info.HasTables = contentNodes.Any(n => n.Descendants().Any(d => d.Name?.LocalName == "table"));
+                info.TableCount = contentNodes.SelectMany(n => n.Descendants()).Count(d => d.Name?.LocalName == "table");
+
+                headers.Add(info);
             }
 
             _logger.LogInformation("[HierarchyGenerator] Extracted {Count} headers from normalized XML, " +
-                "{WithDataNumber} with data-number attributes",
+                "{WithDataNumber} with data-number attributes, with rich context (word counts, child headers, etc.)",
                 headers.Count,
                 headers.Count(h => !string.IsNullOrEmpty(h.DataNumber)));
 
@@ -655,37 +707,256 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
     }
 
     /// <summary>
-    /// Builds markdown-formatted whitelist of headers for LLM prompt.
-    /// Returns numbered list with data-number attributes shown.
+    /// Gets all content nodes between this header and the next header
     /// </summary>
-    /// <param name="headers">List of extracted headers</param>
-    /// <returns>Markdown formatted whitelist string</returns>
+    private List<XElement> GetContentUntilNextHeader(XElement headerElement)
+    {
+        var contentNodes = new List<XElement>();
+        var currentNode = headerElement.NextNode;
+
+        while (currentNode != null)
+        {
+            if (currentNode is XElement element)
+            {
+                // Stop if we hit another header
+                var localName = element.Name.LocalName.ToLower();
+                if (localName.StartsWith("h") && localName.Length == 2 && char.IsDigit(localName[1]))
+                {
+                    break;
+                }
+                contentNodes.Add(element);
+            }
+            currentNode = currentNode.NextNode;
+        }
+
+        return contentNodes;
+    }
+
+    /// <summary>
+    /// Strips HTML tags from a string, keeping only text content
+    /// </summary>
+    private string StripHtml(string html)
+    {
+        try
+        {
+            var doc = XDocument.Parse($"<root>{html}</root>");
+            return doc.Root?.Value ?? string.Empty;
+        }
+        catch
+        {
+            // Fallback: simple regex-based stripping
+            return Regex.Replace(html, "<.*?>", string.Empty);
+        }
+    }
+
+    /// <summary>
+    /// Counts child headers (headers with higher depth before next same-level header)
+    /// </summary>
+    private int CountChildHeaders(int currentIndex, List<XElement> headerElements)
+    {
+        if (currentIndex >= headerElements.Count - 1)
+            return 0;
+
+        var currentDepth = int.Parse(headerElements[currentIndex].Name.LocalName.Substring(1));
+        var childCount = 0;
+
+        for (int i = currentIndex + 1; i < headerElements.Count; i++)
+        {
+            var depth = int.Parse(headerElements[i].Name.LocalName.Substring(1));
+
+            // Stop if we hit a header at same or lower level
+            if (depth <= currentDepth)
+                break;
+
+            childCount++;
+        }
+
+        return childCount;
+    }
+
+    /// <summary>
+    /// Detects if this header is part of a numbered sequence (1., 2., 3... or a., b., c...)
+    /// </summary>
+    private bool DetectNumberedSequence(int currentIndex, List<HeaderInfo> previousHeaders, int currentDepth, string? dataNumber)
+    {
+        if (string.IsNullOrEmpty(dataNumber) || currentIndex == 0)
+            return false;
+
+        // Look back for previous header at same depth
+        for (int i = currentIndex - 1; i >= 0; i--)
+        {
+            var prevHeader = previousHeaders[i];
+
+            // Skip headers at deeper levels
+            if (prevHeader.DepthLevel > currentDepth)
+                continue;
+
+            // Stop if we hit a shallower level
+            if (prevHeader.DepthLevel < currentDepth)
+                break;
+
+            // Same level - check if data-numbers are sequential
+            if (!string.IsNullOrEmpty(prevHeader.DataNumber))
+            {
+                return IsSequential(prevHeader.DataNumber, dataNumber);
+            }
+
+            break;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if two data-numbers are sequential (e.g., "1." and "2." or "a." and "b.")
+    /// </summary>
+    private bool IsSequential(string prev, string current)
+    {
+        // Handle numeric sequences: "1." -> "2."
+        if (int.TryParse(prev.TrimEnd('.'), out int prevNum) &&
+            int.TryParse(current.TrimEnd('.'), out int currentNum))
+        {
+            return currentNum == prevNum + 1;
+        }
+
+        // Handle letter sequences: "a." -> "b."
+        var prevLetter = prev.TrimEnd('.').ToLower();
+        var currentLetter = current.TrimEnd('.').ToLower();
+
+        if (prevLetter.Length == 1 && currentLetter.Length == 1 &&
+            char.IsLetter(prevLetter[0]) && char.IsLetter(currentLetter[0]))
+        {
+            return currentLetter[0] == prevLetter[0] + 1;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Counts siblings at the same level and returns position/total
+    /// </summary>
+    private (int position, int total) CountSiblingsAtSameLevel(int currentIndex, List<XElement> headerElements, int targetDepth)
+    {
+        // Find the parent header (first header with lower depth before current)
+        int parentIndex = -1;
+        for (int i = currentIndex - 1; i >= 0; i--)
+        {
+            var depth = int.Parse(headerElements[i].Name.LocalName.Substring(1));
+            if (depth < targetDepth)
+            {
+                parentIndex = i;
+                break;
+            }
+        }
+
+        // Count siblings at same level under same parent
+        int startIndex = parentIndex + 1;
+        int endIndex = headerElements.Count;
+
+        // Find where parent's children end
+        for (int i = startIndex; i < headerElements.Count; i++)
+        {
+            var depth = int.Parse(headerElements[i].Name.LocalName.Substring(1));
+            if (depth < targetDepth)
+            {
+                endIndex = i;
+                break;
+            }
+        }
+
+        // Count siblings at exact same depth
+        var siblings = new List<int>();
+        for (int i = startIndex; i < endIndex; i++)
+        {
+            var depth = int.Parse(headerElements[i].Name.LocalName.Substring(1));
+            if (depth == targetDepth)
+            {
+                siblings.Add(i);
+            }
+        }
+
+        var position = siblings.IndexOf(currentIndex) + 1;
+        var total = siblings.Count;
+
+        return (position, total);
+    }
+
+    /// <summary>
+    /// Builds markdown-formatted whitelist of headers for LLM prompt with rich context.
+    /// Returns numbered list with data-number attributes and context metadata.
+    /// </summary>
+    /// <param name="headers">List of extracted headers with rich context</param>
+    /// <returns>Markdown formatted whitelist string with context</returns>
     private string BuildMarkdownWhitelist(List<HeaderInfo> headers)
     {
         var sb = new StringBuilder();
 
         for (int i = 0; i < headers.Count; i++)
         {
-            var header = headers[i];
-            var lineNumber = i + 1;
+            var h = headers[i];
+            var lineNum = i + 1;
 
             // Truncate very long headers
-            var displayText = header.Text.Length > 100
-                ? header.Text.Substring(0, 97) + "..."
-                : header.Text;
+            var displayText = h.Text.Length > 100
+                ? h.Text.Substring(0, 97) + "..."
+                : h.Text;
 
-            // Format: Line# | Header text (data-number="X")
-            if (!string.IsNullOrEmpty(header.DataNumber))
+            // Line 1: Header text with data-number
+            sb.Append($"{lineNum} | {displayText}");
+            if (!string.IsNullOrEmpty(h.DataNumber))
             {
-                sb.AppendLine($"{lineNumber} | {displayText} (data-number=\"{header.DataNumber}\")");
+                sb.Append($" (data-number=\"{h.DataNumber}\")");
             }
-            else
+            sb.AppendLine();
+
+            // Line 2: Level, children, content stats
+            sb.Append($"    Level: {h.Level} | Children: {h.ChildHeaderCount} | ");
+            sb.Append($"Words: {h.WordCount} | Paragraphs: {h.ParagraphCount}");
+            if (h.TableCount > 0)
             {
-                sb.AppendLine($"{lineNumber} | {displayText}");
+                sb.Append($" | Tables: {h.TableCount}");
             }
+            sb.AppendLine();
+
+            // Line 3: Parent and position info (if applicable)
+            if (!string.IsNullOrEmpty(h.ParentHeaderText) || h.TotalSiblings > 1)
+            {
+                sb.Append("    ");
+                if (!string.IsNullOrEmpty(h.ParentHeaderText))
+                {
+                    // Truncate parent text for display
+                    var parentDisplay = h.ParentHeaderText.Length > 50
+                        ? h.ParentHeaderText.Substring(0, 47) + "..."
+                        : h.ParentHeaderText;
+                    sb.Append($"Parent: \"{parentDisplay}\" | ");
+                }
+                if (h.TotalSiblings > 1)
+                {
+                    sb.Append($"Position: {h.SiblingPosition} of {h.TotalSiblings}");
+                }
+                sb.AppendLine();
+            }
+
+            // Line 4: Content preview (if available)
+            if (!string.IsNullOrWhiteSpace(h.ContentPreview) && h.ContentPreview.Length > 3) // More than "..."
+            {
+                sb.AppendLine($"    Preview: \"{h.ContentPreview}\"");
+            }
+
+            // Line 5: Pattern detection
+            if (h.IsPartOfNumberedSequence)
+            {
+                sb.AppendLine("    Pattern: Numbered item in sequence");
+            }
+            else if (h.ChildHeaderCount > 5)
+            {
+                sb.AppendLine($"    Pattern: Container for {h.ChildHeaderCount} subsections");
+            }
+
+            sb.AppendLine(); // Blank line between headers
         }
 
-        _logger.LogInformation("[HierarchyGenerator] Built markdown whitelist: {Count} headers with line numbers",
+        _logger.LogInformation("[HierarchyGenerator] Built markdown whitelist: {Count} headers with rich context (word counts, child counts, patterns)",
             headers.Count);
 
         return sb.ToString();
@@ -882,13 +1153,27 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
     }
 
     /// <summary>
-    /// Helper class for header information extracted from XML
+    /// Helper class for header information extracted from XML with rich context
     /// </summary>
     public class HeaderInfo
     {
+        // Existing fields
         public string Text { get; set; } = string.Empty;
         public string? DataNumber { get; set; }
         public string Level { get; set; } = string.Empty; // "h1", "h2", etc.
+
+        // NEW: Rich context fields
+        public int DepthLevel { get; set; }  // 1 for h1, 2 for h2, etc.
+        public int ChildHeaderCount { get; set; }  // Number of child headers
+        public int WordCount { get; set; }  // Word count in content under this header
+        public int ParagraphCount { get; set; }  // Paragraph count
+        public string ContentPreview { get; set; } = string.Empty;  // First 150 chars of content
+        public string? ParentHeaderText { get; set; }  // Parent header text (if any)
+        public bool IsPartOfNumberedSequence { get; set; }  // Is this in a 1,2,3... or a,b,c... sequence?
+        public int SiblingPosition { get; set; }  // Position among siblings (1 of 5, etc.)
+        public int TotalSiblings { get; set; }  // Total siblings at same level
+        public bool HasTables { get; set; }  // Contains tables
+        public int TableCount { get; set; }  // Number of tables
     }
 
     /// <summary>

@@ -601,6 +601,311 @@ private string BuildPrompt(
 - Warn about low confidence items
 - Warn about unused headers
 
+---
+
+### 3.1: Manual Mode (NEW - 2025-10-29)
+
+**Status:** Design complete, ready to implement
+
+**Problem Solved:** Rule-based generation provides good starting point, but complex documents (especially financial reports with inconsistent structure) need manual hierarchy creation from scratch with full control.
+
+**Solution Overview:**
+
+Manual Mode starts with ALL headers from the transformed XML displayed as a flat list (all level 0), then user builds hierarchy by adjusting ONLY nesting levels - never reordering items. This preserves document order (critical for section generation) while giving complete control over structure.
+
+**Core Constraints:**
+
+1. **Fixed Sequential Order** - Headers maintain document order (item 1 always before item 2)
+   - Cannot drag item 10 above item 5
+   - Preserves order for section XML generation
+   - Only nesting level changes allowed
+
+2. **Multi-Select Operations** - Select multiple items at same level
+   - Bulk indent/outdent with Tab/Shift+Tab
+   - Efficient for grouping related sections
+   - Example: Select items 5-9, press Tab → all become children of item 4
+
+3. **Exclude from Hierarchy** - Remove items without deleting from source
+   - Excluded items become in-section headers (h2, h3 within parent section)
+   - Hierarchy editor NEVER modifies source/normalized XML
+   - Only changes what becomes section boundaries vs. in-section content
+
+**User Workflow:**
+
+**Step 1: Initial Load**
+```
+1. User selects project + source XML file (e.g., "docling-output.xml")
+2. System auto-detects XSLT path via XsltPathResolver utility
+3. Transform source → normalized XML
+4. Extract all h1-h6 headers in document order
+5. Display as flat list (all level 0) in hierarchy tree
+```
+
+**Step 2: Build Hierarchy**
+```
+User actions:
+- Click to select items
+- Ctrl+Click for multi-select
+- Shift+Click for range select
+- Tab → indent selected items (increase level)
+- Shift+Tab → outdent selected items (decrease level)
+- Delete → exclude from hierarchy
+- Right-click → Context menu (Indent, Outdent, Exclude)
+```
+
+**Step 3: Save**
+```
+Filename: "manual-hierarchy.xml"
+Location: data/input/{customer}/projects/{projectId}/metadata/
+Format: Same XML format as rule-based/AI hierarchies
+Load: Auto-load on page init if exists
+```
+
+**UI Layout (Enhanced):**
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Generate Hierarchy - Step 3                                  │
+├──────────────────────────────────────────────────────────────┤
+│ ┌─ Mode Selection ──────────────────────────────────────┐    │
+│ │ ○ Rule-Based  ○ Manual Mode [NEW]  ○ Load Existing   │    │
+│ │ [Start Fresh] [Save Hierarchy]                        │    │
+│ └───────────────────────────────────────────────────────┘    │
+├──────────────────────────────────────────────────────────────┤
+│ ┌─ Hierarchy (Fixed Order) ──────┐ ┌─ Actions ──────────┐   │
+│ │ □ 1. Cover Page (level 0)      │ │ Selected: 3 items  │   │
+│ │ □ 2. Table of Contents (l0)    │ │                    │   │
+│ │ □ 3. Introduction (l0)          │ │ [Indent →]        │   │
+│ │ □ 4. Directors' report (l0)     │ │ [← Outdent]       │   │
+│ │ □ 5.   Directors (l1)          │ │ [✕ Exclude]       │   │
+│ │ □ 6.   Risk Management (l1)    │ │ [Include All]     │   │
+│ │ □ 7. Financial Statements (l0)  │ │                    │   │
+│ │ □ 8.   Note 1 (l1)             │ │ Shortcuts:        │   │
+│ │ □ 9.     Accounting (l2)       │ │ Tab = Indent      │   │
+│ │ ...                             │ │ Shift+Tab = Out   │   │
+│ │                                 │ │ Delete = Exclude  │   │
+│ │ Showing 214 headers             │ │ Ctrl+A = Select   │   │
+│ └─────────────────────────────────┘ └────────────────────┘   │
+│ [← Back: Transform] [Next: Convert Sections →]              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Key Features:**
+
+**Visual Indicators:**
+- Indentation shows nesting level (0 spaces = l0, 2 spaces = l1, 4 spaces = l2)
+- Checkboxes for multi-select
+- Level number displayed: "(l0)", "(l1)", "(l2)"
+- Excluded items: grayed out or hidden with "Show Excluded" toggle
+
+**New Buttons:**
+- "Start Fresh" → reload flat list from transformed XML (confirm if unsaved)
+- "Include All" → reset all items to level 0, clear exclusions
+- "Indent →" → increase level for selected items
+- "← Outdent" → decrease level for selected items
+- "✕ Exclude" → remove selected items from hierarchy
+
+**Keyboard Shortcuts:**
+- Tab → Indent selected items
+- Shift+Tab → Outdent selected items
+- Delete → Exclude selected items
+- Ctrl+A → Select all items at current level
+- Ctrl+Click → Toggle item selection
+- Shift+Click → Range select
+- Space → Toggle expand/collapse (for parent items)
+
+**Technical Implementation:**
+
+**1. XsltPathResolver Utility (NEW - Priority 1)**
+
+```csharp
+namespace PdfConversion.Utils;
+
+public static class XsltPathResolver
+{
+    public static string GetTransformationPath(string sourceXmlFileName)
+    {
+        if (string.IsNullOrWhiteSpace(sourceXmlFileName))
+            throw new ArgumentException("Source XML filename cannot be empty", nameof(sourceXmlFileName));
+
+        return sourceXmlFileName.Contains("docling", StringComparison.OrdinalIgnoreCase)
+            ? "xslt/docling/transformation.xslt"
+            : "xslt/adobe/transformation.xslt";
+    }
+}
+```
+
+**TODO:** Find and replace all duplicate XSLT selection logic across codebase with calls to this utility.
+
+**2. Header Extraction Service (EXTEND EXISTING)**
+
+```csharp
+public class HeaderExtractionService
+{
+    public List<HeaderInfo> ExtractHeadersFromNormalizedXml(string normalizedXmlPath)
+    {
+        var doc = XDocument.Load(normalizedXmlPath);
+        var headers = new List<HeaderInfo>();
+        int order = 1;
+
+        foreach (var element in doc.Descendants()
+            .Where(e => e.Name.LocalName.StartsWith("h") &&
+                       int.TryParse(e.Name.LocalName.Substring(1), out _)))
+        {
+            headers.Add(new HeaderInfo
+            {
+                OriginalOrder = order++,
+                Level = 0, // Initially all flat
+                HeaderTag = element.Name.LocalName, // "h1", "h2", etc.
+                Text = element.Value.Trim(),
+                DataNumber = element.Attribute("data-number")?.Value,
+                XPath = element.GetXPath(),
+                IsExcluded = false
+            });
+        }
+
+        return headers;
+    }
+}
+
+public class HeaderInfo
+{
+    public int OriginalOrder { get; set; } // Immutable, preserves document order
+    public int Level { get; set; } // 0, 1, 2, 3... (user adjusts this)
+    public string HeaderTag { get; set; } // "h1", "h2", etc.
+    public string Text { get; set; }
+    public string? DataNumber { get; set; }
+    public string XPath { get; set; }
+    public bool IsExcluded { get; set; } // True if removed from hierarchy
+}
+```
+
+**3. Manual Hierarchy Builder (NEW COMPONENT)**
+
+```csharp
+public class ManualHierarchyBuilder
+{
+    private const int MaxNestingDepth = 10;
+
+    public void IndentItems(List<HeaderInfo> allHeaders, List<int> selectedOrders)
+    {
+        foreach (var order in selectedOrders)
+        {
+            var header = allHeaders.First(h => h.OriginalOrder == order);
+            if (header.Level < MaxNestingDepth)
+            {
+                header.Level++;
+            }
+        }
+    }
+
+    public void OutdentItems(List<HeaderInfo> allHeaders, List<int> selectedOrders)
+    {
+        foreach (var order in selectedOrders)
+        {
+            var header = allHeaders.First(h => h.OriginalOrder == order);
+            if (header.Level > 0)
+            {
+                header.Level--;
+            }
+        }
+    }
+
+    public void ExcludeItems(List<HeaderInfo> allHeaders, List<int> selectedOrders)
+    {
+        foreach (var order in selectedOrders)
+        {
+            var header = allHeaders.First(h => h.OriginalOrder == order);
+            header.IsExcluded = true;
+        }
+    }
+
+    public void IncludeAllItems(List<HeaderInfo> allHeaders)
+    {
+        foreach (var header in allHeaders)
+        {
+            header.IsExcluded = false;
+            header.Level = 0; // Reset to flat list
+        }
+    }
+
+    public List<HierarchyItem> ConvertToHierarchy(List<HeaderInfo> allHeaders)
+    {
+        // Convert flat list with levels to nested HierarchyItem structure
+        // Maintain OriginalOrder for section generation
+        // Exclude IsExcluded items from hierarchy
+    }
+}
+```
+
+**4. File Persistence**
+
+```csharp
+public async Task SaveManualHierarchyAsync(
+    string customer,
+    string projectId,
+    List<HeaderInfo> headers)
+{
+    var hierarchy = _manualBuilder.ConvertToHierarchy(headers);
+
+    var filePath = Path.Combine(
+        _settings.DataDirectory,
+        "input",
+        customer,
+        "projects",
+        projectId,
+        "metadata",
+        "manual-hierarchy.xml"
+    );
+
+    var xml = SerializeHierarchy(hierarchy);
+    await File.WriteAllTextAsync(filePath, xml);
+}
+```
+
+**Implementation Phases:**
+
+**Phase 1: Foundation** (2-3 days)
+- [x] Design complete
+- [ ] Create XsltPathResolver utility
+- [ ] Find and replace duplicate XSLT logic
+- [ ] Extend HeaderExtractionService
+- [ ] Flat list UI rendering
+- [ ] Single-item indent/outdent
+- [ ] Save/load manual-hierarchy.xml
+
+**Phase 2: Multi-Select** (1 day)
+- [ ] Checkbox UI for selection
+- [ ] Ctrl+Click, Shift+Click handlers
+- [ ] Bulk indent/outdent operations
+- [ ] Selection state management
+
+**Phase 3: Exclude/Include** (1 day)
+- [ ] Exclude items functionality
+- [ ] Visual indicator (grayed out)
+- [ ] "Include All" reset
+- [ ] "Show Excluded" toggle
+
+**Phase 4: Polish** (1 day)
+- [ ] Keyboard shortcuts (Tab, Shift+Tab, Delete)
+- [ ] "Start Fresh" reload
+- [ ] Validation (no orphaned items)
+- [ ] Undo/Redo support (optional)
+
+**Acceptance Criteria:**
+
+- ✅ Can load all headers as flat list from transformed XML
+- ✅ Can select multiple items (Ctrl+Click, Shift+Click)
+- ✅ Can indent/outdent items (Tab/Shift+Tab)
+- ✅ Sequential order never changes (item 1 always before item 2)
+- ✅ Can exclude items from hierarchy
+- ✅ Excluded items become in-section headers (not deleted from XML)
+- ✅ Can save as manual-hierarchy.xml in metadata folder
+- ✅ Can load existing manual-hierarchy.xml on page init
+- ✅ Works with both Docling and Adobe pipelines
+
+---
+
 #### 4. `/convert` (EXISTING - No Changes)
 
 **Compatibility:**
