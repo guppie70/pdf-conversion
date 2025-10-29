@@ -29,6 +29,11 @@
         </xsl:choose>
     </xsl:function>
 
+    <!-- L containing forced headers: unwrap completely and extract headers (priority=15) -->
+    <xsl:template match="L[LI/LBody/@data-forceheader]" priority="15">
+        <xsl:apply-templates select="LI" mode="extract-forced-header"/>
+    </xsl:template>
+
     <!-- General list template for regular lists -->
     <xsl:template match="L" priority="10">
         <xsl:choose>
@@ -93,6 +98,28 @@
     <xsl:template match="LBody" priority="10">
         <xsl:apply-templates select="@*"/>
         <xsl:apply-templates mode="strip-prefix"/>
+    </xsl:template>
+
+    <!-- extract-forced-header mode: Extract header directly without li wrapper -->
+    <xsl:template match="LI" mode="extract-forced-header">
+        <xsl:variable name="header-level" select="string(LBody/@data-forceheader)"/>
+        <xsl:variable name="text" select="normalize-space(LBody)"/>
+        <xsl:variable name="text-without-prefix">
+            <xsl:choose>
+                <xsl:when test="matches($text, '^\([ivxlcdm]+\)\s')">
+                    <xsl:value-of select="normalize-space(replace($text, '^\([ivxlcdm]+\)\s', ''))"/>
+                </xsl:when>
+                <xsl:otherwise>
+                    <xsl:value-of select="$text"/>
+                </xsl:otherwise>
+            </xsl:choose>
+        </xsl:variable>
+
+        <xsl:element name="{$header-level}">
+            <xsl:attribute name="data-numberscheme">(a),(b),(c)</xsl:attribute>
+            <xsl:attribute name="data-number"></xsl:attribute>
+            <xsl:value-of select="$text-without-prefix"/>
+        </xsl:element>
     </xsl:template>
 
     <!-- Text node processing within LBody - strip prefixes -->

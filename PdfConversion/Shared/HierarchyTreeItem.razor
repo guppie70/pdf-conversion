@@ -91,7 +91,8 @@
                           OnItemEdited="OnItemEdited"
                           OnEditRequest="OnEditRequest"
                           AllowDragDrop="AllowDragDrop"
-                          SelectedItemIds="SelectedItemIds" />
+                          SelectedItemIds="SelectedItemIds"
+                          RootItem="RootItem" />
     }
 }
 
@@ -122,6 +123,9 @@
 
     [Parameter]
     public HashSet<string>? SelectedItemIds { get; set; }
+
+    [Parameter]
+    public HierarchyItem? RootItem { get; set; }
 
     private bool IsExpanded { get; set; } = true;
     private bool IsEditing { get; set; }
@@ -174,7 +178,10 @@
         if (EditedLinkName != Item.LinkName)
         {
             Item.LinkName = EditedLinkName;
-            await OnItemEdited.InvokeAsync(Item);
+            if (OnItemEdited.HasDelegate)
+            {
+                await OnItemEdited.InvokeAsync(Item);
+            }
         }
         IsEditing = false;
     }
@@ -287,7 +294,10 @@
         if (DraggedItemParent != null)
         {
             DraggedItemParent.SubItems.Remove(DraggedItem);
-            await OnItemEdited.InvokeAsync(DraggedItemParent);
+            if (OnItemEdited.HasDelegate)
+            {
+                await OnItemEdited.InvokeAsync(DraggedItemParent);
+            }
         }
 
         // Handle different drop positions
@@ -306,7 +316,10 @@
                         : currentIndex + 1;
 
                     siblings.Insert(insertIndex, DraggedItem);
-                    await OnItemEdited.InvokeAsync(ParentItem);
+                    if (OnItemEdited.HasDelegate)
+                    {
+                        await OnItemEdited.InvokeAsync(ParentItem);
+                    }
                 }
             }
         }
@@ -314,7 +327,10 @@
         {
             // Add as child (existing behavior)
             Item.SubItems.Add(DraggedItem);
-            await OnItemEdited.InvokeAsync(Item);
+            if (OnItemEdited.HasDelegate)
+            {
+                await OnItemEdited.InvokeAsync(Item);
+            }
         }
 
         // Clear state
@@ -395,32 +411,49 @@
     }
 
     /// <summary>
-    /// Gets the root item of the hierarchy tree by traversing upward.
-    /// Note: Cannot traverse beyond component hierarchy boundaries, so returns
-    /// the highest accessible ancestor (which should be root when ParentItem is null).
+    /// Gets the root item of the hierarchy tree.
+    /// Uses the RootItem parameter if provided, otherwise falls back to current Item.
     /// </summary>
     private HierarchyItem GetRootItem()
     {
-        // Traverse up to find root
-        var current = Item;
-        var checkParent = ParentItem;
+        // Use the RootItem parameter if provided (preferred approach)
+        if (RootItem != null)
+            return RootItem;
 
-        while (checkParent != null)
-        {
-            current = checkParent;
-            // In practice, we can't traverse further up through the component tree
-            // This will return the item at the level where ParentItem is null (root level)
-            break;
-        }
-
-        return current;
+        // Fallback: if RootItem not provided, assume current Item is root or close enough
+        // This maintains backwards compatibility
+        return Item;
     }
 
     private async Task HandleHeaderDrop()
     {
+        await JSRuntime.InvokeVoidAsync("console.log", "[HierarchyTreeItem] HandleHeaderDrop START");
+
         if (DraggedHeader == null)
         {
+            await JSRuntime.InvokeVoidAsync("console.log",
+                "[HierarchyTreeItem] HandleHeaderDrop: DraggedHeader is null");
             return;
+        }
+
+        await JSRuntime.InvokeVoidAsync("console.log", "[HierarchyTreeItem] DraggedHeader validated");
+
+        // Validate header title
+        if (string.IsNullOrWhiteSpace(DraggedHeader.Title))
+        {
+            await JSRuntime.InvokeVoidAsync("console.log",
+                "[HierarchyTreeItem] HandleHeaderDrop: DraggedHeader.Title is null or empty");
+            return;
+        }
+
+        await JSRuntime.InvokeVoidAsync("console.log", "[HierarchyTreeItem] Title validated");
+
+        // CRITICAL: Check for root-level sibling drop scenario
+        if ((CurrentDropPosition == DropPosition.Before || CurrentDropPosition == DropPosition.After) && ParentItem == null)
+        {
+            await JSRuntime.InvokeVoidAsync("console.log",
+                $"[HierarchyTreeItem] WARNING: Cannot insert as sibling at root level. Converting {CurrentDropPosition} to Into.");
+            CurrentDropPosition = DropPosition.Into;
         }
 
         // Log drop position for debugging
@@ -429,17 +462,57 @@
 
         // Get root item for uniqueness checks
         var rootItem = GetRootItem();
+        if (rootItem == null)
+        {
+            await JSRuntime.InvokeVoidAsync("console.log",
+                "[HierarchyTreeItem] HandleHeaderDrop: GetRootItem returned null");
+            return;
+        }
+
+        await JSRuntime.InvokeVoidAsync("console.log", "[HierarchyTreeItem] RootItem validated, generating unique ID...");
+
+        // Generate unique ID
+        string uniqueId;
+        try
+        {
+            uniqueId = GenerateUniqueId(DraggedHeader.Title, rootItem);
+            await JSRuntime.InvokeVoidAsync("console.log", $"[HierarchyTreeItem] Generated unique ID: {uniqueId}");
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("console.log", $"[HierarchyTreeItem] ERROR in GenerateUniqueId: {ex.Message}");
+            return;
+        }
+
+        // Generate unique DataRef
+        string uniqueDataRef;
+        try
+        {
+            uniqueDataRef = GenerateUniqueDataRef(DraggedHeader.Title, rootItem);
+            await JSRuntime.InvokeVoidAsync("console.log", $"[HierarchyTreeItem] Generated unique DataRef: {uniqueDataRef}");
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("console.log", $"[HierarchyTreeItem] ERROR in GenerateUniqueDataRef: {ex.Message}");
+            return;
+        }
+
+        // Calculate level
+        int newLevel = CurrentDropPosition == DropPosition.Into ? Item.Level + 1 : Item.Level;
+        await JSRuntime.InvokeVoidAsync("console.log", $"[HierarchyTreeItem] Calculated level: {newLevel}");
 
         // Create a new hierarchy item from the header with properly generated data
         var newItem = new HierarchyItem
         {
-            Id = GenerateUniqueId(DraggedHeader.Title, rootItem),
+            Id = uniqueId,
             LinkName = DraggedHeader.Title,
-            Level = CurrentDropPosition == DropPosition.Into ? Item.Level + 1 : Item.Level,
-            DataRef = GenerateUniqueDataRef(DraggedHeader.Title, rootItem),
+            Level = newLevel,
+            DataRef = uniqueDataRef,
             Path = "/",  // Always use root path for new items
             SubItems = new List<HierarchyItem>()
         };
+
+        await JSRuntime.InvokeVoidAsync("console.log", "[HierarchyTreeItem] New item created successfully");
 
         // Handle different drop positions (same logic as tree item drops)
         if (CurrentDropPosition == DropPosition.Before || CurrentDropPosition == DropPosition.After)
@@ -448,6 +521,13 @@
             if (ParentItem != null)
             {
                 var siblings = ParentItem.SubItems;
+                if (siblings == null)
+                {
+                    await JSRuntime.InvokeVoidAsync("console.log",
+                        "[HierarchyTreeItem] HandleHeaderDrop: ParentItem.SubItems is null");
+                    return;
+                }
+
                 var currentIndex = siblings.IndexOf(Item);
 
                 if (currentIndex >= 0)
@@ -459,7 +539,11 @@
                     siblings.Insert(insertIndex, newItem);
                     await JSRuntime.InvokeVoidAsync("console.log",
                         $"[HierarchyTreeItem] Inserted header as sibling at index {insertIndex} (position: {CurrentDropPosition})");
-                    await OnItemEdited.InvokeAsync(ParentItem);
+
+                    if (OnItemEdited.HasDelegate)
+                    {
+                        await OnItemEdited.InvokeAsync(ParentItem);
+                    }
                 }
                 else
                 {
@@ -474,7 +558,11 @@
                     "[HierarchyTreeItem] Warning: Cannot insert as sibling - no parent item. Adding as child instead.");
                 newItem.Level = Item.Level + 1; // Adjust level since we're making it a child
                 Item.SubItems.Add(newItem);
-                await OnItemEdited.InvokeAsync(Item);
+
+                if (OnItemEdited.HasDelegate)
+                {
+                    await OnItemEdited.InvokeAsync(Item);
+                }
             }
         }
         else // DropPosition.Into
@@ -483,7 +571,11 @@
             Item.SubItems.Add(newItem);
             await JSRuntime.InvokeVoidAsync("console.log",
                 $"[HierarchyTreeItem] Added header as child of '{Item.LinkName}'");
-            await OnItemEdited.InvokeAsync(Item);
+
+            if (OnItemEdited.HasDelegate)
+            {
+                await OnItemEdited.InvokeAsync(Item);
+            }
         }
 
         // Clear state

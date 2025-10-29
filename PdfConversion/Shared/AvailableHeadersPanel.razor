@@ -223,11 +223,13 @@
     {
         await JSRuntime.InvokeVoidAsync("console.log", "[AvailableHeadersPanel] Header drag end");
 
+        // Clear local state only (visual feedback)
         DraggedHeader = null;
 
-        // Clear the dragged header in HierarchyTreeItem
-        HierarchyTreeItem.SetDraggedHeader(null);
-        await JSRuntime.InvokeVoidAsync("console.log", "[AvailableHeadersPanel] Cleared DraggedHeader");
+        // DON'T clear HierarchyTreeItem.DraggedHeader here - that causes a race condition!
+        // The drop handler in HierarchyTreeItem needs DraggedHeader to still be set.
+        // HierarchyTreeItem.HandleHeaderDrop will clear it after processing (line 584).
+        await JSRuntime.InvokeVoidAsync("console.log", "[AvailableHeadersPanel] Cleared local DraggedHeader (global will be cleared by drop handler)");
 
         StateHasChanged();
     }
