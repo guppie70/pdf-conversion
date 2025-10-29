@@ -2,6 +2,7 @@
 @using PdfConversion.Models
 @using PdfConversion.Services
 @using PdfConversion.Shared
+@using PdfConversion.Utils
 @using Microsoft.AspNetCore.Components.Web
 @inject IHierarchyService HierarchyService
 @inject IProjectLabelService ProjectLabelService
@@ -199,7 +200,7 @@
                                                   Level="0"
                                                   OnItemSelectedWithModifiers="HandleManualItemSelectedWithModifiers"
                                                   OnItemEdited="HandleManualItemEdited"
-                                                  OnEditRequest="@((item) => Task.CompletedTask)"
+                                                  OnEditRequest="HandleEditRequest"
                                                   AllowDragDrop="false"
                                                   SelectedItemIds="_selectedManualItemIds" />
                             }
@@ -480,6 +481,7 @@
     // Editor panel state
     private HierarchyItem? EditingItem { get; set; }
     private bool ShowEditor => EditingItem != null;
+    private string? _originalDataRef = null;  // Track original value for validation
 
     // AI Generation state
     private bool _showAiModal = false;
@@ -947,6 +949,14 @@
 
         try
         {
+            // Normalize hierarchy before saving (ensure unique IDs, DataRefs, and proper paths)
+            if (_currentMode == HierarchyMode.Manual && CurrentHierarchy?.Root != null)
+            {
+                Logger.LogInformation("Normalizing Manual Mode hierarchy before save...");
+                NormalizeHierarchyTree(CurrentHierarchy.Root);
+                Logger.LogInformation("Normalization complete");
+            }
+
             string filePath;
 
             // Manual mode hierarchies go to metadata folder with specific name
@@ -1076,14 +1086,36 @@
     private void HandleEditRequest(HierarchyItem item)
     {
         EditingItem = item;
+        _originalDataRef = item.DataRef;  // Store original for validation
         StateHasChanged();
     }
 
     private async Task HandleItemUpdated(HierarchyItem updatedItem)
     {
-        // Item is already updated by reference, just mark as changed
+        // Validate DataRef uniqueness if it was changed
+        if (_originalDataRef != null && updatedItem.DataRef != _originalDataRef)
+        {
+            // Check if new DataRef is unique (excluding the item being edited)
+            if (!IsDataRefUniqueInCurrentTree(updatedItem.DataRef, updatedItem.Id))
+            {
+                // Duplicate found - revert and show error
+                Logger.LogWarning("Duplicate DataRef detected: {DataRef}. Reverting to original: {Original}",
+                    updatedItem.DataRef, _originalDataRef);
+
+                ToastNotification.ShowError($"DataRef '{updatedItem.DataRef}' already exists. Reverted to '{_originalDataRef}'.");
+
+                updatedItem.DataRef = _originalDataRef;  // Revert to original
+                _originalDataRef = null;
+                EditingItem = null;
+                StateHasChanged();
+                return;  // Don't mark as changed
+            }
+        }
+
+        // Validation passed - accept changes
         HasChanges = true;
         EditingItem = null;
+        _originalDataRef = null;  // Clear tracking
         StateHasChanged();
 
         // Optionally refresh the headers panel to reflect changes
@@ -1096,6 +1128,7 @@
     private void CloseEditor()
     {
         EditingItem = null;
+        _originalDataRef = null;  // Clear tracking on cancel
         StateHasChanged();
     }
 
@@ -2601,6 +2634,111 @@
         {
             DeselectAllHeaders();
             await Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Recursively checks if a DataRef exists in the tree, excluding the specified item.
+    /// This ensures we don't flag the item being edited as a duplicate of itself.
+    /// </summary>
+    private bool DataRefExistsInTree(string dataRef, HierarchyItem rootItem, string excludeItemId)
+    {
+        if (rootItem.Id != excludeItemId && rootItem.DataRef == dataRef)
+            return true;
+
+        return rootItem.SubItems.Any(child => DataRefExistsInTree(dataRef, child, excludeItemId));
+    }
+
+    /// <summary>
+    /// Checks if a DataRef is unique across the current hierarchy tree (Manual or Load Existing mode).
+    /// </summary>
+    private bool IsDataRefUniqueInCurrentTree(string dataRef, string excludeItemId)
+    {
+        if (_currentMode == HierarchyMode.Manual)
+        {
+            // Check Manual Mode tree
+            if (_manualHierarchyItems != null)
+            {
+                foreach (var rootItem in _manualHierarchyItems)
+                {
+                    if (DataRefExistsInTree(dataRef, rootItem, excludeItemId))
+                        return false;
+                }
+            }
+        }
+        else
+        {
+            // Check Load Existing Mode tree
+            if (CurrentHierarchy?.Root != null)
+            {
+                if (DataRefExistsInTree(dataRef, CurrentHierarchy.Root, excludeItemId))
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Normalizes all items in the hierarchy tree before saving.
+    /// Ensures unique IDs, unique DataRef filenames, and proper web paths.
+    /// </summary>
+    private void NormalizeHierarchyTree(HierarchyItem rootItem)
+    {
+        var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var usedDataRefs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Recursively normalize all items
+        NormalizeItemRecursive(rootItem, usedIds, usedDataRefs);
+    }
+
+    /// <summary>
+    /// Recursively normalizes a hierarchy item and all its children.
+    /// </summary>
+    private void NormalizeItemRecursive(HierarchyItem item, HashSet<string> usedIds, HashSet<string> usedDataRefs)
+    {
+        // Generate unique ID based on LinkName
+        var baseId = PdfConversion.Utils.FilenameUtils.NormalizeFileName(item.LinkName);
+        var uniqueId = baseId;
+
+        // If ID already used, add suffix
+        if (usedIds.Contains(uniqueId))
+        {
+            var random = new Random();
+            var chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+            var suffix = new string(Enumerable.Repeat(chars, 6)
+                .Select(s => s[random.Next(s.Length)]).ToArray());
+            uniqueId = $"{baseId}-{suffix}";
+        }
+
+        item.Id = uniqueId;
+        usedIds.Add(uniqueId);
+
+        // Generate unique DataRef based on LinkName
+        var baseFilename = PdfConversion.Utils.FilenameUtils.NormalizeFileName(item.LinkName);
+        var uniqueDataRef = $"{baseFilename}.xml";
+
+        // If DataRef already used, add sequential numbering
+        if (usedDataRefs.Contains(uniqueDataRef))
+        {
+            int counter = 1;
+            while (usedDataRefs.Contains($"{baseFilename}-{counter}.xml"))
+            {
+                counter++;
+            }
+            uniqueDataRef = $"{baseFilename}-{counter}.xml";
+        }
+
+        item.DataRef = uniqueDataRef;
+        usedDataRefs.Add(uniqueDataRef);
+
+        // Ensure Path is set to "/"
+        item.Path = "/";
+
+        // Recursively normalize children
+        foreach (var child in item.SubItems)
+        {
+            NormalizeItemRecursive(child, usedIds, usedDataRefs);
         }
     }
 }

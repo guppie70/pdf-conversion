@@ -204,4 +204,38 @@ public class FilenameUtilsTests
         // Assert
         Assert.Equal(expected, result);
     }
+
+    [Theory]
+    [InlineData("Lead auditor's independence declaration", "lead-auditors-independence-declaration")]
+    [InlineData("Director's report", "directors-report")]
+    [InlineData("Directors' report", "directors-report")]
+    [InlineData("Company's Policy", "companys-policy")]
+    [InlineData("It's a test", "its-a-test")]
+    public void NormalizeFileName_WithApostrophes_RemovesThem(
+        string input,
+        string expected)
+    {
+        // Act
+        var result = FilenameUtils.NormalizeFileName(input);
+
+        // Assert
+        Assert.Equal(expected, result);
+    }
+
+    [Theory]
+    [InlineData("Section (1)", "section-1")]
+    [InlineData("Item [A]", "item-a")]
+    [InlineData("Note: Important!", "note-important")]
+    [InlineData("Q&A Session", "q&a-session")]
+    [InlineData("Price: $100.00", "price-10000")]
+    public void NormalizeFileName_WithPunctuation_RemovesIt(
+        string input,
+        string expected)
+    {
+        // Act
+        var result = FilenameUtils.NormalizeFileName(input);
+
+        // Assert
+        Assert.Equal(expected, result);
+    }
 }

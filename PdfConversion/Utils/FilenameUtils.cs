@@ -24,6 +24,16 @@ public static class FilenameUtils
             .Where(c => !invalidChars.Contains(c))
             .ToArray());
 
+        // Remove apostrophes and other punctuation we don't want in filenames
+        // Keep: letters, numbers, spaces, hyphens
+        // Remove: apostrophes, quotes, commas, periods, parentheses, brackets, etc.
+        normalized = Regex.Replace(normalized, @"['`,:;!?()[\]{}\""]", "");
+        normalized = normalized.Replace(".", ""); // Remove periods separately
+        // Also remove fancy quotes and apostrophes (Unicode variants)
+        normalized = normalized.Replace("\u2018", "").Replace("\u2019", "")
+                                .Replace("\u201C", "").Replace("\u201D", "")
+                                .Replace("\u00B4", ""); // acute accent
+
         // Replace spaces and multiple hyphens with single hyphen
         normalized = Regex.Replace(normalized, @"\s+", "-");
         normalized = Regex.Replace(normalized, @"-+", "-");
