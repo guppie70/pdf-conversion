@@ -37,6 +37,31 @@ public class DocumentHeader
     public string Context { get; set; } = string.Empty;
 
     /// <summary>
+    /// Sequential order in the document (1, 2, 3...). Immutable, preserves document order.
+    /// Used by Manual Mode to ensure headers never reorder.
+    /// </summary>
+    public int OriginalOrder { get; set; }
+
+    /// <summary>
+    /// User-adjustable indentation level for Manual Mode (0, 1, 2, 3...).
+    /// Level 0 = flat list, Level 1 = child of previous level 0, etc.
+    /// This is separate from the header's original level (h1-h6).
+    /// </summary>
+    public int IndentLevel { get; set; }
+
+    /// <summary>
+    /// Section number extracted from data-number attribute (e.g., "1.2.3").
+    /// May be null if header doesn't have numbering.
+    /// </summary>
+    public string? DataNumber { get; set; }
+
+    /// <summary>
+    /// Whether this header is excluded from the hierarchy (Manual Mode).
+    /// Excluded headers become in-section headers instead of section boundaries.
+    /// </summary>
+    public bool IsExcluded { get; set; }
+
+    /// <summary>
     /// Numeric level for sorting (1-6)
     /// </summary>
     public int NumericLevel => Level.ToLower() switch

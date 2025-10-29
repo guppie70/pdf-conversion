@@ -5,39 +5,50 @@
     padding: 1rem;
 }
 
-.page-header {
+.generation-mode-bar {
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    background: #252526;
+    border: 1px solid #3e3e42;
+    border-radius: 4px;
     margin-bottom: 1rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid #3e3e42;
+}
+
+.mode-buttons {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
 }
 
 .settings-panel {
-    display: grid;
-    grid-template-columns: auto 1fr auto 1fr;
-    gap: 1rem;
+    display: flex;
+    gap: 2rem;
     align-items: center;
-    background-color: #252526;
+    padding: 1rem;
+    background: #252526;
     border: 1px solid #3e3e42;
     border-radius: 4px;
-    padding: 1rem;
     margin-bottom: 1rem;
 }
 
+.settings-panel > div {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+}
+
 .settings-panel label {
-    text-align: right;
-    padding-right: 0.5rem;
-    white-space: nowrap;
-    margin: 0;
     font-weight: 500;
     color: #cccccc;
+    white-space: nowrap;
 }
 
 .settings-panel .form-select {
-    min-width: 250px;
-    max-width: 400px;
+    flex: 1;
+    min-width: 200px;
     background-color: #3c3c3c;
     border: 1px solid #3e3e42;
     color: #cccccc;
@@ -105,24 +116,6 @@
     filter: invert(1) grayscale(100%) brightness(200%);
 }
 
-.page-header h3 {
-    margin: 0;
-    font-size: 1.5rem;
-    font-weight: 600;
-    color: #cccccc;
-}
-
-.header-actions {
-    display: flex;
-    gap: 0.5rem;
-}
-
-.header-actions .btn {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
 .hierarchy-workspace {
     display: grid;
     grid-template-columns: 1fr 400px;
@@ -155,6 +148,33 @@
     font-size: 1rem;
     font-weight: 600;
     color: #cccccc;
+}
+
+.left-panel .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: #2d2d30;
+    border-bottom: 1px solid #3e3e42;
+}
+
+.left-panel .panel-header h5 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 500;
+    color: #ffffff;
+}
+
+.header-buttons {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.header-buttons .btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
 }
 
 .panel-content {
@@ -495,4 +515,96 @@
 .panel-header .btn-test-api {
     padding: 4px 8px;
     font-size: 0.75rem; /* 12px - smaller for panel header */
+}
+
+/* ===================================================================
+   Manual Mode List - VS Code Dark Modern Theme
+   =================================================================== */
+
+.manual-mode-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.manual-header-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #1F1F1F;
+    border: 1px solid #3C3C3C;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.manual-header-item:hover {
+    background: #3C3C3C;
+}
+
+.manual-header-item.selected {
+    background: #2489DB82;
+    border-color: #0078D4;
+}
+
+.manual-header-item.excluded {
+    opacity: 0.5;
+    text-decoration: line-through;
+}
+
+.order-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    height: 20px;
+    padding: 0 6px;
+    background: #313131;
+    border: 1px solid #3C3C3C;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #9D9D9D;
+}
+
+.level-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 28px;
+    height: 20px;
+    padding: 0 6px;
+    background: #0078D4;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: white;
+    text-transform: uppercase;
+}
+
+.data-number {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 8px;
+    height: 20px;
+    background: #313131;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #0078D4;
+}
+
+.header-title {
+    flex: 1;
+    color: #CCCCCC;
+    font-size: 0.9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.excluded-badge {
+    color: #F85149;
+    font-size: 1rem;
 }

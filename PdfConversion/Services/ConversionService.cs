@@ -1,5 +1,6 @@
 using PdfConversion.Models;
 using PdfConversion.Helpers;
+using PdfConversion.Utils;
 using System.Xml;
 using System.Xml.Linq;
 using System.Xml.XPath;
@@ -251,9 +252,7 @@ public class ConversionService : IConversionService
             var xmlContent = await _projectService.ReadInputFileAsync(projectId, sourceFile);
 
             // Auto-detect XSLT based on source filename
-            var xsltPath = sourceFile.Contains("docling", StringComparison.OrdinalIgnoreCase)
-                ? "/app/xslt/docling/transformation.xslt"
-                : "/app/xslt/adobe/transformation.xslt";
+            var xsltPath = XsltPathResolver.GetTransformationPath(sourceFile);
 
             _logger.LogInformation("Using XSLT file: {XsltPath} (detected from source: {SourceFile})", xsltPath, sourceFile);
 

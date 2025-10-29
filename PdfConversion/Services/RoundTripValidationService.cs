@@ -1,4 +1,5 @@
 using PdfConversion.Models;
+using PdfConversion.Utils;
 
 namespace PdfConversion.Services;
 
@@ -143,9 +144,7 @@ public class RoundTripValidationService : IRoundTripValidationService
             _logger.LogInformation("Source XML size: {Size} characters", sourceXmlContent.Length);
 
             // Auto-detect XSLT based on source filename
-            var xsltPath = sourceFile.Contains("docling", StringComparison.OrdinalIgnoreCase)
-                ? "/app/xslt/docling/transformation.xslt"
-                : "/app/xslt/adobe/transformation.xslt";
+            var xsltPath = XsltPathResolver.GetTransformationPath(sourceFile);
 
             _logger.LogInformation("Using XSLT file: {XsltPath} (detected from source: {SourceFile})", xsltPath, sourceFile);
 

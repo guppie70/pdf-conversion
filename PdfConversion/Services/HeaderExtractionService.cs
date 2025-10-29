@@ -77,7 +77,13 @@ public class HeaderExtractionService : IHeaderExtractionService
                     Title = GetElementText(element),
                     XPath = GetXPath(element),
                     Context = GetContext(element),
-                    IsUsed = false
+                    IsUsed = false,
+
+                    // Manual Mode properties
+                    OriginalOrder = headers.Count + 1,  // Sequential: 1, 2, 3...
+                    IndentLevel = 0,                     // Start flat
+                    DataNumber = element.Attribute("data-number")?.Value,  // Extract from XML
+                    IsExcluded = false                   // Not excluded by default
                 };
 
                 headers.Add(header);

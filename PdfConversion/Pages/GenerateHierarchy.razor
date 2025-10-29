@@ -10,6 +10,7 @@
 @inject IHierarchyGeneratorService HierarchyGenerator
 @inject IOllamaService OllamaService
 @inject IHierarchyRequestLogger HierarchyRequestLogger
+@inject IManualHierarchyBuilder ManualHierarchyBuilder
 @inject IJSRuntime JSRuntime
 @inject ILogger<GenerateHierarchy> Logger
 @inject HttpClient HttpClient
@@ -17,18 +18,27 @@
 <PageTitle>Generate Hierarchy</PageTitle>
 
 <div class="generate-hierarchy-page">
-    <div class="page-header">
-        <h3>Document Hierarchy Editor</h3>
-        <div class="header-actions">
-            <button class="btn btn-success" @onclick="SaveHierarchyAsync" disabled="@(!HasChanges || string.IsNullOrEmpty(SelectedProject))">
-                <i class="bi bi-save"></i> Save
+    <div class="generation-mode-bar">
+        <div class="mode-buttons">
+            <button class="btn btn-sm @(_currentMode == HierarchyMode.LoadExisting ? "btn-primary" : "btn-outline-secondary")"
+                    @onclick="() => ChangeMode(HierarchyMode.LoadExisting)"
+                    disabled="@(string.IsNullOrEmpty(SelectedProject))">
+                <i class="bi bi-folder-open"></i> Load Existing
             </button>
-            <button class="btn btn-secondary"
+
+            <button class="btn btn-sm @(_currentMode == HierarchyMode.Manual ? "btn-primary" : "btn-outline-secondary")"
+                    @onclick="() => ChangeMode(HierarchyMode.Manual)"
+                    disabled="@(string.IsNullOrEmpty(SelectedSourceXml))">
+                <i class="bi bi-hand-index"></i> Manual Mode
+            </button>
+
+            <button class="btn btn-sm btn-outline-secondary"
                     @onclick="ShowRuleBasedModal"
                     disabled="@(string.IsNullOrEmpty(SelectedSourceXml))">
                 <i class="bi bi-gear"></i> Generate with Rules
             </button>
-            <button class="btn btn-primary"
+
+            <button class="btn btn-sm btn-outline-secondary"
                     @onclick="ShowAiGenerationModal"
                     disabled="@(string.IsNullOrEmpty(SelectedSourceXml) || !_ollamaHealthy)">
                 <i class="bi bi-robot"></i> Generate with AI
@@ -37,25 +47,29 @@
     </div>
 
     <div class="settings-panel">
-        <label>Source XML:</label>
-        <ProjectFileSelector
-            FileGroups="@ProjectFileGroups"
-            SelectedValue="@GetSelectedFilePath()"
-            OnSelectionChanged="@OnFilePathChangedFromComponent"
-            CssClass="form-select"
-            PlaceholderText="Select XML..." />
+        <div>
+            <label>Source XML:</label>
+            <ProjectFileSelector
+                FileGroups="@ProjectFileGroups"
+                SelectedValue="@GetSelectedFilePath()"
+                OnSelectionChanged="@OnFilePathChangedFromComponent"
+                CssClass="form-select"
+                PlaceholderText="Select XML..." />
+        </div>
 
-        <label>Hierarchy XML:</label>
-        <select class="form-select"
-                @bind="SelectedHierarchyXml"
-                @bind:after="OnHierarchyXmlChangedAsync"
-                disabled="@string.IsNullOrEmpty(SelectedSourceXml)">
-            <option value="">Select hierarchy...</option>
-            @foreach (var file in HierarchyXmlFiles)
-            {
-                <option value="@file">@Path.GetFileName(file)</option>
-            }
-        </select>
+        <div>
+            <label>Hierarchy XML:</label>
+            <select class="form-select"
+                    @bind="SelectedHierarchyXml"
+                    @bind:after="OnHierarchyXmlChangedAsync"
+                    disabled="@string.IsNullOrEmpty(SelectedSourceXml)">
+                <option value="">Select hierarchy...</option>
+                @foreach (var file in HierarchyXmlFiles)
+                {
+                    <option value="@file">@Path.GetFileName(file)</option>
+                }
+            </select>
+        </div>
     </div>
 
     @if (!string.IsNullOrEmpty(AlertMessage))
@@ -101,28 +115,92 @@
     <div class="hierarchy-workspace">
         <div class="left-panel">
             <div class="panel-header">
-                <h5>Hierarchy Tree</h5>
-                @if (_showTestApiButton)
-                {
-                    <button class="btn-test-api" @onclick="OpenTestApi">
-                        <i class="bi bi-link-45deg"></i> Test API
+                <h5>
+                    @if (_currentMode == HierarchyMode.Manual)
+                    {
+                        <text>Manual Hierarchy Builder</text>
+                    }
+                    else
+                    {
+                        <text>Hierarchy Tree</text>
+                    }
+                </h5>
+                <div class="header-buttons">
+                    <button class="btn btn-success btn-sm"
+                            @onclick="SaveHierarchyAsync"
+                            disabled="@(!HasChanges || string.IsNullOrEmpty(SelectedProject))"
+                            title="Save hierarchy">
+                        <i class="bi bi-save"></i> Save
                     </button>
-                }
+                    @if (_showTestApiButton)
+                    {
+                        <button class="btn-test-api" @onclick="OpenTestApi">
+                            <i class="bi bi-link-45deg"></i> Test API
+                        </button>
+                    }
+                </div>
             </div>
             <div class="panel-content">
-                @if (CurrentHierarchy != null)
+                @if (_currentMode == HierarchyMode.Manual)
                 {
-                    <HierarchyTreeView RootItem="CurrentHierarchy.Root"
-                                     OnItemSelected="HandleItemSelected"
-                                     OnItemEdited="HandleItemEdited"
-                                     OnEditRequest="HandleEditRequest" />
+                    <!-- Manual Mode: Flat List View -->
+                    @if (_manualHeaders != null && _manualHeaders.Any())
+                    {
+                        <div class="manual-mode-list">
+                            @foreach (var header in _manualHeaders.OrderBy(h => h.OriginalOrder))
+                            {
+                                <div class="manual-header-item @(_selectedHeaderOrders.Contains(header.OriginalOrder) ? "selected" : "") @(header.IsExcluded ? "excluded" : "")"
+                                     style="padding-left: @(header.IndentLevel * 20)px;"
+                                     @onclick="() => ToggleHeaderSelection(header.OriginalOrder)">
+                                    <span class="order-badge">@header.OriginalOrder</span>
+                                    <span class="level-badge">@header.Level.ToUpper()</span>
+                                    @if (!string.IsNullOrEmpty(header.DataNumber))
+                                    {
+                                        <span class="data-number">@header.DataNumber</span>
+                                    }
+                                    <span class="header-title">@header.Title</span>
+                                    @if (header.IsExcluded)
+                                    {
+                                        <span class="excluded-badge">
+                                            <i class="bi bi-x-circle"></i>
+                                        </span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                    else if (string.IsNullOrEmpty(SelectedSourceXml))
+                    {
+                        <div class="text-center p-5 text-muted">
+                            <i class="bi bi-file-earmark-text" style="font-size: 3rem;"></i>
+                            <p class="mt-3">Select a source XML file to load headers</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-center p-5 text-muted">
+                            <i class="bi bi-hourglass-split" style="font-size: 3rem;"></i>
+                            <p class="mt-3">Loading headers...</p>
+                        </div>
+                    }
                 }
                 else
                 {
-                    <div class="text-center p-5 text-muted">
-                        <i class="bi bi-file-earmark-text" style="font-size: 3rem;"></i>
-                        <p class="mt-3">Load a hierarchy file to get started</p>
-                    </div>
+                    <!-- Standard Mode: Tree View -->
+                    @if (CurrentHierarchy != null)
+                    {
+                        <HierarchyTreeView RootItem="CurrentHierarchy.Root"
+                                         OnItemSelected="HandleItemSelected"
+                                         OnItemEdited="HandleItemEdited"
+                                         OnEditRequest="HandleEditRequest" />
+                    }
+                    else
+                    {
+                        <div class="text-center p-5 text-muted">
+                            <i class="bi bi-file-earmark-text" style="font-size: 3rem;"></i>
+                            <p class="mt-3">Load a hierarchy file to get started</p>
+                        </div>
+                    }
                 }
             </div>
         </div>
@@ -389,6 +467,12 @@
     private bool _isGeneratingRuleBased = false;
     private string? _ruleBasedError = null;
     private string _selectedRuleBasedXslt = "/app/xslt/transformation.xslt";
+
+    // Manual Mode fields
+    private enum HierarchyMode { LoadExisting, Manual }
+    private HierarchyMode _currentMode = HierarchyMode.LoadExisting;
+    private List<DocumentHeader>? _manualHeaders;
+    private HashSet<int> _selectedHeaderOrders = new();
 
     // ExampleHierarchy class for training data
     private class ExampleHierarchy
@@ -1548,6 +1632,84 @@
             Environment.SetEnvironmentVariable("HierarchyGeneration__Mode", null);
             _isGeneratingRuleBased = false;
             StateHasChanged();
+        }
+    }
+
+    // Manual Mode Methods
+
+    private async Task ChangeMode(HierarchyMode newMode)
+    {
+        _currentMode = newMode;
+
+        if (newMode == HierarchyMode.Manual)
+        {
+            await LoadManualModeHeadersAsync();
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task LoadManualModeHeadersAsync()
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(SelectedSourceXml))
+            {
+                _manualHeaders = null;
+                return;
+            }
+
+            // Transform source XML to normalized XML first
+            var sourceXmlContent = await File.ReadAllTextAsync(SelectedSourceXml);
+
+            // Determine XSLT path using XsltPathResolver utility
+            var sourceFileName = Path.GetFileName(SelectedSourceXml);
+            var xsltPath = PdfConversion.Utils.XsltPathResolver.GetTransformationPath(sourceFileName);
+
+            var xsltContent = await File.ReadAllTextAsync(xsltPath);
+
+            var transformResult = await XsltTransformationService.TransformAsync(
+                sourceXmlContent,
+                xsltContent,
+                new TransformationOptions { UseXslt3Service = true, NormalizeHeaders = false },
+                xsltPath
+            );
+
+            if (!transformResult.IsSuccess)
+            {
+                Logger.LogError("Failed to transform XML for Manual Mode: {Error}", transformResult.ErrorMessage);
+                ToastNotification.ShowError($"Failed to transform XML: {transformResult.ErrorMessage}");
+                return;
+            }
+
+            // Save normalized XML to temp file for header extraction
+            var tempNormalizedPath = Path.Combine(Path.GetTempPath(), $"manual_mode_{Guid.NewGuid()}.xml");
+            await File.WriteAllTextAsync(tempNormalizedPath, transformResult.OutputContent);
+
+            // Extract headers
+            _manualHeaders = await HeaderExtractionService.ExtractHeadersAsync(tempNormalizedPath);
+
+            Logger.LogInformation("Loaded {Count} headers for Manual Mode", _manualHeaders.Count);
+
+            // Clean up temp file
+            File.Delete(tempNormalizedPath);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load headers for Manual Mode");
+            ToastNotification.ShowError($"Failed to load headers: {ex.Message}");
+        }
+    }
+
+    private void ToggleHeaderSelection(int originalOrder)
+    {
+        if (_selectedHeaderOrders.Contains(originalOrder))
+        {
+            _selectedHeaderOrders.Remove(originalOrder);
+        }
+        else
+        {
+            _selectedHeaderOrders.Add(originalOrder);
         }
     }
 }
