@@ -101,6 +101,18 @@ public class HierarchyItem
     public bool TocHide { get; set; }
 
     /// <summary>
+    /// Optional: Header type from source document (H2, H3, H4, etc.)
+    /// Used for display badges in Manual Mode
+    /// </summary>
+    public string? HeaderType { get; set; }
+
+    /// <summary>
+    /// Optional: Sequential order in source document (1, 2, 3...)
+    /// Used for display badges in Manual Mode
+    /// </summary>
+    public int? SequentialOrder { get; set; }
+
+    /// <summary>
     /// Returns a formatted string for logging and debugging
     /// </summary>
     public override string ToString() => $"{LinkName} (Level {Level}, ID: {Id})";

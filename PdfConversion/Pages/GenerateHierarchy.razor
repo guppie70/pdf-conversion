@@ -2,6 +2,7 @@
 @using PdfConversion.Models
 @using PdfConversion.Services
 @using PdfConversion.Shared
+@using Microsoft.AspNetCore.Components.Web
 @inject IHierarchyService HierarchyService
 @inject IProjectLabelService ProjectLabelService
 @inject IUserSelectionService UserSelectionService
@@ -125,7 +126,52 @@
                         <text>Hierarchy Tree</text>
                     }
                 </h5>
+
+                @if (_currentMode == HierarchyMode.Manual)
+                {
+                    <div class="panel-header-toolbar">
+                        <button class="btn btn-sm btn-outline-secondary"
+                                @onclick="OutdentSelectedHeaders"
+                                disabled="@(!CanOutdentCurrentSelection())"
+                                title="Outdent selected headers (Shift+Tab)">
+                            <i class="bi bi-arrow-left"></i> Outdent
+                        </button>
+
+                        <button class="btn btn-sm btn-outline-secondary"
+                                @onclick="IndentSelectedHeaders"
+                                disabled="@(!CanIndentCurrentSelection())"
+                                title="Indent selected headers (Tab)">
+                            <i class="bi bi-arrow-right"></i> Indent
+                        </button>
+
+                        <button class="btn btn-sm btn-outline-secondary"
+                                @onclick="ExcludeSelectedHeaders"
+                                disabled="@(!_selectedManualItemIds.Any())"
+                                title="Exclude selected headers (Delete)">
+                            <i class="bi bi-x-circle"></i> Exclude
+                        </button>
+
+                        <button class="btn btn-sm btn-outline-secondary"
+                                @onclick="IncludeAllHeaders"
+                                disabled="@(_manualHeaders == null || !_manualHeaders.Any())"
+                                title="Reset all headers to flat list">
+                            <i class="bi bi-arrow-counterclockwise"></i> Reset All
+                        </button>
+
+                        <button class="btn btn-sm btn-outline-secondary"
+                                @onclick="DeselectAllHeaders"
+                                disabled="@(!_selectedManualItemIds.Any())"
+                                title="Clear selection (Esc)">
+                            <i class="bi bi-x-square"></i> Deselect
+                        </button>
+                    </div>
+                }
+
                 <div class="header-buttons">
+                    @if (_currentMode == HierarchyMode.Manual && _selectedManualItemIds.Any())
+                    {
+                        <span class="selection-info">@_selectedManualItemIds.Count selected</span>
+                    }
                     <button class="btn btn-success btn-sm"
                             @onclick="SaveHierarchyAsync"
                             disabled="@(!HasChanges || string.IsNullOrEmpty(SelectedProject))"
@@ -140,32 +186,22 @@
                     }
                 </div>
             </div>
-            <div class="panel-content">
+            <div class="panel-content" tabindex="0" @onkeydown="HandleKeyDown" @onkeydown:preventDefault="false">
                 @if (_currentMode == HierarchyMode.Manual)
                 {
-                    <!-- Manual Mode: Flat List View -->
-                    @if (_manualHeaders != null && _manualHeaders.Any())
+                    <!-- Manual Mode: Tree View -->
+                    @if (_manualHierarchyItems != null && _manualHierarchyItems.Any())
                     {
-                        <div class="manual-mode-list">
-                            @foreach (var header in _manualHeaders.OrderBy(h => h.OriginalOrder))
+                        <div class="manual-tree-container">
+                            @foreach (var rootItem in _manualHierarchyItems)
                             {
-                                <div class="manual-header-item @(_selectedHeaderOrders.Contains(header.OriginalOrder) ? "selected" : "") @(header.IsExcluded ? "excluded" : "")"
-                                     style="padding-left: @(header.IndentLevel * 20)px;"
-                                     @onclick="() => ToggleHeaderSelection(header.OriginalOrder)">
-                                    <span class="order-badge">@header.OriginalOrder</span>
-                                    <span class="level-badge">@header.Level.ToUpper()</span>
-                                    @if (!string.IsNullOrEmpty(header.DataNumber))
-                                    {
-                                        <span class="data-number">@header.DataNumber</span>
-                                    }
-                                    <span class="header-title">@header.Title</span>
-                                    @if (header.IsExcluded)
-                                    {
-                                        <span class="excluded-badge">
-                                            <i class="bi bi-x-circle"></i>
-                                        </span>
-                                    }
-                                </div>
+                                <HierarchyTreeItem Item="rootItem"
+                                                  Level="0"
+                                                  OnItemSelected="HandleManualItemSelected"
+                                                  OnItemEdited="HandleManualItemEdited"
+                                                  OnEditRequest="@((item) => Task.CompletedTask)"
+                                                  AllowDragDrop="false"
+                                                  SelectedItemIds="_selectedManualItemIds" />
                             }
                         </div>
                     }
@@ -473,6 +509,13 @@
     private HierarchyMode _currentMode = HierarchyMode.LoadExisting;
     private List<DocumentHeader>? _manualHeaders;
     private HashSet<int> _selectedHeaderOrders = new();
+    private int? _lastClickedOrder = null;  // Anchor point for range selection
+
+    // Manual mode hierarchy representation
+    private List<HierarchyItem>? _manualHierarchyItems = null;
+
+    // Track selected tree items by their Id
+    private HashSet<string> _selectedManualItemIds = new();
 
     // ExampleHierarchy class for training data
     private class ExampleHierarchy
@@ -1640,6 +1683,7 @@
     private async Task ChangeMode(HierarchyMode newMode)
     {
         _currentMode = newMode;
+        _lastClickedOrder = null;  // Reset anchor when changing modes
 
         if (newMode == HierarchyMode.Manual)
         {
@@ -1689,6 +1733,9 @@
             // Extract headers
             _manualHeaders = await HeaderExtractionService.ExtractHeadersAsync(tempNormalizedPath);
 
+            // Convert to hierarchy for tree display
+            _manualHierarchyItems = ManualHierarchyBuilder.ConvertToHierarchy(_manualHeaders);
+
             Logger.LogInformation("Loaded {Count} headers for Manual Mode", _manualHeaders.Count);
 
             // Clean up temp file
@@ -1701,15 +1748,273 @@
         }
     }
 
-    private void ToggleHeaderSelection(int originalOrder)
+    private void ToggleHeaderSelection(int originalOrder, bool shiftKey = false)
     {
-        if (_selectedHeaderOrders.Contains(originalOrder))
+        if (shiftKey && _lastClickedOrder.HasValue)
         {
-            _selectedHeaderOrders.Remove(originalOrder);
+            // Range selection: select all items between anchor and clicked
+            var start = Math.Min(_lastClickedOrder.Value, originalOrder);
+            var end = Math.Max(_lastClickedOrder.Value, originalOrder);
+
+            for (int i = start; i <= end; i++)
+            {
+                if (_manualHeaders?.Any(h => h.OriginalOrder == i) == true)
+                {
+                    _selectedHeaderOrders.Add(i);
+                }
+            }
+
+            Logger.LogDebug("Range selected from {Start} to {End}", start, end);
         }
         else
         {
-            _selectedHeaderOrders.Add(originalOrder);
+            // Single selection: toggle
+            if (_selectedHeaderOrders.Contains(originalOrder))
+            {
+                _selectedHeaderOrders.Remove(originalOrder);
+            }
+            else
+            {
+                _selectedHeaderOrders.Add(originalOrder);
+            }
+
+            // Update anchor point
+            _lastClickedOrder = originalOrder;
+
+            Logger.LogDebug("Toggled selection for header {Order}", originalOrder);
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task HandleManualItemSelected(HierarchyItem item)
+    {
+        // Toggle selection for multi-select
+        if (_selectedManualItemIds.Contains(item.Id))
+        {
+            _selectedManualItemIds.Remove(item.Id);
+        }
+        else
+        {
+            _selectedManualItemIds.Add(item.Id);
+        }
+
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+
+    private async Task HandleManualItemEdited(HierarchyItem item)
+    {
+        // Tree structure changed - rebuild _manualHeaders from tree
+        UpdateManualHeadersFromTree(_manualHierarchyItems);
+        HasChanges = true;
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+
+    private void UpdateManualHeadersFromTree(List<HierarchyItem>? tree)
+    {
+        if (tree == null || _manualHeaders == null) return;
+
+        // Walk tree and update IndentLevel for each header
+        void UpdateLevel(List<HierarchyItem> items, int level)
+        {
+            foreach (var item in items)
+            {
+                // Extract OriginalOrder from Id (format: "manual_{order}")
+                if (item.Id.StartsWith("manual_") && int.TryParse(item.Id.Replace("manual_", ""), out var order))
+                {
+                    var header = _manualHeaders.FirstOrDefault(h => h.OriginalOrder == order);
+                    if (header != null)
+                    {
+                        header.IndentLevel = level;
+                    }
+                }
+
+                if (item.SubItems != null && item.SubItems.Any())
+                {
+                    UpdateLevel(item.SubItems, level + 1);
+                }
+            }
+        }
+
+        UpdateLevel(tree, 0);
+    }
+
+    private List<int> GetOrdersFromTreeSelection(HashSet<string> selectedIds)
+    {
+        // HierarchyItem.Id format is "manual_{OriginalOrder}"
+        return selectedIds
+            .Where(id => id.StartsWith("manual_"))
+            .Select(id => int.Parse(id.Replace("manual_", "")))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Checks if the current selection can be indented without validation errors.
+    /// </summary>
+    private bool CanIndentCurrentSelection()
+    {
+        if (_manualHeaders == null || !_selectedManualItemIds.Any())
+            return false;
+
+        var selectedOrders = GetOrdersFromTreeSelection(_selectedManualItemIds);
+        return ManualHierarchyBuilder.CanIndentItems(_manualHeaders, selectedOrders);
+    }
+
+    /// <summary>
+    /// Checks if the current selection can be outdented without validation errors.
+    /// </summary>
+    private bool CanOutdentCurrentSelection()
+    {
+        if (_manualHeaders == null || !_selectedManualItemIds.Any())
+            return false;
+
+        var selectedOrders = GetOrdersFromTreeSelection(_selectedManualItemIds);
+        return ManualHierarchyBuilder.CanOutdentItems(_manualHeaders, selectedOrders);
+    }
+
+    private void IndentSelectedHeaders()
+    {
+        if (_manualHeaders == null || !_selectedManualItemIds.Any())
+            return;
+
+        try
+        {
+            var selectedOrders = GetOrdersFromTreeSelection(_selectedManualItemIds);
+
+            var (success, errorMessage) = ManualHierarchyBuilder.IndentItems(_manualHeaders, selectedOrders);
+
+            if (!success && !string.IsNullOrEmpty(errorMessage))
+            {
+                ToastNotification.ShowError(errorMessage);
+                Logger.LogWarning("Indent operation failed: {ErrorMessage}", errorMessage);
+                return;
+            }
+
+            // Rebuild tree from updated headers
+            _manualHierarchyItems = ManualHierarchyBuilder.ConvertToHierarchy(_manualHeaders);
+
+            HasChanges = true;
+            StateHasChanged();
+            Logger.LogInformation("Indented {Count} headers", selectedOrders.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to indent headers");
+            ToastNotification.ShowError($"Failed to indent: {ex.Message}");
+        }
+    }
+
+    private void OutdentSelectedHeaders()
+    {
+        if (_manualHeaders == null || !_selectedManualItemIds.Any())
+            return;
+
+        try
+        {
+            var selectedOrders = GetOrdersFromTreeSelection(_selectedManualItemIds);
+
+            var (success, errorMessage) = ManualHierarchyBuilder.OutdentItems(_manualHeaders, selectedOrders);
+
+            if (!success && !string.IsNullOrEmpty(errorMessage))
+            {
+                ToastNotification.ShowError(errorMessage);
+                Logger.LogWarning("Outdent operation failed: {ErrorMessage}", errorMessage);
+                return;
+            }
+
+            // Rebuild tree from updated headers
+            _manualHierarchyItems = ManualHierarchyBuilder.ConvertToHierarchy(_manualHeaders);
+
+            HasChanges = true;
+            StateHasChanged();
+            Logger.LogInformation("Outdented {Count} headers", selectedOrders.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to outdent headers");
+            ToastNotification.ShowError($"Failed to outdent: {ex.Message}");
+        }
+    }
+
+    private void ExcludeSelectedHeaders()
+    {
+        if (_manualHeaders == null || !_selectedManualItemIds.Any())
+            return;
+
+        try
+        {
+            var selectedOrders = GetOrdersFromTreeSelection(_selectedManualItemIds);
+
+            ManualHierarchyBuilder.ExcludeItems(_manualHeaders, selectedOrders);
+
+            // Rebuild tree (excluded items won't appear)
+            _manualHierarchyItems = ManualHierarchyBuilder.ConvertToHierarchy(_manualHeaders);
+
+            _selectedManualItemIds.Clear();
+            HasChanges = true;
+            StateHasChanged();
+            Logger.LogInformation("Excluded {Count} headers", selectedOrders.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to exclude headers");
+            ToastNotification.ShowError($"Failed to exclude: {ex.Message}");
+        }
+    }
+
+    private void IncludeAllHeaders()
+    {
+        if (_manualHeaders == null)
+            return;
+
+        try
+        {
+            ManualHierarchyBuilder.IncludeAllItems(_manualHeaders);
+            _manualHierarchyItems = ManualHierarchyBuilder.ConvertToHierarchy(_manualHeaders);
+            _selectedManualItemIds.Clear();
+
+            HasChanges = true;
+            StateHasChanged();
+            Logger.LogInformation("Reset all headers to flat list");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to reset headers");
+            ToastNotification.ShowError($"Failed to reset: {ex.Message}");
+        }
+    }
+
+    private void DeselectAllHeaders()
+    {
+        _selectedManualItemIds.Clear();
+        StateHasChanged();
+        Logger.LogDebug("Cleared selection");
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (_currentMode != HierarchyMode.Manual || !_selectedHeaderOrders.Any())
+            return;
+
+        // Tab = Indent
+        if (e.Key == "Tab" && !e.ShiftKey)
+        {
+            IndentSelectedHeaders();
+            await Task.CompletedTask;
+        }
+        // Shift+Tab = Outdent
+        else if (e.Key == "Tab" && e.ShiftKey)
+        {
+            OutdentSelectedHeaders();
+            await Task.CompletedTask;
+        }
+        // Delete = Exclude
+        else if (e.Key == "Delete")
+        {
+            ExcludeSelectedHeaders();
+            await Task.CompletedTask;
         }
     }
 }

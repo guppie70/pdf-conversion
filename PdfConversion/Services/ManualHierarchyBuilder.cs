@@ -10,19 +10,39 @@ public interface IManualHierarchyBuilder
 {
     /// <summary>
     /// Increases indentation level for selected headers.
-    /// Validates that level doesn't exceed MaxNestingDepth.
+    /// Validates that level doesn't exceed MaxNestingDepth and that no hierarchy gaps are created.
+    /// Children move with their parent.
     /// </summary>
     /// <param name="allHeaders">Complete list of headers</param>
     /// <param name="selectedOrders">OriginalOrder values of selected headers</param>
-    void IndentItems(List<DocumentHeader> allHeaders, List<int> selectedOrders);
+    /// <returns>Tuple indicating success and optional error message</returns>
+    (bool success, string? errorMessage) IndentItems(List<DocumentHeader> allHeaders, List<int> selectedOrders);
 
     /// <summary>
     /// Decreases indentation level for selected headers.
     /// Validates that level doesn't go below 0.
+    /// Children move with their parent.
     /// </summary>
     /// <param name="allHeaders">Complete list of headers</param>
     /// <param name="selectedOrders">OriginalOrder values of selected headers</param>
-    void OutdentItems(List<DocumentHeader> allHeaders, List<int> selectedOrders);
+    /// <returns>Tuple indicating success and optional error message</returns>
+    (bool success, string? errorMessage) OutdentItems(List<DocumentHeader> allHeaders, List<int> selectedOrders);
+
+    /// <summary>
+    /// Validates if selected headers can be indented without errors.
+    /// </summary>
+    /// <param name="allHeaders">Complete list of headers</param>
+    /// <param name="selectedOrders">OriginalOrder values of selected headers</param>
+    /// <returns>True if indent operation would succeed</returns>
+    bool CanIndentItems(List<DocumentHeader> allHeaders, List<int> selectedOrders);
+
+    /// <summary>
+    /// Validates if selected headers can be outdented without errors.
+    /// </summary>
+    /// <param name="allHeaders">Complete list of headers</param>
+    /// <param name="selectedOrders">OriginalOrder values of selected headers</param>
+    /// <returns>True if outdent operation would succeed</returns>
+    bool CanOutdentItems(List<DocumentHeader> allHeaders, List<int> selectedOrders);
 
     /// <summary>
     /// Marks selected headers as excluded from hierarchy.
@@ -58,58 +78,224 @@ public class ManualHierarchyBuilder : IManualHierarchyBuilder
         _logger = logger;
     }
 
-    public void IndentItems(List<DocumentHeader> allHeaders, List<int> selectedOrders)
+    /// <summary>
+    /// Finds the previous non-excluded header sibling before the given order.
+    /// </summary>
+    private DocumentHeader? GetPreviousSibling(List<DocumentHeader> allHeaders, int currentOrder)
     {
-        if (allHeaders == null || selectedOrders == null || selectedOrders.Count == 0)
-            return;
-
-        foreach (var order in selectedOrders)
-        {
-            var header = allHeaders.FirstOrDefault(h => h.OriginalOrder == order);
-            if (header == null)
-            {
-                _logger.LogWarning("Header with OriginalOrder {Order} not found", order);
-                continue;
-            }
-
-            if (header.IndentLevel >= MaxNestingDepth)
-            {
-                _logger.LogWarning("Cannot indent header '{Title}' - already at max depth {Depth}",
-                    header.Title, MaxNestingDepth);
-                continue;
-            }
-
-            header.IndentLevel++;
-            _logger.LogDebug("Indented header '{Title}' to level {Level}",
-                header.Title, header.IndentLevel);
-        }
+        return allHeaders
+            .Where(h => !h.IsExcluded && h.OriginalOrder < currentOrder)
+            .OrderByDescending(h => h.OriginalOrder)
+            .FirstOrDefault();
     }
 
-    public void OutdentItems(List<DocumentHeader> allHeaders, List<int> selectedOrders)
+    /// <summary>
+    /// Finds all children (descendants) of a header.
+    /// Children are subsequent items with higher indent level until we hit a sibling or uncle.
+    /// </summary>
+    private List<DocumentHeader> GetChildren(List<DocumentHeader> allHeaders, int parentOrder)
+    {
+        var parent = allHeaders.FirstOrDefault(h => h.OriginalOrder == parentOrder);
+        if (parent == null) return new List<DocumentHeader>();
+
+        var children = new List<DocumentHeader>();
+        var parentLevel = parent.IndentLevel;
+
+        // Collect all subsequent items with higher indent level
+        foreach (var header in allHeaders.Where(h => h.OriginalOrder > parentOrder).OrderBy(h => h.OriginalOrder))
+        {
+            if (header.IndentLevel <= parentLevel)
+                break; // Found a sibling or uncle, stop
+
+            children.Add(header);
+        }
+
+        return children;
+    }
+
+    public bool CanIndentItems(List<DocumentHeader> allHeaders, List<int> selectedOrders)
     {
         if (allHeaders == null || selectedOrders == null || selectedOrders.Count == 0)
-            return;
+            return false;
 
+        // Run same validation as IndentItems but without modifying data
+        foreach (var order in selectedOrders)
+        {
+            var header = allHeaders.FirstOrDefault(h => h.OriginalOrder == order);
+            if (header == null)
+                return false;
+
+            // Check if already at max depth
+            if (header.IndentLevel >= MaxNestingDepth)
+                return false;
+
+            // Check for hierarchy gap
+            var previousSibling = GetPreviousSibling(allHeaders, order);
+            if (previousSibling == null)
+                return false;
+
+            var maxAllowedLevel = previousSibling.IndentLevel + 1;
+            var newLevel = header.IndentLevel + 1;
+            if (newLevel > maxAllowedLevel)
+                return false;
+
+            // Check if children would exceed max depth
+            var children = GetChildren(allHeaders, order);
+            foreach (var child in children)
+            {
+                if (child.IndentLevel + 1 > MaxNestingDepth)
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
+    public bool CanOutdentItems(List<DocumentHeader> allHeaders, List<int> selectedOrders)
+    {
+        if (allHeaders == null || selectedOrders == null || selectedOrders.Count == 0)
+            return false;
+
+        // Run same validation as OutdentItems but without modifying data
+        foreach (var order in selectedOrders)
+        {
+            var header = allHeaders.FirstOrDefault(h => h.OriginalOrder == order);
+            if (header == null)
+                return false;
+
+            // Check if already at root level
+            if (header.IndentLevel <= 0)
+                return false;
+        }
+
+        return true;
+    }
+
+    public (bool success, string? errorMessage) IndentItems(List<DocumentHeader> allHeaders, List<int> selectedOrders)
+    {
+        if (allHeaders == null || selectedOrders == null || selectedOrders.Count == 0)
+            return (true, null);
+
+        // Pre-validate ALL selected items before making any changes
         foreach (var order in selectedOrders)
         {
             var header = allHeaders.FirstOrDefault(h => h.OriginalOrder == order);
             if (header == null)
             {
-                _logger.LogWarning("Header with OriginalOrder {Order} not found", order);
-                continue;
+                var error = $"Header with OriginalOrder {order} not found";
+                _logger.LogWarning(error);
+                return (false, error);
             }
 
+            // Check if already at max depth
+            if (header.IndentLevel >= MaxNestingDepth)
+            {
+                var error = $"Cannot indent '{header.Title}' - already at maximum depth {MaxNestingDepth}";
+                _logger.LogWarning(error);
+                return (false, error);
+            }
+
+            // Check for hierarchy gap - can only indent to max (previous sibling's level + 1)
+            var previousSibling = GetPreviousSibling(allHeaders, order);
+            if (previousSibling == null)
+            {
+                // First item - must stay at level 0
+                var error = "Cannot indent the first item - no previous sibling exists";
+                _logger.LogWarning(error + ": '{Title}'", header.Title);
+                return (false, error);
+            }
+
+            var maxAllowedLevel = previousSibling.IndentLevel + 1;
+            var newLevel = header.IndentLevel + 1;
+            if (newLevel > maxAllowedLevel)
+            {
+                var error = $"Cannot indent '{header.Title}' - would create hierarchy gap. Previous item '{previousSibling.Title}' is at level {previousSibling.IndentLevel}, maximum allowed is level {maxAllowedLevel}";
+                _logger.LogWarning(error);
+                return (false, error);
+            }
+
+            // Check if children would exceed max depth
+            var children = GetChildren(allHeaders, order);
+            foreach (var child in children)
+            {
+                if (child.IndentLevel + 1 > MaxNestingDepth)
+                {
+                    var error = $"Cannot indent '{header.Title}' - child '{child.Title}' would exceed maximum depth {MaxNestingDepth}";
+                    _logger.LogWarning(error);
+                    return (false, error);
+                }
+            }
+        }
+
+        // All validations passed - apply changes
+        foreach (var order in selectedOrders)
+        {
+            var header = allHeaders.First(h => h.OriginalOrder == order);
+            var oldLevel = header.IndentLevel;
+
+            // Indent the header
+            header.IndentLevel++;
+
+            // Indent all children
+            var children = GetChildren(allHeaders, order);
+            foreach (var child in children)
+            {
+                child.IndentLevel++;
+            }
+
+            _logger.LogInformation("Indented header '{Title}' from level {OldLevel} to {NewLevel} (with {ChildCount} children)",
+                header.Title, oldLevel, header.IndentLevel, children.Count);
+        }
+
+        return (true, null);
+    }
+
+    public (bool success, string? errorMessage) OutdentItems(List<DocumentHeader> allHeaders, List<int> selectedOrders)
+    {
+        if (allHeaders == null || selectedOrders == null || selectedOrders.Count == 0)
+            return (true, null);
+
+        // Pre-validate ALL selected items before making any changes
+        foreach (var order in selectedOrders)
+        {
+            var header = allHeaders.FirstOrDefault(h => h.OriginalOrder == order);
+            if (header == null)
+            {
+                var error = $"Header with OriginalOrder {order} not found";
+                _logger.LogWarning(error);
+                return (false, error);
+            }
+
+            // Check if already at root level
             if (header.IndentLevel <= 0)
             {
-                _logger.LogWarning("Cannot outdent header '{Title}' - already at root level",
-                    header.Title);
-                continue;
+                var error = $"Cannot outdent '{header.Title}' - already at root level (level 0)";
+                _logger.LogWarning(error);
+                return (false, error);
+            }
+        }
+
+        // All validations passed - apply changes
+        foreach (var order in selectedOrders)
+        {
+            var header = allHeaders.First(h => h.OriginalOrder == order);
+            var oldLevel = header.IndentLevel;
+
+            // Outdent the header
+            header.IndentLevel--;
+
+            // Outdent all children
+            var children = GetChildren(allHeaders, order);
+            foreach (var child in children)
+            {
+                child.IndentLevel--;
             }
 
-            header.IndentLevel--;
-            _logger.LogDebug("Outdented header '{Title}' to level {Level}",
-                header.Title, header.IndentLevel);
+            _logger.LogInformation("Outdented header '{Title}' from level {OldLevel} to {NewLevel} (with {ChildCount} children)",
+                header.Title, oldLevel, header.IndentLevel, children.Count);
         }
+
+        return (true, null);
     }
 
     public void ExcludeItems(List<DocumentHeader> allHeaders, List<int> selectedOrders)
@@ -173,7 +359,9 @@ public class ManualHierarchyBuilder : IManualHierarchyBuilder
                 LinkName = header.Title,
                 Level = header.IndentLevel + 1,  // HierarchyItem uses 1-based levels
                 DataRef = header.XPath,
-                Confidence = 100  // Manual is always confident (100%)
+                Confidence = 100,  // Manual is always confident (100%)
+                HeaderType = header.Level.ToUpper(),  // Store header type (H2, H3, etc.)
+                SequentialOrder = header.OriginalOrder  // Store sequential order (1, 2, 3...)
             };
 
             // Find parent based on IndentLevel

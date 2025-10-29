@@ -106,6 +106,30 @@
 
 
 
+.order-badge {
+    display: inline-block;
+    padding: 0.125rem 0.375rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: #ffffff;
+    background-color: #616161; /* --badge-bg from VS Code Dark Modern */
+    border-radius: 3px;
+    min-width: 28px;
+    text-align: center;
+}
+
+.header-type-badge {
+    display: inline-block;
+    padding: 0.125rem 0.375rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: #ffffff;
+    background-color: #0078D4; /* --accent-blue from VS Code Dark Modern */
+    border-radius: 3px;
+    min-width: 28px;
+    text-align: center;
+}
+
 .level-badge {
     display: inline-block;
     padding: 0.125rem 0.375rem;

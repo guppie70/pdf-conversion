@@ -143,20 +143,47 @@
     border-bottom: 1px solid #3e3e42;
 }
 
+/* Three-zone layout when toolbar is present */
+.left-panel .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+}
+
 .panel-header h5 {
     margin: 0;
     font-size: 1rem;
     font-weight: 600;
     color: #cccccc;
+    flex-shrink: 0; /* Prevent title from shrinking */
 }
 
-.left-panel .panel-header {
+/* Center-aligned toolbar in panel header */
+.panel-header-toolbar {
     display: flex;
-    justify-content: space-between;
+    gap: 0.5rem;
+    justify-content: center;
     align-items: center;
-    padding: 0.75rem 1rem;
-    background: #2d2d30;
-    border-bottom: 1px solid #3e3e42;
+    flex: 1; /* Take up remaining space to center buttons */
+}
+
+.panel-header-toolbar .btn {
+    background-color: #313131;
+    color: #CCCCCC;
+    border: 1px solid #3C3C3C;
+    transition: all 0.15s ease;
+}
+
+.panel-header-toolbar .btn:hover:not(:disabled) {
+    background-color: #3C3C3C;
+    border-color: #0078D4;
+    color: #FFFFFF;
+}
+
+.panel-header-toolbar .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .left-panel .panel-header h5 {
@@ -170,6 +197,14 @@
     display: flex;
     gap: 0.5rem;
     align-items: center;
+    flex-shrink: 0; /* Prevent from shrinking, always stick to right */
+}
+
+/* Selection counter in header */
+.header-buttons .selection-info {
+    font-size: 0.875rem;
+    color: #9D9D9D;
+    margin-right: 0.5rem;
 }
 
 .header-buttons .btn-sm {
@@ -518,8 +553,25 @@
 }
 
 /* ===================================================================
+   Manual Mode Toolbar - DEPRECATED (moved to panel header)
+   =================================================================== */
+
+/* Toolbar is now in panel header via .panel-header-toolbar class */
+/* Keeping this comment for reference - old .manual-mode-toolbar removed */
+
+/* ===================================================================
    Manual Mode List - VS Code Dark Modern Theme
    =================================================================== */
+
+/* Make panel content focusable for keyboard events */
+.left-panel .panel-content {
+    outline: none;
+}
+
+/* Focus outline removed to avoid visual distraction when working in the panel */
+.left-panel .panel-content:focus {
+    outline: none;
+}
 
 .manual-mode-list {
     display: flex;
@@ -537,6 +589,10 @@
     border-radius: 3px;
     cursor: pointer;
     transition: background-color 0.15s ease;
+    user-select: none;  /* Prevent text selection when clicking/dragging */
+    -webkit-user-select: none;  /* Safari */
+    -moz-user-select: none;  /* Firefox */
+    -ms-user-select: none;  /* IE/Edge */
 }
 
 .manual-header-item:hover {
@@ -566,6 +622,7 @@
     font-size: 0.75rem;
     font-weight: 500;
     color: #9D9D9D;
+    margin-left: 6px;
 }
 
 .level-badge {
@@ -607,4 +664,45 @@
 .excluded-badge {
     color: #F85149;
     font-size: 1rem;
+}
+
+/* Manual Tree Container Styles */
+.manual-tree-container {
+    padding: 0.5rem;
+}
+
+.manual-tree-container .tree-item {
+    cursor: pointer;
+}
+
+.manual-tree-container ::deep .tree-item[draggable="false"] {
+    cursor: pointer;  /* Change to pointer since items are clickable */
+    user-select: none;  /* Prevent text selection on shift+click */
+    -webkit-user-select: none;  /* Safari */
+    -moz-user-select: none;  /* Firefox */
+    -ms-user-select: none;  /* IE10+/Edge */
+}
+
+/* Apply user-select to all text content in manual mode */
+.manual-tree-container ::deep .tree-item-content,
+.manual-tree-container ::deep .tree-item-label {
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+}
+
+/* Visual selection indicator for manual mode */
+.manual-tree-container ::deep .tree-item.selected {
+    background-color: #2489DB82 !important;  /* --accent-blue-subtle */
+    border-left: 3px solid #0078D4 !important;  /* --accent-blue */
+}
+
+.manual-tree-container ::deep .tree-item.selected .tree-item-content {
+    font-weight: 500;
+    background-color: transparent !important;  /* Override hover state */
+}
+
+.manual-tree-container ::deep .tree-item.selected .tree-item-content:hover {
+    background-color: rgba(0, 122, 204, 0.2) !important;  /* Slightly darker blue on hover */
 }

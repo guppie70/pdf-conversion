@@ -3,9 +3,9 @@
 @using System.Text.Json
 @inject IJSRuntime JSRuntime
 
-<div class="tree-item @GetDragClasses() @(Item.IsHallucinated ? "hallucinated" : "")"
+<div class="tree-item @GetDragClasses() @(Item.IsHallucinated ? "hallucinated" : "") @(SelectedItemIds?.Contains(Item.Id) == true ? "selected" : "")"
      style="margin-left: @(Level * 20)px"
-     draggable="@(Level > 0 ? "true" : "false")"
+     draggable="@(AllowDragDrop && Level > 0 ? "true" : "false")"
      @ondragstart="HandleDragStart"
      @ondragend="HandleDragEnd"
      @ondragover="HandleDragOver"
@@ -25,6 +25,16 @@
         else
         {
             <span class="tree-spacer"></span>
+        }
+
+        @if (Item.SequentialOrder.HasValue)
+        {
+            <span class="order-badge">@Item.SequentialOrder</span>
+        }
+
+        @if (!string.IsNullOrEmpty(Item.HeaderType))
+        {
+            <span class="header-type-badge">@Item.HeaderType</span>
         }
 
         <span class="level-badge">L@(Item.Level)</span>
@@ -78,7 +88,9 @@
                           ParentItem="Item"
                           OnItemSelected="OnItemSelected"
                           OnItemEdited="OnItemEdited"
-                          OnEditRequest="OnEditRequest" />
+                          OnEditRequest="OnEditRequest"
+                          AllowDragDrop="AllowDragDrop"
+                          SelectedItemIds="SelectedItemIds" />
     }
 }
 
@@ -100,6 +112,12 @@
 
     [Parameter]
     public EventCallback<HierarchyItem> OnEditRequest { get; set; }
+
+    [Parameter]
+    public bool AllowDragDrop { get; set; } = true;
+
+    [Parameter]
+    public HashSet<string>? SelectedItemIds { get; set; }
 
     private bool IsExpanded { get; set; } = true;
     private bool IsEditing { get; set; }
@@ -167,7 +185,7 @@
     // Drag-drop event handlers
     private void HandleDragStart(DragEventArgs e)
     {
-        if (Level == 0) return; // Don't allow root drag
+        if (!AllowDragDrop || Level == 0) return; // Don't allow drag if disabled or at root
         DraggedItem = Item;
         DraggedItemParent = ParentItem;
         IsBeingDragged = true;
