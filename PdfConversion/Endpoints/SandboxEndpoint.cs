@@ -73,6 +73,10 @@ public static class SandboxEndpoint
         {
             await HandleTestAsciiNormalizationAsync(context, hierarchyService, logger);
         }
+        else if (mode == "test-mode-persistence")
+        {
+            await HandleTestModePersistenceAsync(context, logger);
+        }
         else
         {
             // Default: LLM comparison
@@ -1777,6 +1781,174 @@ public static class SandboxEndpoint
         catch (Exception ex)
         {
             logger.LogError(ex, "[Sandbox] Error testing ASCII normalization");
+            context.Response.StatusCode = 500;
+            await context.Response.WriteAsync($"Error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Tests mode persistence for the GenerateHierarchy page.
+    /// Returns JavaScript code to test localStorage save/restore functionality.
+    ///
+    /// Usage: curl "http://localhost:8085/sandbox?mode=test-mode-persistence"
+    /// </summary>
+    private static async Task HandleTestModePersistenceAsync(
+        HttpContext context,
+        ILogger logger)
+    {
+        try
+        {
+            logger.LogInformation("[Sandbox] Testing mode persistence functionality");
+
+            var html = @"<!DOCTYPE html>
+<html>
+<head>
+    <title>Mode Persistence Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+            background: #1F1F1F;
+            color: #CCCCCC;
+        }
+        h1 { color: #FFFFFF; }
+        .test-section {
+            background: #2B2B2B;
+            border: 1px solid #3C3C3C;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        .success { color: #2EA043; }
+        .error { color: #F85149; }
+        .info { color: #0078D4; }
+        button {
+            background: #0078D4;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        button:hover { background: #026EC1; }
+        .current-value {
+            background: #313131;
+            padding: 5px 10px;
+            border-radius: 3px;
+            display: inline-block;
+            margin: 10px 0;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            background: #313131;
+            border-left: 3px solid #0078D4;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Mode Persistence Test</h1>
+
+    <div class='test-section'>
+        <h2>Current State</h2>
+        <p>Current localStorage value: <span id='currentValue' class='current-value'>Loading...</span></p>
+        <p>Page URL: <a href='/generate-hierarchy' target='_blank' style='color:#4daafc'>/generate-hierarchy</a></p>
+    </div>
+
+    <div class='test-section'>
+        <h2>Test Operations</h2>
+        <button onclick='saveMode(""LoadExisting"")'>Save LoadExisting Mode</button>
+        <button onclick='saveMode(""Manual"")'>Save Manual Mode</button>
+        <button onclick='clearMode()'>Clear Saved Mode</button>
+        <button onclick='readMode()'>Read Current Mode</button>
+    </div>
+
+    <div class='test-section'>
+        <h2>Test Instructions</h2>
+        <ol>
+            <li>Click ""Save Manual Mode"" button above</li>
+            <li>Open <a href='/generate-hierarchy' target='_blank' style='color:#4daafc'>/generate-hierarchy</a> in a new tab</li>
+            <li>The page should load with ""Manual Mode"" selected (blue button)</li>
+            <li>Change the mode in the UI and refresh the page</li>
+            <li>The selected mode should persist across page reloads</li>
+        </ol>
+    </div>
+
+    <div class='test-section'>
+        <h2>Activity Log</h2>
+        <div id='log'></div>
+    </div>
+
+    <script>
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            const time = new Date().toLocaleTimeString();
+            entry.innerHTML = `<span class='${type}'>[${time}]</span> ${message}`;
+            logDiv.insertBefore(entry, logDiv.firstChild);
+        }
+
+        function updateCurrentValue() {
+            const value = localStorage.getItem('hierarchyMode');
+            const display = value || '(not set)';
+            document.getElementById('currentValue').textContent = display;
+            return value;
+        }
+
+        function saveMode(mode) {
+            localStorage.setItem('hierarchyMode', mode);
+            log(`✅ Saved mode: <strong>${mode}</strong>`, 'success');
+            updateCurrentValue();
+        }
+
+        function clearMode() {
+            localStorage.removeItem('hierarchyMode');
+            log('🗑️ Cleared saved mode', 'info');
+            updateCurrentValue();
+        }
+
+        function readMode() {
+            const value = updateCurrentValue();
+            if (value) {
+                log(`📖 Current mode: <strong>${value}</strong>`, 'info');
+            } else {
+                log('📖 No mode saved in localStorage', 'info');
+            }
+        }
+
+        // Initial load
+        window.addEventListener('load', function() {
+            const value = updateCurrentValue();
+            if (value) {
+                log(`📋 Found existing mode on load: <strong>${value}</strong>`, 'success');
+            } else {
+                log('📋 No saved mode found on load', 'info');
+            }
+        });
+
+        // Listen for storage events from other tabs
+        window.addEventListener('storage', function(e) {
+            if (e.key === 'hierarchyMode') {
+                updateCurrentValue();
+                log(`🔄 Mode changed in another tab: <strong>${e.newValue}</strong>`, 'info');
+            }
+        });
+    </script>
+</body>
+</html>";
+
+            context.Response.ContentType = "text/html";
+            await context.Response.WriteAsync(html);
+
+            logger.LogInformation("[Sandbox] Mode persistence test page served");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "[Sandbox] Error serving mode persistence test");
             context.Response.StatusCode = 500;
             await context.Response.WriteAsync($"Error: {ex.Message}");
         }

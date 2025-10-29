@@ -945,6 +945,9 @@
                 Logger.LogWarning("[OnInitializedAsync] No user selections found");
             }
 
+            // Restore the saved mode from localStorage
+            await RestoreModeFromLocalStorage();
+
             StateHasChanged();
         }
         catch (Exception ex)
@@ -1862,6 +1865,9 @@
     {
         _currentMode = newMode;
         _lastClickedOrder = null;  // Reset anchor when changing modes
+
+        // Save the selected mode to localStorage
+        await SaveModeToLocalStorage(newMode);
 
         if (newMode == HierarchyMode.Manual)
         {
@@ -2935,6 +2941,55 @@
         foreach (var child in item.SubItems)
         {
             NormalizeItemRecursive(child, usedIds, usedDataRefs);
+        }
+    }
+
+    // Mode persistence methods
+    private async Task SaveModeToLocalStorage(HierarchyMode mode)
+    {
+        try
+        {
+            var modeString = mode.ToString();
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "hierarchyMode", modeString);
+            Logger.LogInformation("Saved hierarchy mode to localStorage: {Mode}", modeString);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to save mode to localStorage");
+        }
+    }
+
+    private async Task RestoreModeFromLocalStorage()
+    {
+        try
+        {
+            var modeString = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", "hierarchyMode");
+            if (!string.IsNullOrEmpty(modeString))
+            {
+                if (Enum.TryParse<HierarchyMode>(modeString, out var savedMode))
+                {
+                    _currentMode = savedMode;
+                    Logger.LogInformation("Restored hierarchy mode from localStorage: {Mode}", savedMode);
+
+                    // If Manual mode was restored and we have source XML, load the headers
+                    if (savedMode == HierarchyMode.Manual && !string.IsNullOrEmpty(SelectedSourceXml))
+                    {
+                        await LoadManualModeHeadersAsync();
+                    }
+                }
+                else
+                {
+                    Logger.LogWarning("Invalid mode value in localStorage: {Value}", modeString);
+                }
+            }
+            else
+            {
+                Logger.LogInformation("No saved hierarchy mode found in localStorage");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to restore mode from localStorage");
         }
     }
 }
