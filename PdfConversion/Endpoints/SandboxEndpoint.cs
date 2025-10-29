@@ -36,9 +36,32 @@ namespace PdfConversion.Endpoints;
 public static class SandboxEndpoint
 {
     /// <summary>
-    /// Handles the /sandbox endpoint request - generates and returns the prompt that would be sent to the LLM.
+    /// Handles the /sandbox endpoint request - routes to different utilities based on mode parameter.
     /// </summary>
     public static async Task HandleAsync(
+        HttpContext context,
+        IXsltTransformationService xsltService,
+        IHierarchyGeneratorService hierarchyService,
+        ILogger logger)
+    {
+        // Check query parameters to route to different utilities
+        var mode = context.Request.Query["mode"].FirstOrDefault();
+
+        if (mode == "prompt-gen")
+        {
+            await HandlePromptGenerationAsync(context, xsltService, hierarchyService, logger);
+        }
+        else
+        {
+            // Default: LLM comparison
+            await HandleLlmComparisonAsync(context, logger);
+        }
+    }
+
+    /// <summary>
+    /// Generates and returns the prompt that would be sent to the LLM (original sandbox functionality).
+    /// </summary>
+    private static async Task HandlePromptGenerationAsync(
         HttpContext context,
         IXsltTransformationService xsltService,
         IHierarchyGeneratorService hierarchyService,
@@ -178,5 +201,17 @@ public static class SandboxEndpoint
             await context.Response.WriteAsync(
                 $"Error: {ex.Message}\n\nStack trace:\n{ex.StackTrace}");
         }
+    }
+
+    /// <summary>
+    /// Compares local LLM responses with Claude Sonnet 4 for hierarchy generation prompts.
+    /// </summary>
+    private static async Task HandleLlmComparisonAsync(
+        HttpContext context,
+        ILogger logger)
+    {
+        // Placeholder - will be implemented in next task
+        context.Response.StatusCode = 501;
+        await context.Response.WriteAsync("LLM comparison functionality coming soon...");
     }
 }
