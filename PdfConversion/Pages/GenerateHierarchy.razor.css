@@ -46,6 +46,54 @@
     white-space: nowrap;
 }
 
+/* Hierarchy selector with Load button */
+.hierarchy-selector-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+}
+
+.hierarchy-selector-controls {
+    display: flex;
+    gap: 0.5rem;
+    flex: 1;
+}
+
+.hierarchy-selector-controls .form-select {
+    flex: 1;
+    min-width: 200px;
+}
+
+.btn-load-hierarchy {
+    background-color: #0078D4;
+    border-color: #0078D4;
+    color: #ffffff;
+    white-space: nowrap;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+    transition: all 0.15s ease;
+}
+
+.btn-load-hierarchy:hover:not(:disabled) {
+    background-color: #026EC1;
+    border-color: #026EC1;
+}
+
+.btn-load-hierarchy:disabled {
+    background-color: #313131;
+    border-color: #3C3C3C;
+    color: #6a737d;
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.btn-load-hierarchy .spinner-border-sm {
+    width: 0.875rem;
+    height: 0.875rem;
+    border-width: 0.15rem;
+}
+
 .settings-panel .form-select {
     flex: 1;
     min-width: 200px;
