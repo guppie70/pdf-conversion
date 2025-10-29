@@ -197,7 +197,7 @@
                             {
                                 <HierarchyTreeItem Item="rootItem"
                                                   Level="0"
-                                                  OnItemSelected="HandleManualItemSelected"
+                                                  OnItemSelectedWithModifiers="HandleManualItemSelectedWithModifiers"
                                                   OnItemEdited="HandleManualItemEdited"
                                                   OnEditRequest="@((item) => Task.CompletedTask)"
                                                   AllowDragDrop="false"
@@ -516,6 +516,9 @@
 
     // Track selected tree items by their Id
     private HashSet<string> _selectedManualItemIds = new();
+
+    // Track last selected item for range selection (shift+click)
+    private string? _lastSelectedManualItemId = null;
 
     // ExampleHierarchy class for training data
     private class ExampleHierarchy
@@ -946,8 +949,33 @@
         {
             string filePath;
 
+            // Manual mode hierarchies go to metadata folder with specific name
+            if (_currentMode == HierarchyMode.Manual)
+            {
+                var parts = SelectedProject.Split('/');
+                if (parts.Length != 2)
+                {
+                    Logger.LogError("Invalid project format: {Project}", SelectedProject);
+                    ToastNotification.ShowError("Invalid project format");
+                    return;
+                }
+
+                var customer = parts[0];
+                var projectId = parts[1];
+                var metadataDir = $"/app/data/input/{customer}/projects/{projectId}/metadata";
+
+                // Ensure metadata directory exists
+                if (!Directory.Exists(metadataDir))
+                {
+                    Directory.CreateDirectory(metadataDir);
+                    Logger.LogInformation("Created metadata directory: {Dir}", metadataDir);
+                }
+
+                filePath = Path.Combine(metadataDir, "manual-hierarchy.xml");
+                Logger.LogInformation("Saving manually-built hierarchy to metadata folder: {Path}", filePath);
+            }
             // AI-generated hierarchies go to metadata folder with specific name
-            if (_isAiGenerated)
+            else if (_isAiGenerated)
             {
                 var parts = SelectedProject.Split('/');
                 if (parts.Length != 2)
@@ -1736,6 +1764,9 @@
             // Convert to hierarchy for tree display
             _manualHierarchyItems = ManualHierarchyBuilder.ConvertToHierarchy(_manualHeaders);
 
+            // Sync to CurrentHierarchy for saving
+            SyncManualHierarchyToCurrentHierarchy();
+
             Logger.LogInformation("Loaded {Count} headers for Manual Mode", _manualHeaders.Count);
 
             // Clean up temp file
@@ -1746,6 +1777,39 @@
             Logger.LogError(ex, "Failed to load headers for Manual Mode");
             ToastNotification.ShowError($"Failed to load headers: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Syncs the manual hierarchy tree to CurrentHierarchy for saving.
+    /// Converts List<HierarchyItem> to HierarchyStructure format.
+    /// </summary>
+    private void SyncManualHierarchyToCurrentHierarchy()
+    {
+        if (_manualHierarchyItems == null || !_manualHierarchyItems.Any())
+        {
+            CurrentHierarchy = null;
+            return;
+        }
+
+        // Create a root item to contain all manual hierarchy items
+        var root = new HierarchyItem
+        {
+            Id = "root",
+            LinkName = "Root",
+            Level = 0,
+            DataRef = "/",
+            Path = "/",
+            SubItems = _manualHierarchyItems
+        };
+
+        CurrentHierarchy = new HierarchyStructure
+        {
+            Root = root,
+            OverallConfidence = 100, // Manual mode is always 100% confident
+            Uncertainties = new List<HierarchyItem>() // No uncertainties in manual mode
+        };
+
+        Logger.LogDebug("Synced manual hierarchy to CurrentHierarchy ({Count} root items)", _manualHierarchyItems.Count);
     }
 
     private void ToggleHeaderSelection(int originalOrder, bool shiftKey = false)
@@ -1803,8 +1867,149 @@
         await Task.CompletedTask;
     }
 
+    private async Task HandleManualItemSelectedWithModifiers(ItemSelectionEventArgs args)
+    {
+        var item = args.Item;
+
+        if (args.ShiftKey && _lastSelectedManualItemId != null)
+        {
+            // Range selection: Select all items between last selected and current
+            var allItemIds = GetAllItemIdsInOrder(_manualHierarchyItems);
+            var lastIndex = allItemIds.IndexOf(_lastSelectedManualItemId);
+            var currentIndex = allItemIds.IndexOf(item.Id);
+
+            if (lastIndex >= 0 && currentIndex >= 0)
+            {
+                var startIndex = Math.Min(lastIndex, currentIndex);
+                var endIndex = Math.Max(lastIndex, currentIndex);
+
+                // Add all items in range to selection (including their children)
+                for (int i = startIndex; i <= endIndex; i++)
+                {
+                    _selectedManualItemIds.Add(allItemIds[i]);
+                }
+            }
+        }
+        else if (args.CtrlKey)
+        {
+            // Toggle individual item selection (and its children)
+            var itemAndChildren = GetItemAndAllDescendantIds(item);
+
+            if (_selectedManualItemIds.Contains(item.Id))
+            {
+                // Deselect item and all its children
+                foreach (var id in itemAndChildren)
+                {
+                    _selectedManualItemIds.Remove(id);
+                }
+            }
+            else
+            {
+                // Select item and all its children
+                foreach (var id in itemAndChildren)
+                {
+                    _selectedManualItemIds.Add(id);
+                }
+            }
+
+            // Update anchor for range selection
+            _lastSelectedManualItemId = item.Id;
+        }
+        else
+        {
+            // Normal click: Toggle if already selected, otherwise clear and select
+            var itemAndChildren = GetItemAndAllDescendantIds(item);
+
+            // Check if this is the only selected item (and all its children are selected)
+            var isOnlySelection = _selectedManualItemIds.Count == itemAndChildren.Count
+                && itemAndChildren.All(id => _selectedManualItemIds.Contains(id));
+
+            if (isOnlySelection)
+            {
+                // Toggle off: Deselect everything
+                _selectedManualItemIds.Clear();
+                _lastSelectedManualItemId = null;
+            }
+            else
+            {
+                // Select this item and its children
+                _selectedManualItemIds.Clear();
+                foreach (var id in itemAndChildren)
+                {
+                    _selectedManualItemIds.Add(id);
+                }
+
+                // Update anchor for range selection
+                _lastSelectedManualItemId = item.Id;
+            }
+        }
+
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Gets all item IDs in tree order (depth-first traversal).
+    /// Used for range selection to maintain document order.
+    /// </summary>
+    private List<string> GetAllItemIdsInOrder(List<HierarchyItem>? items)
+    {
+        var result = new List<string>();
+        if (items == null) return result;
+
+        void Traverse(List<HierarchyItem> children)
+        {
+            foreach (var item in children)
+            {
+                result.Add(item.Id);
+                if (item.SubItems != null && item.SubItems.Any())
+                {
+                    Traverse(item.SubItems);
+                }
+            }
+        }
+
+        Traverse(items);
+        return result;
+    }
+
+    /// <summary>
+    /// Gets the item ID and all descendant IDs (recursively).
+    /// Used for auto-selecting children when selecting a parent.
+    /// </summary>
+    private List<string> GetItemAndAllDescendantIds(HierarchyItem item)
+    {
+        var result = new List<string> { item.Id };
+
+        void CollectDescendants(HierarchyItem parent)
+        {
+            if (parent.SubItems != null && parent.SubItems.Any())
+            {
+                foreach (var child in parent.SubItems)
+                {
+                    result.Add(child.Id);
+                    CollectDescendants(child);
+                }
+            }
+        }
+
+        CollectDescendants(item);
+        return result;
+    }
+
     private async Task HandleManualItemEdited(HierarchyItem item)
     {
+        // Validate that the tree maintains ascending order
+        if (_manualHierarchyItems != null)
+        {
+            var (isValid, validationError) = ValidateAscendingOrder(_manualHierarchyItems);
+            if (!isValid)
+            {
+                Logger.LogWarning("Tree edit resulted in invalid order: {Error}", validationError);
+                ToastNotification.ShowError($"Warning: {validationError}");
+            }
+        }
+
         // Tree structure changed - rebuild _manualHeaders from tree
         UpdateManualHeadersFromTree(_manualHierarchyItems);
         HasChanges = true;
@@ -1843,11 +2048,365 @@
 
     private List<int> GetOrdersFromTreeSelection(HashSet<string> selectedIds)
     {
+        // Filter to only include "top-level" selections (no selected ancestors)
+        // This prevents passing both parent and children to ManualHierarchyBuilder,
+        // which already handles moving children with their parent
+        var topLevelIds = FilterToTopLevelSelections(selectedIds);
+
         // HierarchyItem.Id format is "manual_{OriginalOrder}"
-        return selectedIds
+        return topLevelIds
             .Where(id => id.StartsWith("manual_"))
             .Select(id => int.Parse(id.Replace("manual_", "")))
             .ToList();
+    }
+
+    /// <summary>
+    /// Filters selected IDs to only include items whose parent/ancestors are not also selected.
+    /// This prevents duplicate processing when a parent and its children are both selected.
+    /// </summary>
+    private HashSet<string> FilterToTopLevelSelections(HashSet<string> selectedIds)
+    {
+        if (_manualHierarchyItems == null)
+            return selectedIds;
+
+        var result = new HashSet<string>();
+
+        // Build a map of item ID -> parent ID for fast lookup
+        var itemToParent = new Dictionary<string, string?>();
+        BuildParentMap(_manualHierarchyItems, null, itemToParent);
+
+        // For each selected ID, check if any ancestor is also selected
+        foreach (var id in selectedIds)
+        {
+            if (!HasSelectedAncestor(id, selectedIds, itemToParent))
+            {
+                result.Add(id);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Recursively builds a map of item ID -> parent ID.
+    /// </summary>
+    private void BuildParentMap(List<HierarchyItem> items, string? parentId, Dictionary<string, string?> map)
+    {
+        foreach (var item in items)
+        {
+            map[item.Id] = parentId;
+
+            if (item.SubItems != null && item.SubItems.Any())
+            {
+                BuildParentMap(item.SubItems, item.Id, map);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Checks if any ancestor of the given item ID is in the selected set.
+    /// </summary>
+    private bool HasSelectedAncestor(string itemId, HashSet<string> selectedIds, Dictionary<string, string?> itemToParent)
+    {
+        // Walk up the parent chain
+        var currentId = itemId;
+        while (itemToParent.TryGetValue(currentId, out var parentId) && parentId != null)
+        {
+            if (selectedIds.Contains(parentId))
+            {
+                return true; // Found a selected ancestor
+            }
+            currentId = parentId;
+        }
+
+        return false; // No selected ancestors
+    }
+
+    /// <summary>
+    /// Indents an item in the tree structure (makes it a child of previous sibling).
+    /// Updates Level property for item and all descendants.
+    /// Validates that operation maintains ascending OriginalOrder.
+    /// </summary>
+    private (bool success, string? errorMessage) IndentItemInTree(string itemId, List<HierarchyItem> rootItems)
+    {
+        // Clone tree for validation
+        var testTree = CloneHierarchyTree(rootItems);
+
+        // Find the item and its parent/siblings IN THE CLONE
+        HierarchyItem? testItem = null;
+        List<HierarchyItem>? testSiblings = null;
+        HierarchyItem? testPreviousSibling = null;
+
+        bool FindItemInClone(List<HierarchyItem> items, HierarchyItem? parent)
+        {
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (items[i].Id == itemId)
+                {
+                    testItem = items[i];
+                    testSiblings = items;
+                    testPreviousSibling = i > 0 ? items[i - 1] : null;
+                    return true;
+                }
+
+                if (items[i].SubItems != null && FindItemInClone(items[i].SubItems, items[i]))
+                    return true;
+            }
+            return false;
+        }
+
+        if (!FindItemInClone(testTree, null) || testItem == null || testSiblings == null)
+            return (false, "Item not found in tree");
+
+        if (testPreviousSibling == null)
+            return (false, "Cannot indent first item - no previous sibling exists");
+
+        // Perform operation on clone
+        testSiblings.Remove(testItem);
+        testPreviousSibling.SubItems ??= new List<HierarchyItem>();
+        testPreviousSibling.SubItems.Add(testItem);
+        AdjustLevels(testItem, +1);
+
+        // Validate result
+        var (isValid, validationError) = ValidateAscendingOrder(testTree);
+        if (!isValid)
+        {
+            return (false, validationError);
+        }
+
+        // Validation passed - now perform on real tree
+        HierarchyItem? item = null;
+        List<HierarchyItem>? siblings = null;
+        HierarchyItem? previousSibling = null;
+
+        bool FindItem(List<HierarchyItem> items, HierarchyItem? parent)
+        {
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (items[i].Id == itemId)
+                {
+                    item = items[i];
+                    siblings = items;
+                    previousSibling = i > 0 ? items[i - 1] : null;
+                    return true;
+                }
+
+                if (items[i].SubItems != null && FindItem(items[i].SubItems, items[i]))
+                    return true;
+            }
+            return false;
+        }
+
+        FindItem(rootItems, null);
+
+        // Apply changes to real tree
+        siblings!.Remove(item!);
+        previousSibling!.SubItems ??= new List<HierarchyItem>();
+        previousSibling.SubItems.Add(item);
+        AdjustLevels(item, +1);
+
+        return (true, null);
+    }
+
+    /// <summary>
+    /// Outdents an item in the tree structure (makes it a sibling of its parent).
+    /// Updates Level property for item and all descendants.
+    /// Validates that operation maintains ascending OriginalOrder.
+    /// </summary>
+    private (bool success, string? errorMessage) OutdentItemInTree(string itemId, List<HierarchyItem> rootItems)
+    {
+        // Clone tree for validation
+        var testTree = CloneHierarchyTree(rootItems);
+
+        // Find the item, its parent, and grandparent IN THE CLONE
+        HierarchyItem? testItem = null;
+        HierarchyItem? testParent = null;
+        List<HierarchyItem>? testParentSiblings = null;
+
+        bool FindItemInClone(List<HierarchyItem> items, HierarchyItem? currentParent, List<HierarchyItem>? grandparentChildren)
+        {
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (items[i].Id == itemId)
+                {
+                    testItem = items[i];
+                    testParent = currentParent;
+                    testParentSiblings = grandparentChildren;
+                    return true;
+                }
+
+                if (items[i].SubItems != null && FindItemInClone(items[i].SubItems, items[i], items))
+                    return true;
+            }
+            return false;
+        }
+
+        if (!FindItemInClone(testTree, null, null) || testItem == null)
+            return (false, "Item not found in tree");
+
+        if (testParent == null)
+            return (false, "Cannot outdent root-level item");
+
+        // Perform operation on clone
+        testParent.SubItems?.Remove(testItem);
+        if (testParentSiblings != null)
+        {
+            var parentIndex = testParentSiblings.IndexOf(testParent);
+            testParentSiblings.Insert(parentIndex + 1, testItem);
+        }
+        else
+        {
+            testTree.Add(testItem);
+        }
+        AdjustLevels(testItem, -1);
+
+        // Validate result
+        var (isValid, validationError) = ValidateAscendingOrder(testTree);
+        if (!isValid)
+        {
+            return (false, validationError);
+        }
+
+        // Validation passed - now perform on real tree
+        HierarchyItem? item = null;
+        HierarchyItem? parent = null;
+        List<HierarchyItem>? parentSiblings = null;
+
+        bool FindItem(List<HierarchyItem> items, HierarchyItem? currentParent, List<HierarchyItem>? grandparentChildren)
+        {
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (items[i].Id == itemId)
+                {
+                    item = items[i];
+                    parent = currentParent;
+                    parentSiblings = grandparentChildren;
+                    return true;
+                }
+
+                if (items[i].SubItems != null && FindItem(items[i].SubItems, items[i], items))
+                    return true;
+            }
+            return false;
+        }
+
+        FindItem(rootItems, null, null);
+
+        // Apply changes to real tree
+        parent!.SubItems?.Remove(item!);
+        if (parentSiblings != null)
+        {
+            var parentIndex = parentSiblings.IndexOf(parent);
+            parentSiblings.Insert(parentIndex + 1, item);
+        }
+        else
+        {
+            rootItems.Add(item);
+        }
+        AdjustLevels(item, -1);
+
+        return (true, null);
+    }
+
+    /// <summary>
+    /// Recursively adjusts Level property for item and all descendants.
+    /// </summary>
+    private void AdjustLevels(HierarchyItem item, int adjustment)
+    {
+        item.Level += adjustment;
+
+        if (item.SubItems != null)
+        {
+            foreach (var child in item.SubItems)
+            {
+                AdjustLevels(child, adjustment);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Validates that the tree maintains ascending OriginalOrder when read top-to-bottom.
+    /// Returns true if order is valid, false with error message if broken.
+    /// </summary>
+    private (bool isValid, string? errorMessage) ValidateAscendingOrder(List<HierarchyItem> rootItems)
+    {
+        var orders = new List<int>();
+
+        void CollectOrders(List<HierarchyItem> items)
+        {
+            foreach (var item in items)
+            {
+                // Extract OriginalOrder from Id (format: "manual_{OriginalOrder}")
+                if (item.Id.StartsWith("manual_") && int.TryParse(item.Id.Replace("manual_", ""), out var order))
+                {
+                    orders.Add(order);
+                }
+
+                if (item.SubItems != null && item.SubItems.Any())
+                {
+                    CollectOrders(item.SubItems);
+                }
+            }
+        }
+
+        CollectOrders(rootItems);
+
+        // Check if strictly ascending
+        for (int i = 1; i < orders.Count; i++)
+        {
+            if (orders[i] <= orders[i - 1])
+            {
+                return (false, $"Operation would break document order: item #{orders[i]} cannot come after item #{orders[i - 1]}. Items must maintain their original document sequence from top to bottom.");
+            }
+        }
+
+        return (true, null);
+    }
+
+    /// <summary>
+    /// Deep clones a hierarchy tree for validation purposes.
+    /// </summary>
+    private List<HierarchyItem> CloneHierarchyTree(List<HierarchyItem> items)
+    {
+        var clones = new List<HierarchyItem>();
+
+        foreach (var item in items)
+        {
+            clones.Add(CloneItem(item));
+        }
+
+        return clones;
+    }
+
+    /// <summary>
+    /// Deep clones a single hierarchy item and its descendants.
+    /// </summary>
+    private HierarchyItem CloneItem(HierarchyItem item)
+    {
+        var clone = new HierarchyItem
+        {
+            Id = item.Id,
+            LinkName = item.LinkName,
+            Level = item.Level,
+            DataRef = item.DataRef,
+            Path = item.Path,
+            Confidence = item.Confidence,
+            HeaderType = item.HeaderType,
+            SequentialOrder = item.SequentialOrder,
+            IsHallucinated = item.IsHallucinated,
+            IsUncertain = item.IsUncertain,
+            SubItems = new List<HierarchyItem>()
+        };
+
+        if (item.SubItems != null)
+        {
+            foreach (var child in item.SubItems)
+            {
+                clone.SubItems.Add(CloneItem(child));
+            }
+        }
+
+        return clone;
     }
 
     /// <summary>
@@ -1876,28 +2435,35 @@
 
     private void IndentSelectedHeaders()
     {
-        if (_manualHeaders == null || !_selectedManualItemIds.Any())
+        if (_manualHeaders == null || !_selectedManualItemIds.Any() || _manualHierarchyItems == null)
             return;
 
         try
         {
-            var selectedOrders = GetOrdersFromTreeSelection(_selectedManualItemIds);
+            // Get top-level selections (without their children)
+            var topLevelIds = FilterToTopLevelSelections(_selectedManualItemIds);
 
-            var (success, errorMessage) = ManualHierarchyBuilder.IndentItems(_manualHeaders, selectedOrders);
-
-            if (!success && !string.IsNullOrEmpty(errorMessage))
+            // Indent each selected item in the tree (and its descendants)
+            foreach (var itemId in topLevelIds)
             {
-                ToastNotification.ShowError(errorMessage);
-                Logger.LogWarning("Indent operation failed: {ErrorMessage}", errorMessage);
-                return;
+                var (success, errorMessage) = IndentItemInTree(itemId, _manualHierarchyItems);
+                if (!success)
+                {
+                    ToastNotification.ShowError(errorMessage ?? "Failed to indent item");
+                    Logger.LogWarning("Indent operation failed: {ErrorMessage}", errorMessage);
+                    return;
+                }
             }
 
-            // Rebuild tree from updated headers
-            _manualHierarchyItems = ManualHierarchyBuilder.ConvertToHierarchy(_manualHeaders);
+            // Sync flat list from tree structure
+            UpdateManualHeadersFromTree(_manualHierarchyItems);
+
+            // Sync to CurrentHierarchy for saving
+            SyncManualHierarchyToCurrentHierarchy();
 
             HasChanges = true;
             StateHasChanged();
-            Logger.LogInformation("Indented {Count} headers", selectedOrders.Count);
+            Logger.LogInformation("Indented {Count} items", topLevelIds.Count);
         }
         catch (Exception ex)
         {
@@ -1908,28 +2474,35 @@
 
     private void OutdentSelectedHeaders()
     {
-        if (_manualHeaders == null || !_selectedManualItemIds.Any())
+        if (_manualHeaders == null || !_selectedManualItemIds.Any() || _manualHierarchyItems == null)
             return;
 
         try
         {
-            var selectedOrders = GetOrdersFromTreeSelection(_selectedManualItemIds);
+            // Get top-level selections (without their children)
+            var topLevelIds = FilterToTopLevelSelections(_selectedManualItemIds);
 
-            var (success, errorMessage) = ManualHierarchyBuilder.OutdentItems(_manualHeaders, selectedOrders);
-
-            if (!success && !string.IsNullOrEmpty(errorMessage))
+            // Outdent each selected item in the tree (and its descendants)
+            foreach (var itemId in topLevelIds)
             {
-                ToastNotification.ShowError(errorMessage);
-                Logger.LogWarning("Outdent operation failed: {ErrorMessage}", errorMessage);
-                return;
+                var (success, errorMessage) = OutdentItemInTree(itemId, _manualHierarchyItems);
+                if (!success)
+                {
+                    ToastNotification.ShowError(errorMessage ?? "Failed to outdent item");
+                    Logger.LogWarning("Outdent operation failed: {ErrorMessage}", errorMessage);
+                    return;
+                }
             }
 
-            // Rebuild tree from updated headers
-            _manualHierarchyItems = ManualHierarchyBuilder.ConvertToHierarchy(_manualHeaders);
+            // Sync flat list from tree structure
+            UpdateManualHeadersFromTree(_manualHierarchyItems);
+
+            // Sync to CurrentHierarchy for saving
+            SyncManualHierarchyToCurrentHierarchy();
 
             HasChanges = true;
             StateHasChanged();
-            Logger.LogInformation("Outdented {Count} headers", selectedOrders.Count);
+            Logger.LogInformation("Outdented {Count} items", topLevelIds.Count);
         }
         catch (Exception ex)
         {
@@ -1952,6 +2525,9 @@
             // Rebuild tree (excluded items won't appear)
             _manualHierarchyItems = ManualHierarchyBuilder.ConvertToHierarchy(_manualHeaders);
 
+            // Sync to CurrentHierarchy for saving
+            SyncManualHierarchyToCurrentHierarchy();
+
             _selectedManualItemIds.Clear();
             HasChanges = true;
             StateHasChanged();
@@ -1973,6 +2549,10 @@
         {
             ManualHierarchyBuilder.IncludeAllItems(_manualHeaders);
             _manualHierarchyItems = ManualHierarchyBuilder.ConvertToHierarchy(_manualHeaders);
+
+            // Sync to CurrentHierarchy for saving
+            SyncManualHierarchyToCurrentHierarchy();
+
             _selectedManualItemIds.Clear();
 
             HasChanges = true;
@@ -1995,7 +2575,7 @@
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
     {
-        if (_currentMode != HierarchyMode.Manual || !_selectedHeaderOrders.Any())
+        if (_currentMode != HierarchyMode.Manual || !_selectedManualItemIds.Any())
             return;
 
         // Tab = Indent
@@ -2014,6 +2594,12 @@
         else if (e.Key == "Delete")
         {
             ExcludeSelectedHeaders();
+            await Task.CompletedTask;
+        }
+        // Escape = Deselect
+        else if (e.Key == "Escape")
+        {
+            DeselectAllHeaders();
             await Task.CompletedTask;
         }
     }

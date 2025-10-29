@@ -87,6 +87,7 @@
                           Level="Level + 1"
                           ParentItem="Item"
                           OnItemSelected="OnItemSelected"
+                          OnItemSelectedWithModifiers="OnItemSelectedWithModifiers"
                           OnItemEdited="OnItemEdited"
                           OnEditRequest="OnEditRequest"
                           AllowDragDrop="AllowDragDrop"
@@ -106,6 +107,9 @@
 
     [Parameter]
     public EventCallback<HierarchyItem> OnItemSelected { get; set; }
+
+    [Parameter]
+    public EventCallback<ItemSelectionEventArgs> OnItemSelectedWithModifiers { get; set; }
 
     [Parameter]
     public EventCallback<HierarchyItem> OnItemEdited { get; set; }
@@ -134,9 +138,24 @@
     private enum DropPosition { None, Before, Into, After }
     private DropPosition CurrentDropPosition { get; set; } = DropPosition.None;
 
-    private async Task HandleItemClick()
+    private async Task HandleItemClick(MouseEventArgs e)
     {
-        await OnItemSelected.InvokeAsync(Item);
+        // If OnItemSelectedWithModifiers is bound, use it (Manual Mode with shift-click support)
+        if (OnItemSelectedWithModifiers.HasDelegate)
+        {
+            var args = new ItemSelectionEventArgs
+            {
+                Item = Item,
+                ShiftKey = e.ShiftKey,
+                CtrlKey = e.CtrlKey || e.MetaKey
+            };
+            await OnItemSelectedWithModifiers.InvokeAsync(args);
+        }
+        else if (OnItemSelected.HasDelegate)
+        {
+            // Fallback to old callback (Load Existing Mode)
+            await OnItemSelected.InvokeAsync(Item);
+        }
     }
 
     private void ToggleExpanded()

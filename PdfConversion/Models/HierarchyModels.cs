@@ -1,6 +1,16 @@
 namespace PdfConversion.Models;
 
 /// <summary>
+/// Event args for hierarchy item selection with modifier keys
+/// </summary>
+public class ItemSelectionEventArgs
+{
+    public HierarchyItem Item { get; set; } = null!;
+    public bool ShiftKey { get; set; }
+    public bool CtrlKey { get; set; }
+}
+
+/// <summary>
 /// Root container for hierarchy structure
 /// </summary>
 public class HierarchyStructure
