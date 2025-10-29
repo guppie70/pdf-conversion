@@ -710,9 +710,6 @@
 
     private async Task OnLoadHierarchyClickedAsync()
     {
-        Logger.LogInformation("=== Load button clicked ===");
-        Logger.LogInformation("Current mode: {Mode}", _currentMode);
-        Logger.LogInformation("Selected hierarchy XML: {Path}", SelectedHierarchyXml);
 
         if (string.IsNullOrEmpty(SelectedHierarchyXml))
         {
@@ -724,22 +721,10 @@
         {
             if (_currentMode == HierarchyMode.LoadExisting)
             {
-                Logger.LogInformation("Calling LoadExistingHierarchyAsync...");
                 await LoadExistingHierarchyAsync();
-                Logger.LogInformation("LoadExistingHierarchyAsync completed. CurrentHierarchy is null: {IsNull}", CurrentHierarchy == null);
-                if (CurrentHierarchy != null)
-                {
-                    Logger.LogInformation("CurrentHierarchy.Root is null: {IsNull}", CurrentHierarchy.Root == null);
-                }
             }
             else if (_currentMode == HierarchyMode.Manual)
             {
-                Logger.LogInformation("=== MANUAL MODE LOAD START ===");
-                Logger.LogInformation("Loading saved hierarchy in Manual Mode from {Path}", SelectedHierarchyXml);
-                Logger.LogInformation("_manualHeaders before load: {IsNull}, Count: {Count}",
-                    _manualHeaders == null, _manualHeaders?.Count ?? 0);
-                Logger.LogInformation("_manualHierarchyItems before load: {IsNull}, Count: {Count}",
-                    _manualHierarchyItems == null, _manualHierarchyItems?.Count ?? 0);
 
                 // Load the saved hierarchy file
                 if (!File.Exists(SelectedHierarchyXml))
@@ -750,59 +735,29 @@
                 }
 
                 CurrentHierarchy = await HierarchyService.LoadHierarchyAsync(SelectedHierarchyXml);
-                Logger.LogInformation("CurrentHierarchy loaded. Is null: {IsNull}", CurrentHierarchy == null);
-
-                if (CurrentHierarchy != null)
-                {
-                    Logger.LogInformation("CurrentHierarchy.Root is null: {IsNull}", CurrentHierarchy.Root == null);
-                    if (CurrentHierarchy.Root != null)
-                    {
-                        Logger.LogInformation("CurrentHierarchy.Root.SubItems is null: {IsNull}, Count: {Count}",
-                            CurrentHierarchy.Root.SubItems == null,
-                            CurrentHierarchy.Root.SubItems?.Count ?? 0);
-                    }
-                }
 
                 // Convert CurrentHierarchy.Root.SubItems to Manual Mode tree format
                 if (CurrentHierarchy?.Root?.SubItems != null)
                 {
                     _manualHierarchyItems = CurrentHierarchy.Root.SubItems.ToList();
-                    Logger.LogInformation("Set _manualHierarchyItems with {Count} root items", _manualHierarchyItems.Count);
 
                     // Assign sequential order for display badges
                     AssignSequentialOrderToTree(_manualHierarchyItems);
 
-                    // Log first item details
-                    if (_manualHierarchyItems.Any())
-                    {
-                        var firstItem = _manualHierarchyItems.First();
-                        Logger.LogInformation("First item - Id: {Id}, LinkName: {LinkName}, Level: {Level}, HeaderType: {HeaderType}, SequentialOrder: {SequentialOrder}",
-                            firstItem.Id, firstItem.LinkName, firstItem.Level,
-                            firstItem.HeaderType ?? "null",
-                            firstItem.SequentialOrder?.ToString() ?? "null");
-                    }
                 }
                 else
                 {
                     _manualHierarchyItems = new List<HierarchyItem>();
-                    Logger.LogWarning("Loaded hierarchy has no root items - initialized empty _manualHierarchyItems");
                 }
 
                 // Reconstruct _manualHeaders from loaded hierarchy tree for Indent/Outdent functionality
-                Logger.LogInformation("Starting _manualHeaders reconstruction...");
                 _manualHeaders = new List<DocumentHeader>();
                 int order = 1;
 
                 void ConvertTreeToHeaders(List<HierarchyItem> items, int indentLevel)
                 {
-                    Logger.LogDebug("ConvertTreeToHeaders called with {Count} items at indentLevel {Level}",
-                        items?.Count ?? 0, indentLevel);
-
                     foreach (var item in items)
                     {
-                        // Log item details
-                        Logger.LogDebug("Processing item: Id={Id}, LinkName={LinkName}, HeaderType={HeaderType}, SequentialOrder={SequentialOrder}",
-                            item.Id, item.LinkName, item.HeaderType ?? "null", item.SequentialOrder?.ToString() ?? "null");
 
                         // Create DocumentHeader from HierarchyItem
                         // IMPORTANT: Use the actual item.Id to match the tree items
@@ -826,14 +781,11 @@
                         };
 
                         _manualHeaders.Add(header);
-                        Logger.LogDebug("Created header #{Order}: Id={Id}, Level={Level}, Title={Title}, IndentLevel={IndentLevel}",
-                            order, headerId, headerLevel, item.LinkName, indentLevel);
                         order++;
 
                         // Recursively process children
                         if (item.SubItems != null && item.SubItems.Any())
                         {
-                            Logger.LogDebug("Processing {Count} children for item {Id}", item.SubItems.Count, item.Id);
                             ConvertTreeToHeaders(item.SubItems, indentLevel + 1);
                         }
                     }
@@ -841,36 +793,13 @@
 
                 if (_manualHierarchyItems != null && _manualHierarchyItems.Any())
                 {
-                    Logger.LogInformation("Calling ConvertTreeToHeaders with {Count} root items", _manualHierarchyItems.Count);
                     ConvertTreeToHeaders(_manualHierarchyItems, 0);
-                    Logger.LogInformation("Reconstruction complete. _manualHeaders count: {Count}", _manualHeaders.Count);
-
-                    // Log first few headers
-                    if (_manualHeaders != null && _manualHeaders.Any())
-                    {
-                        for (int i = 0; i < Math.Min(3, _manualHeaders.Count); i++)
-                        {
-                            var h = _manualHeaders[i];
-                            Logger.LogInformation("Header[{Index}] - Id: {Id}, Level: {Level}, Title: {Title}, OriginalOrder: {Order}, IndentLevel: {Indent}",
-                                i, h.Id, h.Level, h.Title, h.OriginalOrder, h.IndentLevel);
-                        }
-                    }
-                }
-                else
-                {
-                    Logger.LogWarning("_manualHierarchyItems is empty - no headers to reconstruct");
                 }
 
                 HasChanges = false;
-                Logger.LogInformation("=== MANUAL MODE LOAD COMPLETE ===");
-                Logger.LogInformation("Final state - _manualHierarchyItems: {ItemsCount}, _manualHeaders: {HeadersCount}",
-                    _manualHierarchyItems?.Count ?? 0, _manualHeaders?.Count ?? 0);
-                Logger.LogInformation("_manualHeaders is null: {IsNull}", _manualHeaders == null);
-                Logger.LogInformation("_selectedManualItemIds count: {Count}", _selectedManualItemIds?.Count ?? 0);
             }
 
             StateHasChanged();
-            Logger.LogInformation("StateHasChanged called after load");
         }
         catch (Exception ex)
         {
@@ -1931,33 +1860,23 @@
 
     private async Task ChangeMode(HierarchyMode newMode)
     {
-        Logger.LogInformation("=== ChangeMode called ===");
-        Logger.LogInformation("Changing mode from {OldMode} to {NewMode}", _currentMode, newMode);
-
         _currentMode = newMode;
         _lastClickedOrder = null;  // Reset anchor when changing modes
 
         if (newMode == HierarchyMode.Manual)
         {
-            Logger.LogInformation("Mode is Manual - calling LoadManualModeHeadersAsync");
             await LoadManualModeHeadersAsync();
         }
 
-        Logger.LogInformation("Mode after change: {CurrentMode}", _currentMode);
         StateHasChanged();
     }
 
     private async Task LoadManualModeHeadersAsync()
     {
-        Logger.LogInformation("=== LoadManualModeHeadersAsync called ===");
-        Logger.LogInformation("This method loads headers from SOURCE XML, not hierarchy XML");
-        Logger.LogInformation("SelectedSourceXml: {Path}", SelectedSourceXml ?? "null");
-
         try
         {
             if (string.IsNullOrEmpty(SelectedSourceXml))
             {
-                Logger.LogWarning("No SelectedSourceXml - setting _manualHeaders to null");
                 _manualHeaders = null;
                 return;
             }
@@ -2106,13 +2025,6 @@
     private async Task HandleManualItemSelectedWithModifiers(ItemSelectionEventArgs args)
     {
         var item = args.Item;
-        Logger.LogDebug("=== HandleManualItemSelectedWithModifiers called ===");
-        Logger.LogDebug("Item clicked: Id={Id}, LinkName={LinkName}", item.Id, item.LinkName);
-        Logger.LogDebug("Modifiers - Shift: {Shift}, Ctrl: {Ctrl}", args.ShiftKey, args.CtrlKey);
-        Logger.LogDebug("_selectedManualItemIds before: {Count} items - {Ids}",
-            _selectedManualItemIds.Count, string.Join(", ", _selectedManualItemIds));
-        Logger.LogDebug("_manualHeaders state: {IsNull}, Count: {Count}",
-            _manualHeaders == null, _manualHeaders?.Count ?? 0);
 
         if (args.ShiftKey && _lastSelectedManualItemId != null)
         {
@@ -2158,7 +2070,6 @@
                 {
                     _selectedManualItemIds.Add(id);
                 }
-                Logger.LogDebug("Selected item and children");
             }
 
             // Update anchor for range selection
@@ -2191,15 +2102,11 @@
                 {
                     _selectedManualItemIds.Add(id);
                 }
-                Logger.LogDebug("Selected item and children - cleared others");
 
                 // Update anchor for range selection
                 _lastSelectedManualItemId = item.Id;
             }
         }
-
-        Logger.LogDebug("_selectedManualItemIds after: {Count} items - {Ids}",
-            _selectedManualItemIds.Count, string.Join(", ", _selectedManualItemIds));
 
         StateHasChanged();
         await Task.CompletedTask;
@@ -2309,16 +2216,10 @@
 
     private List<int> GetOrdersFromTreeSelection(HashSet<string> selectedIds)
     {
-        Logger.LogDebug("=== GetOrdersFromTreeSelection called ===");
-        Logger.LogDebug("Selected IDs input: {Count} - {Ids}",
-            selectedIds.Count, string.Join(", ", selectedIds));
-
         // Filter to only include "top-level" selections (no selected ancestors)
         // This prevents passing both parent and children to ManualHierarchyBuilder,
         // which already handles moving children with their parent
         var topLevelIds = FilterToTopLevelSelections(selectedIds);
-        Logger.LogDebug("After filtering to top-level: {Count} - {Ids}",
-            topLevelIds.Count, string.Join(", ", topLevelIds));
 
         // Look up the DocumentHeader objects by ID and get their OriginalOrder
         // This works for both generated IDs (manual_X) and loaded IDs (like "statement-of-cash-flows")
@@ -2331,23 +2232,11 @@
                 var header = _manualHeaders.FirstOrDefault(h => h.Id == id);
                 if (header != null)
                 {
-                    Logger.LogDebug("Found header for ID {Id}: OriginalOrder={Order}, Title={Title}",
-                        id, header.OriginalOrder, header.Title);
                     result.Add(header.OriginalOrder);
-                }
-                else
-                {
-                    Logger.LogWarning("No header found for ID: {Id}", id);
                 }
             }
         }
-        else
-        {
-            Logger.LogWarning("_manualHeaders is null - cannot lookup orders");
-        }
 
-        Logger.LogDebug("GetOrdersFromTreeSelection result: {Count} orders - {Orders}",
-            result.Count, string.Join(", ", result));
         return result;
     }
 
@@ -2705,24 +2594,13 @@
     /// </summary>
     private bool CanIndentCurrentSelection()
     {
-        Logger.LogDebug("=== CanIndentCurrentSelection called ===");
-        Logger.LogDebug("_manualHeaders is null: {IsNull}, Count: {Count}",
-            _manualHeaders == null, _manualHeaders?.Count ?? 0);
-        Logger.LogDebug("_selectedManualItemIds count: {Count}",
-            _selectedManualItemIds?.Count ?? 0);
-
         if (_manualHeaders == null || !_selectedManualItemIds.Any())
         {
-            Logger.LogDebug("Returning false - missing headers or no selection");
             return false;
         }
 
         var selectedOrders = GetOrdersFromTreeSelection(_selectedManualItemIds);
-        Logger.LogDebug("Selected orders: {Orders}", string.Join(", ", selectedOrders));
-
-        var canIndent = ManualHierarchyBuilder.CanIndentItems(_manualHeaders, selectedOrders);
-        Logger.LogDebug("ManualHierarchyBuilder.CanIndentItems returned: {Result}", canIndent);
-        return canIndent;
+        return ManualHierarchyBuilder.CanIndentItems(_manualHeaders, selectedOrders);
     }
 
     /// <summary>
@@ -2730,24 +2608,13 @@
     /// </summary>
     private bool CanOutdentCurrentSelection()
     {
-        Logger.LogDebug("=== CanOutdentCurrentSelection called ===");
-        Logger.LogDebug("_manualHeaders is null: {IsNull}, Count: {Count}",
-            _manualHeaders == null, _manualHeaders?.Count ?? 0);
-        Logger.LogDebug("_selectedManualItemIds count: {Count}",
-            _selectedManualItemIds?.Count ?? 0);
-
         if (_manualHeaders == null || !_selectedManualItemIds.Any())
         {
-            Logger.LogDebug("Returning false - missing headers or no selection");
             return false;
         }
 
         var selectedOrders = GetOrdersFromTreeSelection(_selectedManualItemIds);
-        Logger.LogDebug("Selected orders: {Orders}", string.Join(", ", selectedOrders));
-
-        var canOutdent = ManualHierarchyBuilder.CanOutdentItems(_manualHeaders, selectedOrders);
-        Logger.LogDebug("ManualHierarchyBuilder.CanOutdentItems returned: {Result}", canOutdent);
-        return canOutdent;
+        return ManualHierarchyBuilder.CanOutdentItems(_manualHeaders, selectedOrders);
     }
 
     private void IndentSelectedHeaders()
@@ -2899,7 +2766,6 @@
     {
         _selectedManualItemIds.Clear();
         StateHasChanged();
-        Logger.LogDebug("Cleared selection");
     }
 
     /// <summary>
@@ -2926,7 +2792,6 @@
         }
 
         AssignOrder(items);
-        Logger.LogDebug("Assigned sequential order to {Count} items", sequentialOrder - 1);
     }
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
