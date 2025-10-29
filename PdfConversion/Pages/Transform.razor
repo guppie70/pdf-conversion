@@ -91,6 +91,57 @@
 
                 <div class="attribute-section">
                     <h6 class="attribute-title">
+                        <i class="bi bi-scissors me-2"></i>Content Stripping
+                    </h6>
+
+                    <div class="attribute-details">
+                        <div class="attribute-name">
+                            <code>data-strip</code>
+                        </div>
+                        <p class="attribute-description">
+                            Excludes content ranges from the transformation output. Elements marked with data-strip="true" start the exclusion range, and data-strip="false" ends it (inclusive).
+                        </p>
+
+                        <div class="attribute-usage">
+                            <strong>Applied to:</strong> <code>&lt;p&gt;</code>, <code>&lt;h1&gt;</code>, <code>&lt;h2&gt;</code>, <code>&lt;h3&gt;</code>, <code>&lt;h4&gt;</code>, <code>&lt;h5&gt;</code>, <code>&lt;h6&gt;</code>, <code>&lt;img&gt;</code>, <code>&lt;table&gt;</code> elements
+                        </div>
+
+                        <div class="attribute-values">
+                            <strong>Values:</strong>
+                            <ul>
+                                <li><code>true</code> - Start stripping content (this element and all following elements are excluded)</li>
+                                <li><code>false</code> - Stop stripping content (this element is excluded, but following elements are included)</li>
+                            </ul>
+                        </div>
+
+                        <div class="attribute-example">
+                            <strong>Example:</strong>
+                            <pre><code>&lt;p&gt;This content will be kept&lt;/p&gt;
+&lt;p data-strip="true"&gt;This will be REMOVED&lt;/p&gt;
+&lt;h2&gt;This will also be REMOVED&lt;/h2&gt;
+&lt;img src="removed.jpg" /&gt;
+&lt;p data-strip="false"&gt;This will also be REMOVED&lt;/p&gt;
+&lt;p&gt;This content will be kept again&lt;/p&gt;</code></pre>
+                        </div>
+
+                        <div class="attribute-effect">
+                            <strong>Effect:</strong>
+                            <p>
+                                All elements between data-strip="true" and data-strip="false" (inclusive) are removed from the output. This is useful for excluding cover pages, table of contents, or other sections that should not appear in the final document. Multiple strip ranges can be used in the same document.
+                            </p>
+                        </div>
+
+                        <div class="attribute-use-case">
+                            <strong>Use case:</strong>
+                            <p>
+                                When PDF documents contain sections that should be excluded from the final output (such as disclaimers, cover pages, or appendices), use data-strip to mark the start and end of content ranges to remove. The attribute is processed in the final transformation pass and completely removes the marked content.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="attribute-section">
+                    <h6 class="attribute-title">
                         <i class="bi bi-table me-2"></i>Table Cell Injection
                     </h6>
 
