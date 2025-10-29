@@ -290,6 +290,168 @@ public static class SandboxEndpoint
     }
 
     /// <summary>
+    /// Builds HTML comparison view for single approach (not currently used, kept for reference).
+    /// </summary>
+    private static string BuildComparisonHtml(
+        string approachName,
+        string localResponse,
+        object claudeResponse)
+    {
+        var isError = claudeResponse is not string;
+        var claudeContent = isError
+            ? System.Text.Json.JsonSerializer.Serialize(claudeResponse, new System.Text.Json.JsonSerializerOptions { WriteIndented = true })
+            : (string)claudeResponse;
+
+        // Format JSON for display
+        string FormatJson(string json)
+        {
+            try
+            {
+                var jsonObj = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(json);
+                return System.Text.Json.JsonSerializer.Serialize(jsonObj, new System.Text.Json.JsonSerializerOptions
+                {
+                    WriteIndented = true
+                });
+            }
+            catch
+            {
+                return json;
+            }
+        }
+
+        var localFormatted = FormatJson(localResponse);
+        var claudeFormatted = isError ? claudeContent : FormatJson(claudeContent);
+
+        var errorStyle = isError
+            ? "background: #5A1D1D; border: 2px solid #F85149;"
+            : "";
+
+        var errorHeader = isError
+            ? "<div style='color: #F85149; font-weight: bold; margin-bottom: 8px;'>❌ API ERROR</div>"
+            : "";
+
+        return $@"
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8'>
+    <title>LLM Comparison - {approachName}</title>
+    <style>
+        body {{
+            background: #1F1F1F;
+            color: #CCCCCC;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            margin: 0;
+            padding: 20px;
+        }}
+        h1 {{
+            color: #FFFFFF;
+            font-size: 24px;
+            margin-bottom: 8px;
+        }}
+        h2 {{
+            color: #FFFFFF;
+            font-size: 18px;
+            margin-top: 32px;
+            margin-bottom: 16px;
+        }}
+        .approach-name {{
+            color: #9D9D9D;
+            font-size: 14px;
+            margin-bottom: 24px;
+        }}
+        .comparison-container {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 40px;
+        }}
+        .panel {{
+            background: #181818;
+            border: 1px solid #2B2B2B;
+            border-radius: 4px;
+            overflow: hidden;
+        }}
+        .panel-header {{
+            background: #1F1F1F;
+            color: #FFFFFF;
+            padding: 12px 16px;
+            border-bottom: 1px solid #2B2B2B;
+            font-weight: 600;
+        }}
+        .panel-subheader {{
+            color: #9D9D9D;
+            font-size: 12px;
+            font-weight: normal;
+            margin-top: 4px;
+        }}
+        .panel-content {{
+            padding: 16px;
+            max-height: 600px;
+            overflow-y: auto;
+        }}
+        pre {{
+            background: #1F1F1F;
+            color: #CCCCCC;
+            font-family: Consolas, Monaco, 'Courier New', monospace;
+            font-size: 12px;
+            margin: 0;
+            padding: 16px;
+            border: 1px solid #2B2B2B;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            {errorStyle}
+        }}
+        .back-link {{
+            display: inline-block;
+            color: #4daafc;
+            text-decoration: none;
+            margin-top: 20px;
+            padding: 8px 16px;
+            border: 1px solid #2B2B2B;
+            border-radius: 4px;
+            background: #181818;
+        }}
+        .back-link:hover {{
+            background: #1F1F1F;
+            border-color: #0078D4;
+        }}
+    </style>
+</head>
+<body>
+    <h1>LLM Comparison Results</h1>
+    <div class='approach-name'>Approach: {approachName}</div>
+
+    <div class='comparison-container'>
+        <div class='panel'>
+            <div class='panel-header'>
+                Local LLM
+                <div class='panel-subheader'>deepseek-coder:33b</div>
+            </div>
+            <div class='panel-content'>
+                <pre>{System.Web.HttpUtility.HtmlEncode(localFormatted)}</pre>
+            </div>
+        </div>
+
+        <div class='panel'>
+            <div class='panel-header'>
+                Claude Sonnet 4
+                <div class='panel-subheader'>claude-sonnet-4-20250514</div>
+            </div>
+            <div class='panel-content'>
+                {errorHeader}
+                <pre>{System.Web.HttpUtility.HtmlEncode(claudeFormatted)}</pre>
+            </div>
+        </div>
+    </div>
+
+    <a href='/sandbox' class='back-link'>← Run All Approaches</a>
+</body>
+</html>";
+    }
+
+    /// <summary>
     /// Compares local LLM responses with Claude Sonnet 4 for hierarchy generation prompts.
     /// </summary>
     private static async Task HandleLlmComparisonAsync(
