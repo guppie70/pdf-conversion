@@ -3,33 +3,46 @@ using PdfConversion.Services;
 namespace PdfConversion.Endpoints;
 
 /// <summary>
-/// Sandbox endpoint for testing prompt generation in isolation.
+/// Sandbox endpoint for testing prompt generation and LLM comparison.
 ///
-/// This endpoint allows rapid iteration on LLM prompt logic without running the full AI generation workflow.
-/// It performs XSLT transformation and builds the full prompt that would be sent to the LLM, then returns it
-/// as plain text for inspection and testing.
+/// MODES:
 ///
-/// Usage:
-///   curl http://localhost:8085/sandbox              # anonymized examples (default: false)
-///   curl http://localhost:8085/sandbox?anonymize=true   # anonymized examples
-///   curl http://localhost:8085/sandbox?anonymize=false  # real examples
+/// 1. LLM Comparison (default):
+///    Compares local LLM responses with Claude Sonnet 4 for hierarchy generation prompts.
 ///
-/// How to test with different data:
-///   1. Edit the hardcoded values at the top of HandleAsync() method below
-///   2. Hot-reload applies changes automatically (no restart needed)
-///   3. Re-run curl command to see updated prompt
+///    Usage:
+///      curl http://localhost:8085/sandbox                 # Cached mode (reads saved responses)
+///      curl http://localhost:8085/sandbox?liveApi=true    # Live API mode (calls Anthropic API)
+///      curl http://localhost:8085/sandbox?approach=1      # Test single approach (1-4)
 ///
-/// What this endpoint does:
-///   1. Loads source XML from hardcoded project path
-///   2. Transforms XML using XSLT (via XSLT3Service)
-///   3. Loads example hierarchy.xml files from hardcoded paths
-///   4. Builds the full LLM prompt using HierarchyGeneratorService
-///   5. Returns the prompt as plain text (NOT sent to LLM)
+///    Cached Mode (default):
+///      - Reads existing claude-response.json files from approach directories
+///      - Fast iteration without API costs
+///      - Shows "No cached response found" if files don't exist
+///
+///    Live API Mode (?liveApi=true):
+///      - Calls Anthropic API for each approach
+///      - Saves responses to claude-response.json
+///      - Requires ANTHROPIC_API_KEY environment variable
+///
+/// 2. Prompt Generation (?mode=prompt-gen):
+///    Generates and returns the prompt that would be sent to the LLM (original sandbox functionality).
+///
+///    Usage:
+///      curl http://localhost:8085/sandbox?mode=prompt-gen              # anonymized examples (default: false)
+///      curl http://localhost:8085/sandbox?mode=prompt-gen&anonymize=true   # anonymized examples
+///      curl http://localhost:8085/sandbox?mode=prompt-gen&anonymize=false  # real examples
+///
+///    How to test with different data:
+///      1. Edit the hardcoded values at the top of HandlePromptGenerationAsync() method below
+///      2. Hot-reload applies changes automatically (no restart needed)
+///      3. Re-run curl command to see updated prompt
 ///
 /// Benefits:
 ///   - Test prompt generation logic in isolation
 ///   - Inspect full prompt before sending to LLM
 ///   - Iterate quickly on prompt engineering
+///   - Compare local vs Claude responses side-by-side
 ///   - Verify examples are loaded correctly
 ///   - Check anonymization behavior
 /// </summary>
@@ -54,7 +67,9 @@ public static class SandboxEndpoint
         else
         {
             // Default: LLM comparison
-            await HandleLlmComparisonAsync(context, logger);
+            // Parse liveApi parameter (default: false for cached mode)
+            var useLiveApi = bool.Parse(context.Request.Query["liveApi"].FirstOrDefault() ?? "false");
+            await HandleLlmComparisonAsync(context, logger, useLiveApi);
         }
     }
 
@@ -456,19 +471,24 @@ public static class SandboxEndpoint
     /// </summary>
     private static async Task HandleLlmComparisonAsync(
         HttpContext context,
-        ILogger logger)
+        ILogger logger,
+        bool useLiveApi = false)
     {
-        // Check API key
-        var apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
-        if (string.IsNullOrEmpty(apiKey))
+        // Check API key only if live API mode is requested
+        string? apiKey = null;
+        if (useLiveApi)
         {
-            context.Response.StatusCode = 400;
-            await context.Response.WriteAsJsonAsync(new
+            apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
+            if (string.IsNullOrEmpty(apiKey))
             {
-                Error = "ANTHROPIC_API_KEY environment variable not set",
-                Help = "Set it in docker-compose.yml or via: export ANTHROPIC_API_KEY='sk-ant-...'"
-            });
-            return;
+                context.Response.StatusCode = 400;
+                await context.Response.WriteAsJsonAsync(new
+                {
+                    Error = "ANTHROPIC_API_KEY environment variable not set",
+                    Help = "Set it in docker-compose.yml or via: export ANTHROPIC_API_KEY='sk-ant-...'"
+                });
+                return;
+            }
         }
 
         // Get approach parameter
@@ -492,65 +512,71 @@ public static class SandboxEndpoint
         }
 
         var htmlParts = new List<string>();
-        htmlParts.Add(@"
+
+        // Determine mode banner
+        var modeBanner = useLiveApi
+            ? "<div style='background: #F85149; color: white; padding: 12px; margin-bottom: 20px; border-radius: 4px; font-weight: 600;'>🔴 LIVE API MODE - Calling Anthropic API</div>"
+            : "<div style='background: #0078D4; color: white; padding: 12px; margin-bottom: 20px; border-radius: 4px; font-weight: 600;'>📦 CACHED MODE - Using saved responses</div>";
+
+        htmlParts.Add($@"
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset='utf-8'>
     <title>LLM Comparison Results</title>
     <style>
-        body {
+        body {{
             background: #1F1F1F;
             color: #CCCCCC;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
             margin: 0;
             padding: 20px;
-        }
-        h1 {
+        }}
+        h1 {{
             color: #FFFFFF;
             font-size: 24px;
             margin-bottom: 32px;
-        }
-        .approach-section {
+        }}
+        .approach-section {{
             margin-bottom: 60px;
-        }
-        .approach-header {
+        }}
+        .approach-header {{
             color: #FFFFFF;
             font-size: 18px;
             margin-bottom: 16px;
             padding-bottom: 8px;
             border-bottom: 2px solid #0078D4;
-        }
-        .comparison-container {
+        }}
+        .comparison-container {{
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 20px;
-        }
-        .panel {
+        }}
+        .panel {{
             background: #181818;
             border: 1px solid #2B2B2B;
             border-radius: 4px;
             overflow: hidden;
-        }
-        .panel-header {
+        }}
+        .panel-header {{
             background: #1F1F1F;
             color: #FFFFFF;
             padding: 12px 16px;
             border-bottom: 1px solid #2B2B2B;
             font-weight: 600;
-        }
-        .panel-subheader {
+        }}
+        .panel-subheader {{
             color: #9D9D9D;
             font-size: 12px;
             font-weight: normal;
             margin-top: 4px;
-        }
-        .panel-content {
+        }}
+        .panel-content {{
             padding: 16px;
             max-height: 600px;
             overflow-y: auto;
-        }
-        pre {
+        }}
+        pre {{
             background: #1F1F1F;
             color: #CCCCCC;
             font-family: Consolas, Monaco, 'Courier New', monospace;
@@ -561,19 +587,20 @@ public static class SandboxEndpoint
             border-radius: 4px;
             white-space: pre-wrap;
             word-wrap: break-word;
-        }
-        .error-panel pre {
+        }}
+        .error-panel pre {{
             background: #5A1D1D;
             border: 2px solid #F85149;
-        }
-        .error-header {
+        }}
+        .error-header {{
             color: #F85149;
             font-weight: bold;
             margin-bottom: 8px;
-        }
+        }}
     </style>
 </head>
 <body>
+    {modeBanner}
     <h1>LLM Comparison Results</h1>
 ");
 
@@ -603,38 +630,74 @@ public static class SandboxEndpoint
             var promptText = await File.ReadAllTextAsync(promptPath);
             var localResponse = await File.ReadAllTextAsync(localResponsePath);
 
-            // Call Anthropic API
-            logger.LogInformation("Calling Anthropic API for {Approach}", approach);
-            var claudeResponse = await CallAnthropicApiAsync(promptText, apiKey, approach, logger);
+            // Get Claude response: either from cache or live API
+            object claudeResponse;
+            bool isError = false;
 
-            // Save response
-            var isError = claudeResponse is not string;
-            var outputPath = Path.Combine(basePath,
-                isError ? "claude-response-error.json" : "claude-response.json");
+            if (!useLiveApi)
+            {
+                // CACHED MODE: Read from existing file
+                var cachedPath = Path.Combine(basePath, "claude-response.json");
+                if (File.Exists(cachedPath))
+                {
+                    var cachedText = await File.ReadAllTextAsync(cachedPath);
+                    claudeResponse = cachedText;
+                    logger.LogInformation("Using cached response from {Path}", cachedPath);
+                }
+                else
+                {
+                    // No cached response found
+                    claudeResponse = new
+                    {
+                        Error = "No cached response found",
+                        Type = "CacheMiss",
+                        Path = cachedPath,
+                        Help = "Run with ?liveApi=true to call the API and generate this file"
+                    };
+                    isError = true;
+                    logger.LogWarning("No cached response at {Path}", cachedPath);
+                }
+            }
+            else
+            {
+                // LIVE API MODE: Call Anthropic API
+                logger.LogInformation("Calling Anthropic API for {Approach}", approach);
+                claudeResponse = await CallAnthropicApiAsync(promptText, apiKey!, approach, logger);
+                isError = claudeResponse is not string;
 
+                // Save response to cache
+                var outputPath = Path.Combine(basePath,
+                    isError ? "claude-response-error.json" : "claude-response.json");
+
+                var responseTextToSave = claudeResponse is string
+                    ? (string)claudeResponse
+                    : System.Text.Json.JsonSerializer.Serialize(claudeResponse, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+
+                // Try to pretty-print if valid JSON
+                if (!isError)
+                {
+                    try
+                    {
+                        var jsonObj = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(responseTextToSave);
+                        responseTextToSave = System.Text.Json.JsonSerializer.Serialize(jsonObj, new System.Text.Json.JsonSerializerOptions
+                        {
+                            WriteIndented = true
+                        });
+                    }
+                    catch
+                    {
+                        // Keep as-is if not valid JSON
+                    }
+                }
+
+                await File.WriteAllTextAsync(outputPath, responseTextToSave);
+                logger.LogInformation("Saved response to {Path}", outputPath);
+            }
+
+            // Prepare response text for display
             var responseText = claudeResponse is string
                 ? (string)claudeResponse
                 : System.Text.Json.JsonSerializer.Serialize(claudeResponse, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-
-            // Try to pretty-print if valid JSON
-            if (!isError)
-            {
-                try
-                {
-                    var jsonObj = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(responseText);
-                    responseText = System.Text.Json.JsonSerializer.Serialize(jsonObj, new System.Text.Json.JsonSerializerOptions
-                    {
-                        WriteIndented = true
-                    });
-                }
-                catch
-                {
-                    // Keep as-is if not valid JSON
-                }
-            }
-
-            await File.WriteAllTextAsync(outputPath, responseText);
-            logger.LogInformation("Saved response to {Path}", outputPath);
 
             // Format JSON for display
             string FormatJson(string json)
@@ -661,6 +724,10 @@ public static class SandboxEndpoint
                 ? "<div class='error-header'>❌ API ERROR</div>"
                 : "";
 
+            var sourceIndicator = useLiveApi
+                ? "<span style='color: #F85149; font-size: 11px; margin-left: 8px;'>🔴 LIVE</span>"
+                : "<span style='color: #4daafc; font-size: 11px; margin-left: 8px;'>📦 CACHED</span>";
+
             htmlParts.Add($@"
     <div class='approach-section'>
         <div class='approach-header'>{approach}</div>
@@ -677,7 +744,7 @@ public static class SandboxEndpoint
 
             <div class='panel {errorClass}'>
                 <div class='panel-header'>
-                    Claude Sonnet 4
+                    Claude Sonnet 4 {sourceIndicator}
                     <div class='panel-subheader'>claude-sonnet-4-20250514</div>
                 </div>
                 <div class='panel-content'>
