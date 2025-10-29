@@ -196,10 +196,10 @@ public class HierarchyService : IHierarchyService
             element.Add(new XAttribute("data-tochide", "true"));
         }
 
-        // Add web_page element
+        // Add web_page element with ASCII-normalized linkname
         element.Add(new XElement("web_page",
             new XElement("path", item.Path),
-            new XElement("linkname", item.LinkName)
+            new XElement("linkname", PdfConversion.Utils.FilenameUtils.NormalizeToAscii(item.LinkName))
         ));
 
         // Add sub_items if any

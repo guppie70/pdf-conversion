@@ -69,6 +69,10 @@ public static class SandboxEndpoint
         {
             await HandleTestHierarchyAsync(context, hierarchyService, logger);
         }
+        else if (mode == "test-ascii")
+        {
+            await HandleTestAsciiNormalizationAsync(context, hierarchyService, logger);
+        }
         else
         {
             // Default: LLM comparison
@@ -1618,6 +1622,161 @@ public static class SandboxEndpoint
         catch (Exception ex)
         {
             logger.LogError(ex, "[Sandbox] Error testing hierarchy XML");
+            context.Response.StatusCode = 500;
+            await context.Response.WriteAsync($"Error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Tests ASCII normalization for linknames and filenames.
+    /// Verifies that special Unicode characters are converted to ASCII equivalents.
+    ///
+    /// Usage: curl "http://localhost:8085/sandbox?mode=test-ascii"
+    /// </summary>
+    private static async Task HandleTestAsciiNormalizationAsync(
+        HttpContext context,
+        IHierarchyService hierarchyService,
+        ILogger logger)
+    {
+        try
+        {
+            logger.LogInformation("[Sandbox] Testing ASCII normalization");
+
+            // Create test hierarchy with special characters
+            var testHierarchy = new PdfConversion.Models.HierarchyStructure
+            {
+                Root = new PdfConversion.Models.HierarchyItem
+                {
+                    Id = "report-root",
+                    Level = 0,
+                    LinkName = "Annual Report 2024",
+                    DataRef = "report-root.xml",
+                    Path = "/",
+                    SubItems = new List<PdfConversion.Models.HierarchyItem>
+                    {
+                        new PdfConversion.Models.HierarchyItem
+                        {
+                            Id = "directors-report",
+                            Level = 1,
+                            LinkName = "Directors' report",  // Curly apostrophe
+                            DataRef = "directors-report.xml",
+                            Path = "/directors-report",
+                            SubItems = new List<PdfConversion.Models.HierarchyItem>()
+                        },
+                        new PdfConversion.Models.HierarchyItem
+                        {
+                            Id = "ceos-message",
+                            Level = 1,
+                            LinkName = "CEO\u2019s \u201CSpecial\u201D Message\u20142024",  // Curly apostrophe, curly quotes, em dash
+                            DataRef = "ceos-message.xml",
+                            Path = "/ceos-message",
+                            SubItems = new List<PdfConversion.Models.HierarchyItem>()
+                        },
+                        new PdfConversion.Models.HierarchyItem
+                        {
+                            Id = "financial-review",
+                            Level = 1,
+                            LinkName = "Financial Review – Year End",  // En dash, non-breaking spaces
+                            DataRef = "financial-review.xml",
+                            Path = "/financial-review",
+                            SubItems = new List<PdfConversion.Models.HierarchyItem>()
+                        },
+                        new PdfConversion.Models.HierarchyItem
+                        {
+                            Id = "notes",
+                            Level = 1,
+                            LinkName = "Notes • References © 2024 ®",  // Bullet, copyright, registered
+                            DataRef = "notes.xml",
+                            Path = "/notes",
+                            SubItems = new List<PdfConversion.Models.HierarchyItem>()
+                        }
+                    }
+                }
+            };
+
+            // Save to temporary file and read back
+            var tempPath = Path.Combine(Path.GetTempPath(), $"test-ascii-{Guid.NewGuid()}.xml");
+            await hierarchyService.SaveHierarchyAsync(tempPath, testHierarchy);
+            var xml = await File.ReadAllTextAsync(tempPath);
+
+            // Clean up temp file
+            try { File.Delete(tempPath); } catch { }
+
+            // Test filename normalization too
+            var testResults = new System.Text.StringBuilder();
+            testResults.AppendLine("<!-- ASCII NORMALIZATION TEST RESULTS -->");
+            testResults.AppendLine("<!-- ================================= -->");
+            testResults.AppendLine();
+            testResults.AppendLine("<!-- LinkName Normalization Tests: -->");
+
+            // Check each linkname in the XML
+            var testCases = new[]
+            {
+                ("Directors\u2019 report", "Directors' report"),
+                ("CEO\u2019s \u201CSpecial\u201D Message\u20142024", "CEO's \"Special\" Message-2024"),
+                ("Financial Review \u2013 Year End", "Financial Review - Year End"),
+                ("Notes \u2022 References \u00A9 2024 \u00AE", "Notes * References c 2024 r")
+            };
+
+            foreach (var (original, expected) in testCases)
+            {
+                var normalized = PdfConversion.Utils.FilenameUtils.NormalizeToAscii(original);
+                if (xml.Contains($"<linkname>{expected}</linkname>"))
+                {
+                    testResults.AppendLine($"<!-- ✅ '{original}' → '{expected}' (found in XML) -->");
+                }
+                else
+                {
+                    testResults.AppendLine($"<!-- ❌ '{original}' → expected '{expected}' but got '{normalized}' -->");
+                }
+            }
+
+            testResults.AppendLine();
+            testResults.AppendLine("<!-- Filename Normalization Tests: -->");
+
+            // Test filename normalization
+            var filenameTests = new[]
+            {
+                ("Directors\u2019 report", "directors-report"),
+                ("CEO\u2019s \u201CMessage\u201D", "ceos-message"),
+                ("Year\u2013End Report", "year-end-report"),
+                ("Notes \u2022 References", "notes-references")
+            };
+
+            foreach (var (original, expected) in filenameTests)
+            {
+                var normalized = PdfConversion.Utils.FilenameUtils.NormalizeFileName(original);
+                var status = normalized == expected ? "✅" : "❌";
+                testResults.AppendLine($"<!-- {status} Filename: '{original}' → '{normalized}' (expected: '{expected}') -->");
+            }
+
+            // Check that no special Unicode characters remain
+            var hasSpecialChars = xml.Any(c => c == '\u2018' || c == '\u2019' || c == '\u201C' || c == '\u201D' ||
+                                               c == '\u2013' || c == '\u2014' || c == '\u00B4' || c == '\u2022');
+
+            if (hasSpecialChars)
+            {
+                testResults.AppendLine();
+                testResults.AppendLine("<!-- ❌ WARNING: Special Unicode characters still found in XML! -->");
+            }
+            else
+            {
+                testResults.AppendLine();
+                testResults.AppendLine("<!-- ✅ No special Unicode characters found in XML (all ASCII) -->");
+            }
+
+            testResults.AppendLine("<!-- ================================= -->");
+            testResults.AppendLine();
+
+            // Return the XML with test results
+            context.Response.ContentType = "application/xml";
+            await context.Response.WriteAsync(testResults.ToString() + xml);
+
+            logger.LogInformation("[Sandbox] ASCII normalization test completed");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "[Sandbox] Error testing ASCII normalization");
             context.Response.StatusCode = 500;
             await context.Response.WriteAsync($"Error: {ex.Message}");
         }
