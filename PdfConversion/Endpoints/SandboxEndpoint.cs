@@ -458,8 +458,244 @@ public static class SandboxEndpoint
         HttpContext context,
         ILogger logger)
     {
-        // Placeholder - will be implemented in next task
-        context.Response.StatusCode = 501;
-        await context.Response.WriteAsync("LLM comparison functionality coming soon...");
+        // Check API key
+        var apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
+        if (string.IsNullOrEmpty(apiKey))
+        {
+            context.Response.StatusCode = 400;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                Error = "ANTHROPIC_API_KEY environment variable not set",
+                Help = "Set it in docker-compose.yml or via: export ANTHROPIC_API_KEY='sk-ant-...'"
+            });
+            return;
+        }
+
+        // Get approach parameter
+        var approachParam = context.Request.Query["approach"].FirstOrDefault();
+
+        var approaches = new[]
+        {
+            "1-full-generation-approach",
+            "2-task-inversion-line-numbers",
+            "3-labeled-training-examples",
+            "4-context-aware-metadata"
+        };
+
+        // Filter to single approach if specified
+        if (!string.IsNullOrEmpty(approachParam) && int.TryParse(approachParam, out int approachNum))
+        {
+            if (approachNum >= 1 && approachNum <= 4)
+            {
+                approaches = new[] { approaches[approachNum - 1] };
+            }
+        }
+
+        var htmlParts = new List<string>();
+        htmlParts.Add(@"
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8'>
+    <title>LLM Comparison Results</title>
+    <style>
+        body {
+            background: #1F1F1F;
+            color: #CCCCCC;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            color: #FFFFFF;
+            font-size: 24px;
+            margin-bottom: 32px;
+        }
+        .approach-section {
+            margin-bottom: 60px;
+        }
+        .approach-header {
+            color: #FFFFFF;
+            font-size: 18px;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #0078D4;
+        }
+        .comparison-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .panel {
+            background: #181818;
+            border: 1px solid #2B2B2B;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .panel-header {
+            background: #1F1F1F;
+            color: #FFFFFF;
+            padding: 12px 16px;
+            border-bottom: 1px solid #2B2B2B;
+            font-weight: 600;
+        }
+        .panel-subheader {
+            color: #9D9D9D;
+            font-size: 12px;
+            font-weight: normal;
+            margin-top: 4px;
+        }
+        .panel-content {
+            padding: 16px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        pre {
+            background: #1F1F1F;
+            color: #CCCCCC;
+            font-family: Consolas, Monaco, 'Courier New', monospace;
+            font-size: 12px;
+            margin: 0;
+            padding: 16px;
+            border: 1px solid #2B2B2B;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .error-panel pre {
+            background: #5A1D1D;
+            border: 2px solid #F85149;
+        }
+        .error-header {
+            color: #F85149;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+    <h1>LLM Comparison Results</h1>
+");
+
+        foreach (var approach in approaches)
+        {
+            logger.LogInformation("Processing approach: {Approach}", approach);
+
+            var basePath = $"/app/data/llm-development/{approach}";
+
+            // Check directory exists
+            if (!Directory.Exists(basePath))
+            {
+                logger.LogWarning("Skipping {Approach} - directory not found", approach);
+                continue;
+            }
+
+            // Read files
+            var promptPath = Path.Combine(basePath, "prompt.txt");
+            var localResponsePath = Path.Combine(basePath, "response.json");
+
+            if (!File.Exists(promptPath) || !File.Exists(localResponsePath))
+            {
+                logger.LogWarning("Skipping {Approach} - missing prompt.txt or response.json", approach);
+                continue;
+            }
+
+            var promptText = await File.ReadAllTextAsync(promptPath);
+            var localResponse = await File.ReadAllTextAsync(localResponsePath);
+
+            // Call Anthropic API
+            logger.LogInformation("Calling Anthropic API for {Approach}", approach);
+            var claudeResponse = await CallAnthropicApiAsync(promptText, apiKey, approach, logger);
+
+            // Save response
+            var isError = claudeResponse is not string;
+            var outputPath = Path.Combine(basePath,
+                isError ? "claude-response-error.json" : "claude-response.json");
+
+            var responseText = claudeResponse is string
+                ? (string)claudeResponse
+                : System.Text.Json.JsonSerializer.Serialize(claudeResponse, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+
+            // Try to pretty-print if valid JSON
+            if (!isError)
+            {
+                try
+                {
+                    var jsonObj = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(responseText);
+                    responseText = System.Text.Json.JsonSerializer.Serialize(jsonObj, new System.Text.Json.JsonSerializerOptions
+                    {
+                        WriteIndented = true
+                    });
+                }
+                catch
+                {
+                    // Keep as-is if not valid JSON
+                }
+            }
+
+            await File.WriteAllTextAsync(outputPath, responseText);
+            logger.LogInformation("Saved response to {Path}", outputPath);
+
+            // Format JSON for display
+            string FormatJson(string json)
+            {
+                try
+                {
+                    var jsonObj = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(json);
+                    return System.Text.Json.JsonSerializer.Serialize(jsonObj, new System.Text.Json.JsonSerializerOptions
+                    {
+                        WriteIndented = true
+                    });
+                }
+                catch
+                {
+                    return json;
+                }
+            }
+
+            var localFormatted = FormatJson(localResponse);
+            var claudeFormatted = FormatJson(responseText);
+
+            var errorClass = isError ? "error-panel" : "";
+            var errorHeader = isError
+                ? "<div class='error-header'>❌ API ERROR</div>"
+                : "";
+
+            htmlParts.Add($@"
+    <div class='approach-section'>
+        <div class='approach-header'>{approach}</div>
+        <div class='comparison-container'>
+            <div class='panel'>
+                <div class='panel-header'>
+                    Local LLM
+                    <div class='panel-subheader'>deepseek-coder:33b</div>
+                </div>
+                <div class='panel-content'>
+                    <pre>{System.Web.HttpUtility.HtmlEncode(localFormatted)}</pre>
+                </div>
+            </div>
+
+            <div class='panel {errorClass}'>
+                <div class='panel-header'>
+                    Claude Sonnet 4
+                    <div class='panel-subheader'>claude-sonnet-4-20250514</div>
+                </div>
+                <div class='panel-content'>
+                    {errorHeader}
+                    <pre>{System.Web.HttpUtility.HtmlEncode(claudeFormatted)}</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+");
+        }
+
+        htmlParts.Add(@"
+</body>
+</html>");
+
+        var html = string.Join("", htmlParts);
+        context.Response.ContentType = "text/html";
+        await context.Response.WriteAsync(html);
     }
 }
