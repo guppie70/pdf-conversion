@@ -204,6 +204,92 @@ public static class SandboxEndpoint
     }
 
     /// <summary>
+    /// Calls the Anthropic API to generate a hierarchy using Claude Sonnet 4.
+    /// </summary>
+    private static async Task<object> CallAnthropicApiAsync(
+        string promptText,
+        string apiKey,
+        string approach,
+        ILogger logger)
+    {
+        var httpClient = new HttpClient();
+        httpClient.DefaultRequestHeaders.Add("x-api-key", apiKey);
+        httpClient.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
+
+        var requestBody = new
+        {
+            model = "claude-sonnet-4-20250514",
+            max_tokens = 4096,
+            messages = new[]
+            {
+                new
+                {
+                    role = "user",
+                    content = promptText
+                }
+            }
+        };
+
+        var jsonContent = System.Text.Json.JsonSerializer.Serialize(requestBody);
+        var content = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json");
+
+        try
+        {
+            var response = await httpClient.PostAsync(
+                "https://api.anthropic.com/v1/messages",
+                content);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync();
+                var errorInfo = new
+                {
+                    StatusCode = (int)response.StatusCode,
+                    StatusText = response.StatusCode.ToString(),
+                    ErrorBody = errorBody,
+                    Timestamp = DateTime.UtcNow,
+                    Approach = approach
+                };
+
+                logger.LogError(
+                    "Anthropic API failed for {Approach}: {Status} - {Error}",
+                    approach,
+                    response.StatusCode,
+                    errorBody
+                );
+
+                return errorInfo;
+            }
+
+            var responseBody = await response.Content.ReadAsStringAsync();
+            var responseJson = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(responseBody);
+
+            // Extract text from content array
+            var claudeText = responseJson
+                .GetProperty("content")[0]
+                .GetProperty("text")
+                .GetString();
+
+            return claudeText ?? string.Empty;
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogError(ex, "Network error calling Anthropic API for {Approach}", approach);
+            return new { Error = ex.Message, Type = "NetworkError", Approach = approach };
+        }
+        catch (TaskCanceledException ex)
+        {
+            logger.LogError(ex, "Timeout calling Anthropic API for {Approach}", approach);
+            return new { Error = "Request timeout", Type = "Timeout", Approach = approach };
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected error for {Approach}", approach);
+            return new { Error = ex.Message, Type = ex.GetType().Name, Approach = approach };
+        }
+    }
+
+    /// <summary>
     /// Compares local LLM responses with Claude Sonnet 4 for hierarchy generation prompts.
     /// </summary>
     private static async Task HandleLlmComparisonAsync(
