@@ -29,9 +29,38 @@
         </xsl:choose>
     </xsl:function>
 
-    <!-- L containing forced headers: unwrap completely and extract headers (priority=15) -->
-    <xsl:template match="L[LI/LBody/@data-forceheader]" priority="15">
+    <!-- L containing ONLY forced headers: unwrap completely (priority=16) -->
+    <xsl:template match="L[every $li in LI satisfies $li/LBody/@data-forceheader]" priority="16">
         <xsl:apply-templates select="LI" mode="extract-forced-header"/>
+    </xsl:template>
+
+    <!-- L containing MIX of forced headers and regular items: process in document order (priority=15) -->
+    <xsl:template match="L[LI/LBody/@data-forceheader and not(every $li in LI satisfies $li/LBody/@data-forceheader)]" priority="15">
+        <xsl:for-each-group select="LI" group-adjacent="boolean(LBody/@data-forceheader)">
+            <xsl:choose>
+                <!-- Group of forced headers: extract without list wrapper -->
+                <xsl:when test="current-grouping-key()">
+                    <xsl:apply-templates select="current-group()" mode="extract-forced-header"/>
+                </xsl:when>
+                <!-- Group of regular items: wrap in list -->
+                <xsl:otherwise>
+                    <xsl:choose>
+                        <xsl:when test="../@ListType='Ordered'">
+                            <ol>
+                                <xsl:apply-templates select="../@* except ../@ListType"/>
+                                <xsl:apply-templates select="current-group()"/>
+                            </ol>
+                        </xsl:when>
+                        <xsl:otherwise>
+                            <ul>
+                                <xsl:apply-templates select="../@* except ../@ListType"/>
+                                <xsl:apply-templates select="current-group()"/>
+                            </ul>
+                        </xsl:otherwise>
+                    </xsl:choose>
+                </xsl:otherwise>
+            </xsl:choose>
+        </xsl:for-each-group>
     </xsl:template>
 
     <!-- General list template for regular lists -->
@@ -102,24 +131,53 @@
 
     <!-- extract-forced-header mode: Extract header directly without li wrapper -->
     <xsl:template match="LI" mode="extract-forced-header">
-        <xsl:variable name="header-level" select="string(LBody/@data-forceheader)"/>
-        <xsl:variable name="text" select="normalize-space(LBody)"/>
-        <xsl:variable name="text-without-prefix">
-            <xsl:choose>
-                <xsl:when test="matches($text, '^\([ivxlcdm]+\)\s')">
-                    <xsl:value-of select="normalize-space(replace($text, '^\([ivxlcdm]+\)\s', ''))"/>
-                </xsl:when>
-                <xsl:otherwise>
-                    <xsl:value-of select="$text"/>
-                </xsl:otherwise>
-            </xsl:choose>
-        </xsl:variable>
+        <xsl:choose>
+            <!-- Only process LI with data-forceheader attribute -->
+            <xsl:when test="LBody/@data-forceheader">
+                <xsl:variable name="header-level" select="string(LBody/@data-forceheader)"/>
+                <xsl:variable name="text" select="normalize-space(LBody)"/>
 
-        <xsl:element name="{$header-level}">
-            <xsl:attribute name="data-numberscheme">(a),(b),(c)</xsl:attribute>
-            <xsl:attribute name="data-number"></xsl:attribute>
-            <xsl:value-of select="$text-without-prefix"/>
-        </xsl:element>
+                <!-- Extract number prefix and clean text -->
+                <xsl:variable name="number-prefix">
+                    <xsl:choose>
+                        <xsl:when test="matches($text, '^\d+(\.\d+)*\.?\s+')">
+                            <xsl:variable name="captured" select="replace($text, '^(\d+(\.\d+)*)\.?\s+.*', '$1')"/>
+                            <xsl:value-of select="if (ends-with($captured, '.')) then $captured else concat($captured, '.')"/>
+                        </xsl:when>
+                        <xsl:otherwise></xsl:otherwise>
+                    </xsl:choose>
+                </xsl:variable>
+
+                <xsl:variable name="text-without-prefix">
+                    <xsl:choose>
+                        <!-- Remove numeric prefix (e.g., "20. " or "20.1 ") -->
+                        <xsl:when test="matches($text, '^\d+(\.\d+)*\.?\s+')">
+                            <xsl:value-of select="normalize-space(replace($text, '^\d+(\.\d+)*\.?\s+', ''))"/>
+                        </xsl:when>
+                        <!-- Remove roman numeral prefix (e.g., "(i) ") -->
+                        <xsl:when test="matches($text, '^\([ivxlcdm]+\)\s')">
+                            <xsl:value-of select="normalize-space(replace($text, '^\([ivxlcdm]+\)\s', ''))"/>
+                        </xsl:when>
+                        <xsl:otherwise>
+                            <xsl:value-of select="$text"/>
+                        </xsl:otherwise>
+                    </xsl:choose>
+                </xsl:variable>
+
+                <xsl:element name="{$header-level}">
+                    <xsl:attribute name="data-numberscheme">(a),(b),(c)</xsl:attribute>
+                    <xsl:attribute name="data-number"><xsl:value-of select="$number-prefix"/></xsl:attribute>
+                    <xsl:value-of select="$text-without-prefix"/>
+                </xsl:element>
+            </xsl:when>
+            <!-- LI without data-forceheader: render as regular list item -->
+            <xsl:otherwise>
+                <li>
+                    <xsl:apply-templates select="@*"/>
+                    <xsl:apply-templates/>
+                </li>
+            </xsl:otherwise>
+        </xsl:choose>
     </xsl:template>
 
     <!-- Text node processing within LBody - strip prefixes -->

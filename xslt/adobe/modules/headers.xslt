@@ -226,12 +226,12 @@
         </xsl:choose>
     </xsl:function>
 
-    <!-- Extract section number (e.g., "3.1", "3.1.1") from text -->
+    <!-- Extract section number (e.g., "20.", "3.1", "3.1.1") from text -->
     <xsl:function name="hdr:get-section-number" as="xs:string">
         <xsl:param name="text" as="xs:string"/>
         <xsl:choose>
-            <xsl:when test="matches($text, '^\s*(\d+(?:\.\d+)+)\s+')">
-                <xsl:value-of select="replace($text, '^\s*(\d+(?:\.\d+)+)\s+.*', '$1')"/>
+            <xsl:when test="matches($text, '^\s*(\d+(?:\.\d+)*\.)\s+')">
+                <xsl:value-of select="replace($text, '^\s*(\d+(?:\.\d+)*\.)\s+.*', '$1')"/>
             </xsl:when>
             <xsl:otherwise>
                 <xsl:value-of select="''"/>
@@ -245,7 +245,7 @@
         <xsl:variable name="section-number" select="hdr:get-section-number($text)"/>
         <xsl:choose>
             <xsl:when test="$section-number != ''">
-                <xsl:value-of select="normalize-space(replace($text, '^\s*\d+(?:\.\d+)+\s+', ''))"/>
+                <xsl:value-of select="normalize-space(replace($text, '^\s*\d+(?:\.\d+)*\.\s+', ''))"/>
             </xsl:when>
             <xsl:otherwise>
                 <xsl:value-of select="$text"/>
