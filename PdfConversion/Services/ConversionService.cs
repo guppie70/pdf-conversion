@@ -773,6 +773,7 @@ public class ConversionService : IConversionService
             logCallback("Processing sections...");
 
             // Track resolved duplicates to avoid asking twice
+            // Key is HierarchyItem.Id (unique per item) to prevent cache collisions when multiple items share the same LinkName
             var resolvedDuplicates = new Dictionary<string, HeaderMatch>();
 
             for (int i = 0; i < matches.Count; i++)
@@ -804,12 +805,14 @@ public class ConversionService : IConversionService
                 {
                     // Collect all duplicate matches for this linkname
                     var linkName = match.HierarchyItem.LinkName;
+                    var hierarchyItemId = match.HierarchyItem.Id;
 
                     // Check if we already resolved this from a previous boundary selection
-                    if (resolvedDuplicates.ContainsKey(linkName))
+                    // Use hierarchy item ID as cache key to prevent collisions when multiple items share the same LinkName
+                    if (resolvedDuplicates.ContainsKey(hierarchyItemId))
                     {
                         logCallback($"{progress} ℹ Using previously selected duplicate for '{linkName}'");
-                        match = resolvedDuplicates[linkName];
+                        match = resolvedDuplicates[hierarchyItemId];
                         // Keep cache entry for subsequent instances (3+) of the same header
                     }
                     else
@@ -823,38 +826,72 @@ public class ConversionService : IConversionService
                         // If we haven't processed this duplicate group yet
                         if (duplicateMatches.Any() && duplicateMatches[0] == match)
                         {
-                            logCallback($"{progress} ℹ Duplicate found for '{linkName}', asking user...");
+                            logCallback($"{progress} ℹ Multiple headers found for '{linkName}'");
+
+                            // Get list of matches processed so far (for context visualization)
+                            var processedMatches = matches.Take(i).ToList();
+
+                            // TRY AUTO-DISAMBIGUATION FIRST
+                            logCallback($"{progress}   Checking next 3-4 headers to auto-resolve ambiguity...");
+
+                            var currentHierarchyIndex = hierarchyItems.IndexOf(match.HierarchyItem);
+                            var disambiguatedMatch = TryDisambiguateBySequence(
+                                duplicateMatches,
+                                hierarchyItems,
+                                currentHierarchyIndex,
+                                transformedXhtml,
+                                matches,
+                                processedMatches,
+                                logCallback,
+                                progress);
 
                             HeaderMatch? selectedMatch = null;
 
-                            if (duplicateSelectionCallback != null)
+                            if (disambiguatedMatch != null)
                             {
-                                try
-                                {
-                                    // Get list of matches processed so far (for context visualization)
-                                    var processedMatches = matches.Take(i).ToList();
+                                // Auto-disambiguation succeeded
+                                logCallback($"{progress} ✓ Auto-selected based on header sequence: {disambiguatedMatch.MatchedText}");
+                                selectedMatch = disambiguatedMatch;
+                                // Cache this selection for future reference (keyed by hierarchy item ID)
+                                resolvedDuplicates[hierarchyItemId] = disambiguatedMatch;
+                            }
+                            else
+                            {
+                                // Could not auto-resolve, ask user
+                                logCallback($"{progress} ℹ Could not auto-resolve, asking user...");
 
-                                    // Get current hierarchy item (the one with duplicates)
-                                    var currentHierarchyItem = match.HierarchyItem;
-
-                                    selectedMatch = await duplicateSelectionCallback(
-                                        duplicateMatches,
-                                        transformedXhtml,
-                                        processedMatches,
-                                        hierarchyItems,
-                                        currentHierarchyItem);
-                                }
-                                catch (Exception ex)
+                                if (duplicateSelectionCallback != null)
                                 {
-                                    _logger.LogError(ex, "Error in duplicate selection callback");
-                                    logCallback($"{progress} ✗ Error in duplicate selection: {ex.Message}");
+                                    try
+                                    {
+                                        // Get current hierarchy item (the one with duplicates)
+                                        var currentHierarchyItem = match.HierarchyItem;
+
+                                        selectedMatch = await duplicateSelectionCallback(
+                                            duplicateMatches,
+                                            transformedXhtml,
+                                            processedMatches,
+                                            hierarchyItems,
+                                            currentHierarchyItem);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        _logger.LogError(ex, "Error in duplicate selection callback");
+                                        logCallback($"{progress} ✗ Error in duplicate selection: {ex.Message}");
+                                    }
                                 }
                             }
 
                             if (selectedMatch != null)
                             {
-                                logCallback($"{progress} ✓ User selected match {selectedMatch.DuplicateIndex + 1} of {selectedMatch.DuplicateCount}: {selectedMatch.MatchedText}");
-                                match = selectedMatch; // Use selected match
+                                if (disambiguatedMatch == null)
+                                {
+                                    // User selection (not auto)
+                                    logCallback($"{progress} ✓ User selected match {selectedMatch.DuplicateIndex + 1} of {selectedMatch.DuplicateCount}: {selectedMatch.MatchedText}");
+                                    // Cache this selection for future reference (keyed by hierarchy item ID)
+                                    resolvedDuplicates[hierarchyItemId] = selectedMatch;
+                                }
+                                match = selectedMatch; // Use selected match (auto or user)
                             }
                             else
                             {
@@ -924,8 +961,8 @@ public class ConversionService : IConversionService
                                 // Smart detection succeeded
                                 nextHeader = disambiguatedMatch.MatchedHeader;
                                 logCallback($"{progress} ✓ Auto-selected boundary based on header sequence: {disambiguatedMatch.MatchedText}");
-                                // Store this selection for reuse
-                                resolvedDuplicates[nextLinkName] = disambiguatedMatch;
+                                // Store this selection for reuse (keyed by hierarchy item ID to prevent collisions)
+                                resolvedDuplicates[nextHierarchyItem.Id] = disambiguatedMatch;
                             }
                             else
                             {
@@ -957,8 +994,8 @@ public class ConversionService : IConversionService
                                 {
                                     nextHeader = selectedNextMatch.MatchedHeader;
                                     logCallback($"{progress} ✓ User selected boundary: {selectedNextMatch.MatchedText}");
-                                    // Store this selection for reuse when processing the next section
-                                    resolvedDuplicates[nextLinkName] = selectedNextMatch;
+                                    // Store this selection for reuse when processing the next section (keyed by hierarchy item ID)
+                                    resolvedDuplicates[nextHierarchyItem.Id] = selectedNextMatch;
                                 }
                                 else
                                 {
