@@ -39,25 +39,13 @@
 
         <span class="level-badge">L@(Item.Level)</span>
 
-        @if (IsEditing)
-        {
-            <input type="text"
-                   class="form-control form-control-sm tree-edit-input"
-                   @bind="EditedLinkName"
-                   @onblur="SaveEdit"
-                   @onkeydown="HandleKeyDown"
-                   @onclick:stopPropagation="true" />
-        }
-        else
-        {
-            <span class="tree-item-label" @ondblclick="StartEdit" @ondblclick:stopPropagation="true">@Item.LinkName</span>
-            <button class="btn btn-sm btn-link tree-edit-icon"
-                    @onclick="OpenEditor"
-                    @onclick:stopPropagation="true"
-                    title="Edit item properties">
-                <i class="bi bi-pencil-square"></i>
-            </button>
-        }
+        <span class="tree-item-label">@Item.LinkName</span>
+        <button class="btn btn-sm btn-link tree-edit-icon"
+                @onclick="OpenEditor"
+                @onclick:stopPropagation="true"
+                title="Edit item properties">
+            <i class="bi bi-pencil-square"></i>
+        </button>
 
         @if (Item.Confidence.HasValue)
         {
@@ -127,9 +115,6 @@
     [Parameter]
     public HierarchyItem? RootItem { get; set; }
 
-    private bool IsEditing { get; set; }
-    private string EditedLinkName { get; set; } = string.Empty;
-
     // Drag-drop state (static to share across instances)
     private static HierarchyItem? DraggedItem { get; set; }
     private static HierarchyItem? DraggedItemParent { get; set; }
@@ -164,37 +149,6 @@
     private void ToggleExpanded()
     {
         Item.IsExpanded = !Item.IsExpanded;
-    }
-
-    private void StartEdit()
-    {
-        IsEditing = true;
-        EditedLinkName = Item.LinkName;
-    }
-
-    private async Task SaveEdit()
-    {
-        if (EditedLinkName != Item.LinkName)
-        {
-            Item.LinkName = EditedLinkName;
-            if (OnItemEdited.HasDelegate)
-            {
-                await OnItemEdited.InvokeAsync(Item);
-            }
-        }
-        IsEditing = false;
-    }
-
-    private async Task HandleKeyDown(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter")
-        {
-            await SaveEdit();
-        }
-        else if (e.Key == "Escape")
-        {
-            IsEditing = false;
-        }
     }
 
     private async Task OpenEditor()
