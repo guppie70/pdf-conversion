@@ -158,7 +158,7 @@
                 </head>
                 <body>
                     <div class="document-content">
-                        <xsl:apply-templates select="/TaggedPDF-doc/Document | /Document"/>
+                        <xsl:apply-templates select="/TaggedPDF-doc/* | /Document"/>
                     </div>
                 </body>
             </html>

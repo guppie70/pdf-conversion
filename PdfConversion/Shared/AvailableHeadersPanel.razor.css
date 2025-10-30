@@ -207,9 +207,8 @@
     flex: 1;
     font-size: 13px;
     color: #cccccc;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    word-wrap: break-word;
+    line-height: 1.4;
 }
 
 .header-item.used .header-title {

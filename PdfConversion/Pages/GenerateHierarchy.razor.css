@@ -704,9 +704,8 @@
     flex: 1;
     color: #CCCCCC;
     font-size: 0.9rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .excluded-badge {

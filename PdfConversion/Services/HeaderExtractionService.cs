@@ -147,15 +147,7 @@ public class HeaderExtractionService : IHeaderExtractionService
     /// </summary>
     private static string GetElementText(XElement element)
     {
-        var text = element.Value.Trim();
-
-        // Limit length for display
-        if (text.Length > 100)
-        {
-            text = text.Substring(0, 97) + "...";
-        }
-
-        return text;
+        return element.Value.Trim();
     }
 
     /// <summary>
