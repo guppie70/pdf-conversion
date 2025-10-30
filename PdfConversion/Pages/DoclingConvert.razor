@@ -13,6 +13,7 @@
 @inject DoclingJobPollingService JobPollingService
 @inject IUserSelectionService UserSelectionService
 @inject IBase64ImageExtractor ImageExtractor
+@inject IFileGroupBuilderService FileGroupBuilder
 @implements IAsyncDisposable
 
 <PageTitle>Docling Convert - Step 1</PageTitle>
@@ -305,7 +306,6 @@
     // State
     private FileModeEnum FileMode { get; set; } = FileModeEnum.NewUpload;
     private List<ProjectInfo> Projects { get; set; } = new();
-    private List<ExistingFileInfo> ExistingFiles { get; set; } = new();
     private string SelectedProject { get; set; } = string.Empty;
     private string SelectedExistingFile { get; set; } = string.Empty;
     private IBrowserFile? UploadedFile { get; set; }
@@ -319,17 +319,6 @@
     private string ErrorMessage { get; set; } = string.Empty;
     private string SuccessMessage { get; set; } = string.Empty;
     private bool ShowFallbackOption { get; set; }
-
-    // Helper class for existing file info
-    private class ExistingFileInfo
-    {
-        public string FilePath { get; set; } = string.Empty;
-        public string FileName { get; set; } = string.Empty;
-        public string ProjectId { get; set; } = string.Empty;
-        public string Customer { get; set; } = string.Empty;
-        public string ProjectLabel { get; set; } = string.Empty;
-        public string DisplayString { get; set; } = string.Empty;
-    }
 
     // Async job tracking
     private string? CurrentJobId { get; set; }
@@ -370,20 +359,7 @@
     }
 
     // ProjectFileSelector helper properties
-    private List<ProjectFileGroup> ExistingFileGroups =>
-        ExistingFiles
-            .GroupBy(f => new { f.Customer, f.ProjectId, f.ProjectLabel })
-            .Select(g => new ProjectFileGroup
-            {
-                Customer = g.Key.Customer,
-                ProjectId = g.Key.ProjectId,
-                ProjectName = g.Key.ProjectLabel,
-                Files = g.Select(f => new ProjectFile
-                {
-                    FileName = f.FileName,
-                    FullPath = f.FilePath
-                }).ToList()
-            }).ToList();
+    private List<ProjectFileGroup> ExistingFileGroups { get; set; } = new();
 
     private async Task HandleExistingFileSelectionChanged(string filePath)
     {
@@ -396,10 +372,15 @@
         {
             Logger.LogInformation("[OnInitializedAsync] Starting initialization");
             await LoadProjectsAsync();
-            await LoadExistingFilesAsync();
+
+            // Load existing document files using the service
+            ExistingFileGroups = await FileGroupBuilder.BuildDocumentFileGroupsAsync(
+                extensions: new[] { ".pdf", ".docx", ".doc" },
+                onlyActiveProjects: true);
+
             await InitializeSignalR();
             await RestoreUserSelectionsAsync();
-            Logger.LogInformation($"[OnInitializedAsync] Initialized with {Projects.Count} projects and {ExistingFiles.Count} existing files");
+            Logger.LogInformation($"[OnInitializedAsync] Initialized with {Projects.Count} projects and {ExistingFileGroups.Sum(g => g.Files.Count)} existing files");
         }
         catch (Exception ex)
         {
@@ -537,54 +518,6 @@
         }
     }
 
-    private async Task LoadExistingFilesAsync()
-    {
-        try
-        {
-            var existingFiles = new List<ExistingFileInfo>();
-            var basePath = "/app/data/input";
-            var supportedExtensions = new[] { ".pdf", ".docx", ".doc" };
-
-            // Load projects to get labels
-            var projects = await ProjectLabelService.GetAllProjectsAsync(basePath);
-
-            // Scan all project directories for PDF/Word files
-            if (Directory.Exists(basePath))
-            {
-                foreach (var project in projects)
-                {
-                    if (Directory.Exists(project.FolderPath))
-                    {
-                        var files = Directory.GetFiles(project.FolderPath)
-                            .Where(f => supportedExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()))
-                            .ToList();
-
-                        foreach (var filePath in files)
-                        {
-                            var fileName = Path.GetFileName(filePath);
-                            existingFiles.Add(new ExistingFileInfo
-                            {
-                                FilePath = filePath,
-                                FileName = fileName,
-                                ProjectId = project.ProjectId,
-                                Customer = project.Customer,
-                                ProjectLabel = project.CustomLabel ?? project.ProjectId,
-                                DisplayString = $"{project.CustomLabel ?? project.ProjectId} - {fileName}"
-                            });
-                        }
-                    }
-                }
-            }
-
-            ExistingFiles = existingFiles.OrderBy(f => f.ProjectLabel).ThenBy(f => f.FileName).ToList();
-            Logger.LogInformation($"Loaded {ExistingFiles.Count} existing files");
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error loading existing files");
-            throw;
-        }
-    }
 
     private async Task RestoreUserSelectionsAsync()
     {
@@ -650,7 +583,7 @@
             // Restore existing file selection (for ExistingFile mode)
             if (FileMode == FileModeEnum.ExistingFile && !string.IsNullOrEmpty(selection.LastDoclingExistingFile))
             {
-                var fileExists = ExistingFiles.Any(f => f.FilePath == selection.LastDoclingExistingFile);
+                var fileExists = ExistingFileGroups.SelectMany(g => g.Files).Any(f => f.FullPath == selection.LastDoclingExistingFile);
                 if (fileExists)
                 {
                     SelectedExistingFile = selection.LastDoclingExistingFile;
@@ -693,11 +626,12 @@
                 _ => "application/octet-stream"
             };
 
-            // Set SelectedProject from the file's project
-            var fileInfo = ExistingFiles.FirstOrDefault(f => f.FilePath == filePath);
-            if (fileInfo != null)
+            // Set SelectedProject from the file's project - find from ExistingFileGroups
+            var fileGroup = ExistingFileGroups.SelectMany(g => g.Files.Select(f => new { Group = g, File = f }))
+                .FirstOrDefault(x => x.File.FullPath == filePath);
+            if (fileGroup != null)
             {
-                SelectedProject = fileInfo.ProjectId;
+                SelectedProject = fileGroup.Group.ProjectId;
             }
 
             Logger.LogInformation($"Loaded existing file: {UploadedFileName} ({FormatFileSize(fileData.Length)})");
@@ -758,13 +692,14 @@
                 await LoadExistingFileDataAsync(SelectedExistingFile);
 
                 // Save existing file selection with full customer/project path
-                var fileInfo = ExistingFiles.FirstOrDefault(f => f.FilePath == SelectedExistingFile);
-                if (fileInfo != null)
+                var fileGroup = ExistingFileGroups.SelectMany(g => g.Files.Select(f => new { Group = g, File = f }))
+                    .FirstOrDefault(x => x.File.FullPath == SelectedExistingFile);
+                if (fileGroup != null)
                 {
                     var selection = await UserSelectionService.GetSelectionAsync();
                     selection.LastDoclingExistingFile = SelectedExistingFile;
                     // Store in "customer/project-id" format
-                    selection.LastDoclingProject = $"{fileInfo.Customer}/{fileInfo.ProjectId}";
+                    selection.LastDoclingProject = $"{fileGroup.Group.Customer}/{fileGroup.Group.ProjectId}";
                     await UserSelectionService.SaveSelectionAsync(selection);
                     Logger.LogDebug($"Saved existing file selection: {SelectedExistingFile}, project: {selection.LastDoclingProject}");
                 }

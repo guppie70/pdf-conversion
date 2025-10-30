@@ -13,6 +13,7 @@
 @inject IOllamaService OllamaService
 @inject IHierarchyRequestLogger HierarchyRequestLogger
 @inject IManualHierarchyBuilder ManualHierarchyBuilder
+@inject IFileGroupBuilderService FileGroupBuilder
 @inject IJSRuntime JSRuntime
 @inject ILogger<GenerateHierarchy> Logger
 @inject HttpClient HttpClient
@@ -168,6 +169,20 @@
                         </button>
 
                         <button class="btn btn-sm btn-outline-secondary"
+                                @onclick="ExpandAllItems"
+                                disabled="@(_manualHierarchyItems == null || !_manualHierarchyItems.Any())"
+                                title="Expand all items">
+                            <i class="bi bi-arrows-expand"></i> Expand All
+                        </button>
+
+                        <button class="btn btn-sm btn-outline-secondary"
+                                @onclick="CollapseAllItems"
+                                disabled="@(_manualHierarchyItems == null || !_manualHierarchyItems.Any())"
+                                title="Collapse all items">
+                            <i class="bi bi-arrows-collapse"></i> Collapse All
+                        </button>
+
+                        <button class="btn btn-sm btn-outline-secondary"
                                 @onclick="IncludeAllHeaders"
                                 disabled="@(_manualHeaders == null || !_manualHeaders.Any())"
                                 title="Reset all headers to flat list">
@@ -188,6 +203,12 @@
                     {
                         <span class="selection-info">@_selectedManualItemIds.Count selected</span>
                     }
+                    @* Change tracking status indicator *@
+                    <span class="change-status @(HasChanges ? "has-changes" : "no-changes")"
+                          title="@(HasChanges ? "You have unsaved changes" : "No unsaved changes")">
+                        <i class="bi @(HasChanges ? "bi-exclamation-circle" : "bi-check-circle")"></i>
+                        <span class="status-text">@(HasChanges ? "Unsaved changes" : "No unsaved changes")</span>
+                    </span>
                     <button class="btn btn-success btn-sm"
                             @onclick="SaveHierarchyAsync"
                             disabled="@(!HasChanges || string.IsNullOrEmpty(SelectedProject))"
@@ -558,74 +579,7 @@
     private bool IsLoadingHierarchy { get; set; }
 
     // ProjectFileSelector helper properties
-    private List<ProjectFileGroup> ProjectFileGroups
-    {
-        get
-        {
-            if (Projects == null || !Projects.Any())
-                return new();
-
-            var groups = new List<ProjectFileGroup>();
-
-            foreach (var project in Projects)
-            {
-                var customer = project.Customer;
-                var projectId = project.ProjectId;
-
-                // Group 1: Input files for this project
-                var inputDir = $"/app/data/input/{customer}/projects/{projectId}";
-                if (Directory.Exists(inputDir))
-                {
-                    var inputFiles = Directory.GetFiles(inputDir, "*.xml")
-                        .Where(f => !f.Contains("/metadata/"))
-                        .Select(f => new ProjectFile
-                        {
-                            FileName = Path.GetFileName(f),
-                            FullPath = f
-                        })
-                        .ToList();
-
-                    if (inputFiles.Any())
-                    {
-                        groups.Add(new ProjectFileGroup
-                        {
-                            Customer = customer,
-                            ProjectId = projectId,
-                            ProjectName = $"{project.CustomLabel ?? project.ProjectId} - Input Files",
-                            Files = inputFiles
-                        });
-                    }
-                }
-
-                // Group 2: Output files for this project
-                var outputDir = $"/app/data/output/{customer}/projects/{projectId}";
-                if (Directory.Exists(outputDir))
-                {
-                    var outputFiles = Directory.GetFiles(outputDir, "*.xml")
-                        .Where(f => !Path.GetFileName(f).Equals("hierarchy.xml", StringComparison.OrdinalIgnoreCase))
-                        .Select(f => new ProjectFile
-                        {
-                            FileName = Path.GetFileName(f),
-                            FullPath = f
-                        })
-                        .ToList();
-
-                    if (outputFiles.Any())
-                    {
-                        groups.Add(new ProjectFileGroup
-                        {
-                            Customer = customer,
-                            ProjectId = projectId,
-                            ProjectName = $"{project.CustomLabel ?? project.ProjectId} - Output Files",
-                            Files = outputFiles
-                        });
-                    }
-                }
-            }
-
-            return groups;
-        }
-    }
+    private List<ProjectFileGroup> ProjectFileGroups { get; set; } = new();
 
     private string GetSelectedFilePath() =>
         !string.IsNullOrEmpty(SelectedSourceXml) ? SelectedSourceXml : string.Empty;
@@ -843,9 +797,13 @@
                 _ollamaHealthy = false;
             }
 
-            // Load all projects
-            Projects = await ProjectLabelService.GetAllProjectsAsync("/app/data/input");
-            Logger.LogInformation("[OnInitializedAsync] Loaded {Count} projects", Projects.Count);
+            // Load file groups using the service (filters by active projects automatically)
+            ProjectFileGroups = await FileGroupBuilder.BuildXmlFileGroupsAsync(
+                includeInputFiles: true,
+                includeOutputFiles: true,
+                onlyActiveProjects: true);  // This fixes the bug!
+
+            Logger.LogInformation("[OnInitializedAsync] Loaded {Count} project file groups", ProjectFileGroups.Count);
 
             // Try to restore last selection
             var selection = await UserSelectionService.GetSelectionAsync();
@@ -2781,6 +2739,62 @@
     {
         _selectedManualItemIds.Clear();
         StateHasChanged();
+    }
+
+    /// <summary>
+    /// Recursively expands all items in the hierarchy tree
+    /// </summary>
+    private void ExpandAllItems()
+    {
+        if (_manualHierarchyItems == null) return;
+
+        foreach (var item in _manualHierarchyItems)
+        {
+            ExpandItemRecursive(item);
+        }
+
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Recursively collapses all items in the hierarchy tree
+    /// </summary>
+    private void CollapseAllItems()
+    {
+        if (_manualHierarchyItems == null) return;
+
+        foreach (var item in _manualHierarchyItems)
+        {
+            CollapseItemRecursive(item);
+        }
+
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Helper method to recursively expand an item and all its children
+    /// </summary>
+    private void ExpandItemRecursive(HierarchyItem item)
+    {
+        item.IsExpanded = true;
+
+        foreach (var subItem in item.SubItems)
+        {
+            ExpandItemRecursive(subItem);
+        }
+    }
+
+    /// <summary>
+    /// Helper method to recursively collapse an item and all its children
+    /// </summary>
+    private void CollapseItemRecursive(HierarchyItem item)
+    {
+        item.IsExpanded = false;
+
+        foreach (var subItem in item.SubItems)
+        {
+            CollapseItemRecursive(subItem);
+        }
     }
 
     /// <summary>

@@ -18,6 +18,7 @@
 @inject IXhtmlValidationService ValidationService
 @inject IUserSelectionService UserSelectionService
 @inject ProjectMetadataService MetadataService
+@inject IFileGroupBuilderService FileGroupBuilder
 
 <PageTitle>Transform</PageTitle>
 
@@ -914,18 +915,7 @@
                              && !string.IsNullOrEmpty(SelectedFileName);
 
     // ProjectFileSelector helper properties
-    private List<ProjectFileGroup> ProjectFileGroups => Projects?
-        .Select(p => new ProjectFileGroup
-        {
-            Customer = p.Organization,
-            ProjectId = p.ProjectId,
-            ProjectName = p.Name,
-            Files = p.Files.Select(f => new ProjectFile
-            {
-                FileName = f,
-                FullPath = $"{p.Organization}/{p.ProjectId}/{f}"
-            }).ToList()
-        }).ToList() ?? new();
+    private List<ProjectFileGroup> ProjectFileGroups { get; set; } = new();
 
     private string GetSelectedFilePath() =>
         !string.IsNullOrEmpty(SelectedProjectId) && !string.IsNullOrEmpty(SelectedFileName)
@@ -1075,6 +1065,12 @@
                 var fullProjectId = $"{project.Organization}/{project.ProjectId}";
                 project.Files = (await ProjectService.GetProjectFilesAsync(fullProjectId)).ToList();
             }
+
+            // Use the service to build file groups for dropdowns
+            ProjectFileGroups = await FileGroupBuilder.BuildXmlFileGroupsAsync(
+                includeInputFiles: true,
+                includeOutputFiles: true,  // Transform needs both
+                onlyActiveProjects: true);
 
             Logger.LogInformation("Loaded {Count} active projects with files", Projects.Count);
         }

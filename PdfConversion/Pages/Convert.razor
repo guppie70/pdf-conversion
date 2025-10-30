@@ -13,6 +13,7 @@
 @inject ILogger<Pages.Convert> Logger
 @inject IJSRuntime JSRuntime
 @inject ProjectMetadataService MetadataService
+@inject IFileGroupBuilderService FileGroupBuilder
 @implements IDisposable
 
 <PageTitle>Convert: PDF to Taxxor Sections</PageTitle>
@@ -238,18 +239,7 @@
     private bool ProcessingComplete = false;
 
     // ProjectFileSelector helper properties
-    private List<ProjectFileGroup> ProjectFileGroups => Projects?
-        .Select(p => new ProjectFileGroup
-        {
-            Customer = p.Organization,
-            ProjectId = p.ProjectId,
-            ProjectName = p.Name,
-            Files = p.Files.Select(f => new ProjectFile
-            {
-                FileName = f,
-                FullPath = $"{p.Organization}/{p.ProjectId}/{f}"
-            }).ToList()
-        }).ToList() ?? new();
+    private List<ProjectFileGroup> ProjectFileGroups { get; set; } = new();
 
     private string GetSelectedFilePath() =>
         !string.IsNullOrEmpty(_config.ProjectId) && !string.IsNullOrEmpty(_config.SourceFile)
@@ -484,12 +474,11 @@
                 }
             }
 
-            // Load files for each project (needed for ProjectFileSelector)
-            foreach (var project in Projects)
-            {
-                var fullProjectId = $"{project.Organization}/{project.ProjectId}";
-                project.Files = (await ProjectService.GetProjectFilesAsync(fullProjectId)).ToList();
-            }
+            // Use the service to build file groups (replaces manual file loading)
+            ProjectFileGroups = await FileGroupBuilder.BuildXmlFileGroupsAsync(
+                includeInputFiles: true,
+                includeOutputFiles: false,  // Convert only needs input files
+                onlyActiveProjects: true);
 
             Logger.LogInformation("Loaded {Count} active projects", Projects.Count);
         }
