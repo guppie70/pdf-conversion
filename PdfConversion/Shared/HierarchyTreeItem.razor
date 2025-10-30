@@ -34,7 +34,7 @@
 
         @if (!string.IsNullOrEmpty(Item.HeaderType))
         {
-            <span class="header-type-badge">@Item.HeaderType</span>
+            <span class="header-type-badge header-type-@Item.HeaderType.ToLower()">@Item.HeaderType.ToUpper()</span>
         }
 
         <span class="level-badge">L@(Item.Level)</span>

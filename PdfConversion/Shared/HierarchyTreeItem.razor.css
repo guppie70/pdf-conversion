@@ -123,11 +123,42 @@
     padding: 0.125rem 0.375rem;
     font-size: 0.6875rem;
     font-weight: 600;
-    color: #ffffff;
-    background-color: #0078D4; /* --accent-blue from VS Code Dark Modern */
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
     border-radius: 3px;
     min-width: 28px;
     text-align: center;
+}
+
+/* Header level colors matching AvailableHeadersPanel */
+.header-type-h1 {
+    background: #569cd6;
+    color: #000000;
+}
+
+.header-type-h2 {
+    background: #4ec9b0;
+    color: #000000;
+}
+
+.header-type-h3 {
+    background: #ce9178;
+    color: #000000;
+}
+
+.header-type-h4 {
+    background: #dcdcaa;
+    color: #000000;
+}
+
+.header-type-h5 {
+    background: #c586c0;
+    color: #000000;
+}
+
+.header-type-h6 {
+    background: #9cdcfe;
+    color: #000000;
 }
 
 .level-badge {
