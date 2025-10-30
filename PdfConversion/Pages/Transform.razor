@@ -2778,28 +2778,43 @@
                             await LoadXsltAsync();
                         }
 
-                        // Restore file selection if available (using the new combined path approach)
+                        // Restore source XML file selection if available - reconstruct full path
                         if (!string.IsNullOrEmpty(savedSelection.ProjectId) && !string.IsNullOrEmpty(savedSelection.FileName))
                         {
-                            // Wait for projects to load
-                            await Task.Delay(800);
-                            var filePath = $"{savedSelection.ProjectId}/{savedSelection.FileName}";
-                            await OnFilePathChanged(filePath);
+                            var sourceXmlFilename = savedSelection.FileName;
+                            var parts = savedSelection.ProjectId.Split('/');
+                            if (parts.Length == 2)
+                            {
+                                var customer = parts[0];
+                                var projectId = parts[1];
+
+                                // Wait for projects to load
+                                await Task.Delay(800);
+
+                                // Transform page only uses input directory
+                                var inputPath = $"/app/data/input/{customer}/projects/{projectId}/{sourceXmlFilename}";
+                                if (File.Exists(inputPath))
+                                {
+                                    Logger.LogInformation("Restored source XML from input: {File}", inputPath);
+                                    await OnFilePathChanged(inputPath);
+                                }
+                                else
+                                {
+                                    Logger.LogWarning("Source XML file not found: {File}", inputPath);
+                                    ToastNotification.ShowWarning($"Previously selected file not found: {sourceXmlFilename}. Please select a file.");
+                                }
+                            }
+                            else
+                            {
+                                Logger.LogWarning("Invalid ProjectId format: '{ProjectId}' (expected 'customer/project-id')", savedSelection.ProjectId);
+                                ToastNotification.ShowWarning("Invalid project format in saved selections. Please select a file.");
+                            }
                         }
                         else
                         {
-                            Logger.LogWarning("⚠️ Cannot restore file selection - missing data: ProjectId='{Project}', FileName='{File}'. Please select a file manually.",
-                                savedSelection.ProjectId ?? "(null)",
-                                savedSelection.FileName ?? "(null)");
-
-                            if (string.IsNullOrEmpty(savedSelection.FileName))
-                            {
-                                ToastNotification.ShowWarning("No file was previously selected. Please select a file to continue.");
-                            }
-                            else if (string.IsNullOrEmpty(savedSelection.ProjectId))
-                            {
-                                ToastNotification.ShowWarning("No project was previously selected. Please select a project.");
-                            }
+                            Logger.LogInformation("No source XML file to restore (ProjectId: '{Project}', FileName: '{File}')",
+                                savedSelection.ProjectId ?? "(empty)",
+                                savedSelection.FileName ?? "(empty)");
                         }
                     }
                     finally
