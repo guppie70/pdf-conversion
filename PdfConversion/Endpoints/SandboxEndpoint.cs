@@ -1,3 +1,4 @@
+using PdfConversion.Models;
 using PdfConversion.Services;
 
 namespace PdfConversion.Endpoints;
@@ -76,6 +77,14 @@ public static class SandboxEndpoint
         else if (mode == "test-mode-persistence")
         {
             await HandleTestModePersistenceAsync(context, logger);
+        }
+        else if (mode == "test-root-normalization")
+        {
+            await HandleTestRootNormalizationAsync(context, hierarchyService, logger);
+        }
+        else if (mode == "test-fix-existing")
+        {
+            await HandleTestFixExistingHierarchyAsync(context, hierarchyService, logger);
         }
         else
         {
@@ -1949,6 +1958,258 @@ public static class SandboxEndpoint
         catch (Exception ex)
         {
             logger.LogError(ex, "[Sandbox] Error serving mode persistence test");
+            context.Response.StatusCode = 500;
+            await context.Response.WriteAsync($"Error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Test handler for root element normalization.
+    /// Tests that any root element gets normalized to id="report-root" and data-ref="report-root.xml".
+    /// Usage: curl http://localhost:8085/sandbox?mode=test-root-normalization
+    /// </summary>
+    private static async Task HandleTestRootNormalizationAsync(
+        HttpContext context,
+        IHierarchyService hierarchyService,
+        ILogger logger)
+    {
+        try
+        {
+            logger.LogInformation("[Sandbox] Testing root element normalization");
+
+            // Create test hierarchy with non-standard root ID (like existing manual-hierarchy.xml files)
+            var testHierarchy = new PdfConversion.Models.HierarchyStructure
+            {
+                Root = new PdfConversion.Models.HierarchyItem
+                {
+                    // Use non-standard values that should be normalized
+                    Id = "annual-report-2024",
+                    Level = 0,
+                    LinkName = "Annual Report 2024",
+                    DataRef = "annual-report-2024.xml",
+                    Path = "/",
+                    SubItems = new List<PdfConversion.Models.HierarchyItem>
+                    {
+                        new PdfConversion.Models.HierarchyItem
+                        {
+                            Id = "directors-report",
+                            Level = 1,
+                            LinkName = "Directors' Report",
+                            DataRef = "directors-report.xml",
+                            Path = "/directors-report",
+                            SubItems = new List<PdfConversion.Models.HierarchyItem>()
+                        },
+                        new PdfConversion.Models.HierarchyItem
+                        {
+                            Id = "financial-statements",
+                            Level = 1,
+                            LinkName = "Financial Statements",
+                            DataRef = "financial-statements.xml",
+                            Path = "/financial-statements",
+                            SubItems = new List<PdfConversion.Models.HierarchyItem>()
+                        }
+                    }
+                }
+            };
+
+            // Save to temp file to trigger normalization
+            var tempPath = Path.Combine(Path.GetTempPath(), $"test-normalization-{Guid.NewGuid()}.xml");
+            await hierarchyService.SaveHierarchyAsync(tempPath, testHierarchy);
+
+            // Read back the saved XML
+            var savedXml = await File.ReadAllTextAsync(tempPath);
+
+            // Clean up temp file
+            try { File.Delete(tempPath); } catch { }
+
+            // Parse and validate the saved XML
+            var doc = System.Xml.Linq.XDocument.Parse(savedXml);
+            var rootElement = doc.Root?.Element("structured")?.Element("item");
+
+            var results = new List<string>();
+            results.Add("<!-- ROOT ELEMENT NORMALIZATION TEST RESULTS -->");
+            results.Add("<!-- ======================================= -->");
+
+            // Check root attributes
+            var rootId = rootElement?.Attribute("id")?.Value;
+            var rootDataRef = rootElement?.Attribute("data-ref")?.Value;
+            var rootLinkName = rootElement?.Element("web_page")?.Element("linkname")?.Value;
+
+            if (rootId == "report-root")
+            {
+                results.Add("<!-- ✅ Root ID normalized to 'report-root' -->");
+            }
+            else
+            {
+                results.Add($"<!-- ❌ Root ID NOT normalized: '{rootId}' -->");
+            }
+
+            if (rootDataRef == "report-root.xml")
+            {
+                results.Add("<!-- ✅ Root data-ref normalized to 'report-root.xml' -->");
+            }
+            else
+            {
+                results.Add($"<!-- ❌ Root data-ref NOT normalized: '{rootDataRef}' -->");
+            }
+
+            if (rootLinkName == "Annual Report 2024")
+            {
+                results.Add("<!-- ✅ Root linkname preserved as 'Annual Report 2024' -->");
+            }
+            else
+            {
+                results.Add($"<!-- ❌ Root linkname unexpected: '{rootLinkName}' -->");
+            }
+
+            // Check that child items are NOT normalized
+            var firstChild = rootElement?.Element("sub_items")?.Elements("item").FirstOrDefault();
+            var childId = firstChild?.Attribute("id")?.Value;
+
+            if (childId == "directors-report")
+            {
+                results.Add("<!-- ✅ Child items preserved (not normalized) -->");
+            }
+            else
+            {
+                results.Add($"<!-- ❌ Child item unexpectedly changed: '{childId}' -->");
+            }
+
+            results.Add("<!-- ======================================= -->");
+            results.Add("");
+
+            // Add the actual XML to the response
+            results.Add(savedXml);
+
+            // Return results
+            context.Response.ContentType = "text/xml";
+            await context.Response.WriteAsync(string.Join("\n", results));
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "[Sandbox] Failed to test root normalization");
+            context.Response.StatusCode = 500;
+            await context.Response.WriteAsync($"Error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Test loading an existing hierarchy file with non-standard root and re-saving it.
+    /// Simulates the case of ar24-6/metadata/manual-hierarchy.xml which has id="root".
+    /// Usage: curl http://localhost:8085/sandbox?mode=test-fix-existing
+    /// </summary>
+    private static async Task HandleTestFixExistingHierarchyAsync(
+        HttpContext context,
+        IHierarchyService hierarchyService,
+        ILogger logger)
+    {
+        try
+        {
+            logger.LogInformation("[Sandbox] Testing fix for existing hierarchy with non-standard root");
+
+            // Simulate loading the problematic ar24-6 manual-hierarchy.xml
+            var problematicFilePath = "data/input/optiver/projects/ar24-6/metadata/manual-hierarchy.xml";
+
+            HierarchyStructure loadedHierarchy;
+
+            // Check if the actual file exists
+            if (File.Exists(problematicFilePath))
+            {
+                logger.LogInformation("[Sandbox] Loading actual file: {Path}", problematicFilePath);
+                loadedHierarchy = await hierarchyService.LoadHierarchyAsync(problematicFilePath);
+            }
+            else
+            {
+                // Simulate the problematic structure
+                logger.LogInformation("[Sandbox] File not found, simulating problematic structure");
+                loadedHierarchy = new PdfConversion.Models.HierarchyStructure
+                {
+                    Root = new PdfConversion.Models.HierarchyItem
+                    {
+                        // Problematic values from ar24-6
+                        Id = "root",
+                        Level = 0,
+                        LinkName = "Root",
+                        DataRef = "root.xml",
+                        Path = "/",
+                        SubItems = new List<PdfConversion.Models.HierarchyItem>
+                        {
+                            new PdfConversion.Models.HierarchyItem
+                            {
+                                Id = "directors-report",
+                                Level = 1,
+                                LinkName = "Directors' report",
+                                DataRef = "directors-report.xml",
+                                Path = "/",
+                                SubItems = new List<PdfConversion.Models.HierarchyItem>()
+                            }
+                        }
+                    }
+                };
+            }
+
+            // Log the original values
+            var originalId = loadedHierarchy.Root.Id;
+            var originalDataRef = loadedHierarchy.Root.DataRef;
+            var originalLinkName = loadedHierarchy.Root.LinkName;
+
+            // Save to temp file (this should trigger normalization)
+            var tempPath = Path.Combine(Path.GetTempPath(), $"test-fix-existing-{Guid.NewGuid()}.xml");
+            await hierarchyService.SaveHierarchyAsync(tempPath, loadedHierarchy);
+
+            // Read back the saved XML
+            var savedXml = await File.ReadAllTextAsync(tempPath);
+
+            // Clean up temp file
+            try { File.Delete(tempPath); } catch { }
+
+            // Parse and check the normalization
+            var doc = System.Xml.Linq.XDocument.Parse(savedXml);
+            var rootElement = doc.Root?.Element("structured")?.Element("item");
+
+            var results = new List<string>();
+            results.Add("<!-- FIX EXISTING HIERARCHY TEST RESULTS -->");
+            results.Add("<!-- ==================================== -->");
+            results.Add($"<!-- Original root ID: '{originalId}' -->");
+            results.Add($"<!-- Original data-ref: '{originalDataRef}' -->");
+            results.Add($"<!-- Original linkname: '{originalLinkName}' -->");
+            results.Add("<!-- ------------------------------------ -->");
+
+            var newId = rootElement?.Attribute("id")?.Value;
+            var newDataRef = rootElement?.Attribute("data-ref")?.Value;
+            var newLinkName = rootElement?.Element("web_page")?.Element("linkname")?.Value;
+
+            results.Add($"<!-- Normalized root ID: '{newId}' -->");
+            results.Add($"<!-- Normalized data-ref: '{newDataRef}' -->");
+            results.Add($"<!-- Normalized linkname: '{newLinkName}' -->");
+            results.Add("<!-- ------------------------------------ -->");
+
+            // Validation checks
+            if (originalId != "report-root" && newId == "report-root")
+            {
+                results.Add($"<!-- ✅ Successfully normalized ID from '{originalId}' to 'report-root' -->");
+            }
+
+            if (originalDataRef != "report-root.xml" && newDataRef == "report-root.xml")
+            {
+                results.Add($"<!-- ✅ Successfully normalized data-ref from '{originalDataRef}' to 'report-root.xml' -->");
+            }
+
+            if (originalLinkName != "Annual Report 2024" && newLinkName == "Annual Report 2024")
+            {
+                results.Add($"<!-- ✅ Successfully normalized linkname from '{originalLinkName}' to 'Annual Report 2024' -->");
+            }
+
+            results.Add("<!-- ==================================== -->");
+            results.Add("");
+            results.Add(savedXml);
+
+            context.Response.ContentType = "text/xml";
+            await context.Response.WriteAsync(string.Join("\n", results));
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "[Sandbox] Failed to test fix existing hierarchy");
             context.Response.StatusCode = 500;
             await context.Response.WriteAsync($"Error: {ex.Message}");
         }

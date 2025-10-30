@@ -132,6 +132,9 @@ public class HierarchyService : IHierarchyService
                 _logger.LogInformation("Created directory: {Directory}", directory);
             }
 
+            // Normalize the root element to ensure consistent format
+            NormalizeRootElement(hierarchy.Root);
+
             var doc = new XDocument(
                 new XElement("items",
                     new XElement("structured",
@@ -149,6 +152,42 @@ public class HierarchyService : IHierarchyService
             _logger.LogError(ex, "Failed to save hierarchy to {FilePath}", filePath);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Normalizes the root element to ensure consistent format across all hierarchies.
+    /// Only modifies the root element (level 0), preserving all child items as-is.
+    /// </summary>
+    private void NormalizeRootElement(HierarchyItem rootItem)
+    {
+        if (rootItem == null) return;
+
+        // Only normalize if this is the root (level 0)
+        if (rootItem.Level == 0)
+        {
+            // Log if we're changing values
+            if (rootItem.Id != "report-root" || rootItem.DataRef != "report-root.xml")
+            {
+                _logger.LogInformation(
+                    "Normalizing root element: id '{OldId}' → 'report-root', data-ref '{OldDataRef}' → 'report-root.xml'",
+                    rootItem.Id, rootItem.DataRef);
+            }
+
+            // Force standardized values for root element
+            rootItem.Id = "report-root";
+            rootItem.DataRef = "report-root.xml";
+
+            // Ensure linkname is "Annual Report 2024" if not already set or different
+            if (string.IsNullOrWhiteSpace(rootItem.LinkName) ||
+                !rootItem.LinkName.Contains("Annual Report", StringComparison.OrdinalIgnoreCase))
+            {
+                rootItem.LinkName = "Annual Report 2024";
+            }
+
+            // Ensure path is root
+            rootItem.Path = "/";
+        }
+        // Note: Child items (SubItems) are NOT modified - they remain editable
     }
 
     private XElement BuildItemElement(HierarchyItem item)
