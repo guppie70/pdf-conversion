@@ -77,6 +77,9 @@ public class HierarchyService : IHierarchyService
             IsExpanded = true  // Default to expanded when loading from XML
         };
 
+        // Load optional header type (for badge display in Manual Mode)
+        item.HeaderType = element.Attribute("header-type")?.Value;
+
         // Load optional TOC attributes
         item.TocStart = element.Attribute("data-tocstart")?.Value == "true";
         item.TocEnd = element.Attribute("data-tocend")?.Value == "true";
@@ -217,6 +220,12 @@ public class HierarchyService : IHierarchyService
             new XAttribute("level", item.Level),
             new XAttribute("data-ref", item.DataRef)
         );
+
+        // Add optional header type (for badge display in Manual Mode)
+        if (!string.IsNullOrEmpty(item.HeaderType))
+        {
+            element.Add(new XAttribute("header-type", item.HeaderType));
+        }
 
         // Add optional attributes (excluding confidence - not saved in XML)
         if (item.IsUncertain)
