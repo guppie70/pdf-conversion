@@ -14,7 +14,7 @@ public interface IFileGroupBuilderService
     /// <param name="includeInputFiles">Include XML files from input directories (default: true)</param>
     /// <param name="includeOutputFiles">Include XML files from output directories (default: false)</param>
     /// <param name="onlyActiveProjects">Only include projects not marked as "Ready" (default: true)</param>
-    /// <returns>List of project file groups with relative paths (customer/project-id/filename.xml)</returns>
+    /// <returns>List of project file groups with absolute filesystem paths</returns>
     Task<List<ProjectFileGroup>> BuildXmlFileGroupsAsync(
         bool includeInputFiles = true,
         bool includeOutputFiles = false,
@@ -34,7 +34,7 @@ public interface IFileGroupBuilderService
     /// Builds file groups containing all files from project directories.
     /// </summary>
     /// <param name="onlyActiveProjects">Only include projects not marked as "Ready" (default: true)</param>
-    /// <returns>List of project file groups with relative paths (customer/project-id/filename)</returns>
+    /// <returns>List of project file groups with absolute filesystem paths</returns>
     Task<List<ProjectFileGroup>> BuildAllFileGroupsAsync(bool onlyActiveProjects = true);
 }
 
@@ -84,7 +84,7 @@ public class FileGroupBuilderService : IFileGroupBuilderService
                             .Select(f => new ProjectFile
                             {
                                 FileName = Path.GetFileName(f),
-                                FullPath = $"{project.Organization}/{project.ProjectId}/{Path.GetFileName(f)}"
+                                FullPath = f // Absolute path for XML files
                             });
                         files.AddRange(inputFiles);
                     }
@@ -100,7 +100,7 @@ public class FileGroupBuilderService : IFileGroupBuilderService
                             .Select(f => new ProjectFile
                             {
                                 FileName = Path.GetFileName(f),
-                                FullPath = $"{project.Organization}/{project.ProjectId}/{Path.GetFileName(f)}"
+                                FullPath = f // Absolute path for XML files
                             });
                         files.AddRange(outputFiles);
                     }
@@ -207,7 +207,7 @@ public class FileGroupBuilderService : IFileGroupBuilderService
                     .Select(f => new ProjectFile
                     {
                         FileName = Path.GetFileName(f),
-                        FullPath = $"{project.Organization}/{project.ProjectId}/{Path.GetFileName(f)}"
+                        FullPath = f // Absolute path for all files
                     })
                     .ToList();
 

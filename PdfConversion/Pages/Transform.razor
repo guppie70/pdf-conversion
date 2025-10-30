@@ -917,10 +917,18 @@
     // ProjectFileSelector helper properties
     private List<ProjectFileGroup> ProjectFileGroups { get; set; } = new();
 
-    private string GetSelectedFilePath() =>
-        !string.IsNullOrEmpty(SelectedProjectId) && !string.IsNullOrEmpty(SelectedFileName)
-            ? $"{SelectedProjectId}/{SelectedFileName}"
-            : string.Empty;
+    private string GetSelectedFilePath()
+    {
+        if (string.IsNullOrEmpty(SelectedProjectId) || string.IsNullOrEmpty(SelectedFileName))
+            return string.Empty;
+
+        var parts = SelectedProjectId.Split('/', 2);
+        if (parts.Length != 2) return string.Empty;
+
+        // Return absolute path to match dropdown values from FileGroupBuilder
+        // Try input directory first (most common for transformation)
+        return $"/app/data/input/{parts[0]}/projects/{parts[1]}/{SelectedFileName}";
+    }
 
     private async Task OnRenderedToggled()
     {
@@ -1176,13 +1184,21 @@
     {
         try
         {
-            // Parse: "org/project/file.xml" -> org, project, file
-            var parts = filePath.Split('/', 3);
-            if (parts.Length != 3) return;
+            // Parse absolute path: "/app/data/input/customer/projects/project-id/filename.xml"
+            var match = System.Text.RegularExpressions.Regex.Match(
+                filePath,
+                @"/app/data/(input|output)/([^/]+)/projects/([^/]+)/(.+)$"
+            );
 
-            var organization = parts[0];
-            var projectId = parts[1];
-            var fileName = parts[2];
+            if (!match.Success)
+            {
+                Logger.LogWarning("Failed to parse file path: {Path}", filePath);
+                return;
+            }
+
+            var organization = match.Groups[2].Value;  // customer
+            var projectId = match.Groups[3].Value;     // project-id
+            var fileName = match.Groups[4].Value;       // filename.xml
 
             SelectedProjectId = $"{organization}/{projectId}";
             SelectedFileName = fileName;
@@ -1235,7 +1251,8 @@
             UpdateToolbarState();
             StateHasChanged();
 
-            var xmlFilePath = Path.Combine("/app/data/input", organization, "projects", projectId, fileName);
+            // Use the provided absolute path directly (no need to construct)
+            var xmlFilePath = filePath;
             XmlContent = await ProjectService.ReadInputFileAsync(SelectedProjectId, fileName);
             Logger.LogInformation("Loaded file {FileName} from project {ProjectId}", fileName, SelectedProjectId);
 

@@ -595,25 +595,30 @@
             // or: /app/data/output/{customer}/projects/{projectId}/file.xml
             var match = System.Text.RegularExpressions.Regex.Match(
                 filePath,
-                @"/app/data/(input|output)/([^/]+)/projects/([^/]+)/"
+                @"/app/data/(input|output)/([^/]+)/projects/([^/]+)/(.+)$"
             );
 
             if (match.Success)
             {
-                var customer = match.Groups[2].Value;
-                var projectId = match.Groups[3].Value;
+                var customer = match.Groups[2].Value;    // customer
+                var projectId = match.Groups[3].Value;   // project-id
+                var fileName = match.Groups[4].Value;     // filename.xml
+
                 SelectedProject = $"{customer}/{projectId}";
                 Logger.LogInformation("Auto-selected project from file path: {Project}", SelectedProject);
 
                 // Save project selection
                 await UserSelectionService.UpdateSelectionAsync(projectId: SelectedProject);
                 Logger.LogInformation("Saved project selection: {Project}", SelectedProject);
-            }
 
-            // Save source XML selection (just filename for portability)
-            var filename = Path.GetFileName(filePath);
-            await UserSelectionService.UpdateSelectionAsync(sourceXml: filename);
-            Logger.LogInformation("Saved source XML selection: {File}", filename);
+                // Save source XML selection (just filename for portability)
+                await UserSelectionService.UpdateSelectionAsync(sourceXml: fileName);
+                Logger.LogInformation("Saved source XML selection: {File}", fileName);
+            }
+            else
+            {
+                Logger.LogWarning("Failed to parse file path: {Path}", filePath);
+            }
 
             await OnSourceXmlChangedAsync();
             LoadHierarchyXmlFiles();
