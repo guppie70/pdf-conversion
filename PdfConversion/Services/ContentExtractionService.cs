@@ -203,15 +203,16 @@ public class ContentExtractionService : IContentExtractionService
                 // or elements that are siblings of the start element
                 if (IsDirectDescendantOfBody(element, body) || IsSiblingOrDescendant(element, start))
                 {
-                    // Check if this element is a header at same/higher level than start
-                    if (IsHeader(element) && element != start)
+                    // Only use fallback stopping logic if NO explicit end boundary was specified
+                    // When hierarchy provides explicit boundary, respect it instead of guessing
+                    if (end == null && IsHeader(element) && element != start)
                     {
                         var startLevel = GetHeaderLevel(start);
                         var currentLevel = GetHeaderLevel(element);
 
                         if (currentLevel <= startLevel)
                         {
-                            // This is the natural stopping point
+                            // This is the natural stopping point (fallback only)
                             break;
                         }
                     }
