@@ -73,7 +73,8 @@ public class HierarchyService : IHierarchyService
         {
             Id = element.Attribute("id")?.Value ?? string.Empty,
             Level = int.Parse(element.Attribute("level")?.Value ?? "0"),
-            DataRef = element.Attribute("data-ref")?.Value ?? string.Empty
+            DataRef = element.Attribute("data-ref")?.Value ?? string.Empty,
+            IsExpanded = true  // Default to expanded when loading from XML
         };
 
         // Load optional TOC attributes
@@ -143,9 +144,28 @@ public class HierarchyService : IHierarchyService
                 )
             );
 
-            await File.WriteAllTextAsync(filePath, doc.ToString());
+            var xmlContent = doc.ToString();
+            await File.WriteAllTextAsync(filePath, xmlContent);
 
             _logger.LogInformation("Successfully saved hierarchy to {FilePath}", filePath);
+
+            // Also write to _work directory for development context
+            try
+            {
+                var workPath = "/app/data/_work";
+                if (!Directory.Exists(workPath))
+                {
+                    Directory.CreateDirectory(workPath);
+                }
+                var contextHierarchyPath = Path.Combine(workPath, "_hierarchy.xml");
+                await File.WriteAllTextAsync(contextHierarchyPath, xmlContent);
+                _logger.LogInformation("Saved context hierarchy XML to {Path}", contextHierarchyPath);
+            }
+            catch (Exception workEx)
+            {
+                _logger.LogWarning(workEx, "Failed to save context hierarchy XML to _work folder");
+                // Non-critical, continue
+            }
         }
         catch (Exception ex)
         {

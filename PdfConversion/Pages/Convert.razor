@@ -681,10 +681,133 @@
         }
         finally
         {
+            // Save conversion log to _work directory for debugging
+            await SaveConversionLogToWorkDirectoryAsync();
+
             // Clean up cancellation token source
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = null;
         }
+    }
+
+    private async Task SaveConversionLogToWorkDirectoryAsync()
+    {
+        try
+        {
+            var workPath = "/app/data/_work";
+            if (!Directory.Exists(workPath))
+            {
+                Directory.CreateDirectory(workPath);
+            }
+
+            // Basic log format (timestamped messages)
+            var basicLogPath = Path.Combine(workPath, "_conversion.log");
+            var basicLogContent = string.Join("\n", LogEntries.Select(e => $"[{e.Time:HH:mm:ss}] {e.Message}"));
+            await File.WriteAllTextAsync(basicLogPath, basicLogContent);
+
+            // Extended LLM-friendly log format with context
+            var extendedLogPath = Path.Combine(workPath, "_conversion-extended.log");
+            var extendedLogContent = GenerateExtendedLogContent();
+            await File.WriteAllTextAsync(extendedLogPath, extendedLogContent);
+
+            Logger.LogInformation("Saved conversion logs to {BasicPath} and {ExtendedPath}", basicLogPath, extendedLogPath);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to save conversion log to _work directory");
+            // Non-critical, don't fail conversion
+        }
+    }
+
+    private string GenerateExtendedLogContent()
+    {
+        var sb = new System.Text.StringBuilder();
+
+        sb.AppendLine("=".PadRight(80, '='));
+        sb.AppendLine("EXTENDED CONVERSION LOG FOR LLM ANALYSIS");
+        sb.AppendLine("=".PadRight(80, '='));
+        sb.AppendLine();
+
+        // Configuration context
+        sb.AppendLine("## CONFIGURATION");
+        sb.AppendLine($"Project ID: {_config.ProjectId ?? "N/A"}");
+        sb.AppendLine($"Source File: {_config.SourceFile ?? "N/A"}");
+        sb.AppendLine($"Hierarchy File: {_config.HierarchyFile ?? "N/A"}");
+        sb.AppendLine($"Timestamp: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        sb.AppendLine();
+
+        // Conversion log with timestamps
+        sb.AppendLine("## CONVERSION LOG");
+        sb.AppendLine();
+        foreach (var entry in LogEntries)
+        {
+            sb.AppendLine($"[{entry.Time:HH:mm:ss}] {entry.Message}");
+        }
+        sb.AppendLine();
+
+        // Statistics extraction from log
+        sb.AppendLine("## STATISTICS");
+        var successLines = LogEntries.Where(e => e.Message.Contains("✓")).Count();
+        var errorLines = LogEntries.Where(e => e.Message.Contains("✗")).Count();
+        var warningLines = LogEntries.Where(e => e.Message.Contains("⚠")).Count();
+        var skippedLines = LogEntries.Where(e => e.Message.Contains("Skipping")).Count();
+
+        sb.AppendLine($"Successful operations: {successLines}");
+        sb.AppendLine($"Failed operations: {errorLines}");
+        sb.AppendLine($"Warnings: {warningLines}");
+        sb.AppendLine($"Skipped sections: {skippedLines}");
+        sb.AppendLine();
+
+        // Extract errors and warnings for quick reference
+        var errors = LogEntries.Where(e => e.Message.Contains("✗") || e.Message.Contains("Error")).ToList();
+        if (errors.Any())
+        {
+            sb.AppendLine("## ERRORS");
+            foreach (var error in errors)
+            {
+                sb.AppendLine($"[{error.Time:HH:mm:ss}] {error.Message}");
+            }
+            sb.AppendLine();
+        }
+
+        var warnings = LogEntries.Where(e => e.Message.Contains("⚠") || e.Message.Contains("Warning")).ToList();
+        if (warnings.Any())
+        {
+            sb.AppendLine("## WARNINGS");
+            foreach (var warning in warnings)
+            {
+                sb.AppendLine($"[{warning.Time:HH:mm:ss}] {warning.Message}");
+            }
+            sb.AppendLine();
+        }
+
+        // Duplicate selection events (useful for debugging matching issues)
+        var duplicates = LogEntries.Where(e => e.Message.Contains("Duplicate") || e.Message.Contains("duplicate")).ToList();
+        if (duplicates.Any())
+        {
+            sb.AppendLine("## DUPLICATE HEADER HANDLING");
+            foreach (var dup in duplicates)
+            {
+                sb.AppendLine($"[{dup.Time:HH:mm:ss}] {dup.Message}");
+            }
+            sb.AppendLine();
+        }
+
+        // Analysis prompt for LLM
+        sb.AppendLine("## LLM ANALYSIS PROMPT");
+        sb.AppendLine("Please analyze the conversion log above and identify:");
+        sb.AppendLine("1. Any patterns in the errors or warnings");
+        sb.AppendLine("2. Potential root causes for failures");
+        sb.AppendLine("3. Sections that were skipped and why");
+        sb.AppendLine("4. Header matching issues (duplicates, unmatched)");
+        sb.AppendLine("5. Suggested fixes or improvements to the transformation/hierarchy");
+        sb.AppendLine();
+
+        sb.AppendLine("=".PadRight(80, '='));
+        sb.AppendLine("END OF EXTENDED LOG");
+        sb.AppendLine("=".PadRight(80, '='));
+
+        return sb.ToString();
     }
 
     private Task StopConversion()

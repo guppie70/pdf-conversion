@@ -10,16 +10,25 @@
 
 ## 🎯 DEFAULT TESTING APPROACH (USE THIS FIRST)
 
-**For ANY testing or development task:**
-```bash
-# 1. Add test mode to SandboxEndpoint.cs
-# 2. Use direct curl command:
-curl "http://localhost:8085/sandbox?mode=your-test"
+### Sandbox Endpoint Workflow
 
-# Examples:
-curl "http://localhost:8085/sandbox?mode=test-hierarchy"
-curl "http://localhost:8085/sandbox?mode=prompt-gen"
-```
+**Standard Pattern for ALL testing:**
+
+1. **Add new test to SandboxEndpoint.cs**
+   - Create `HandleYourTestAsync()` method
+   - The LATEST test becomes the default (no mode parameter needed)
+   - Previous tests remain accessible via `?mode=<name>`
+
+2. **Run tests with direct curl commands:**
+   ```bash
+   # Run latest test (default, no mode parameter)
+   curl http://localhost:8085/sandbox
+
+   # Run specific test by name
+   curl "http://localhost:8085/sandbox?mode=test-hierarchy"
+   curl "http://localhost:8085/sandbox?mode=prompt-gen"
+   curl "http://localhost:8085/sandbox?mode=llm-comparison"
+   ```
 
 **NEVER:**
 - ❌ Create .sh files in project root
@@ -65,24 +74,51 @@ Is this complex logic (algorithm/transformation/parsing)?
 **WHY:** Sandbox enables sub-second iteration cycles. Full integration takes minutes.
 
 **HOW:**
-1. Create test endpoint in `PdfConversion/Endpoints/SandboxEndpoint.cs`
-2. Hardcode test data directly in the endpoint
-3. Iterate: Edit → Hot-reload (2s) → `curl http://localhost:8085/sandbox` → Verify
-4. Port working logic to actual service
-5. Add unit tests
+1. Add new method to `PdfConversion/Endpoints/SandboxEndpoint.cs`:
+   ```csharp
+   private static async Task HandleYourTestAsync(
+       HttpContext context,
+       ILogger logger)
+   {
+       // Your test logic here with hardcoded test data
+   }
+   ```
+
+2. Make it the default in `HandleAsync()`:
+   ```csharp
+   else
+   {
+       // DEFAULT: Latest active test
+       await HandleYourTestAsync(context, logger);
+   }
+   ```
+
+3. Iterate rapidly: Edit → Hot-reload (2s) → `curl http://localhost:8085/sandbox` → Verify
+
+4. Once working, move previous default to named mode (if needed):
+   ```csharp
+   else if (mode == "previous-test")
+   {
+       await HandlePreviousTestAsync(context, logger);
+   }
+   ```
+
+5. Port working logic to actual service and add unit tests
 
 ### 🚨 CRITICAL Testing Rules
 
 **ALWAYS use these patterns:**
-- ✅ **Direct curl commands** - Run tests directly with `curl "http://localhost:8085/sandbox?mode=test"`
-- ✅ **Sandbox endpoints** - Add test modes to SandboxEndpoint.cs for isolated testing
+- ✅ **Direct curl commands** - `curl http://localhost:8085/sandbox` for latest test
+- ✅ **Sandbox endpoints** - Add methods to SandboxEndpoint.cs for all tests
 - ✅ **Hardcoded test data** - Put test data directly in sandbox methods
+- ✅ **Latest test is default** - No mode parameter needed for active development
+- ✅ **Named modes for history** - Previous tests accessible via `?mode=<name>`
 
 **NEVER do these:**
 - ❌ **Create .sh files in project root** - Use direct curl commands instead
 - ❌ **Create test files in project root** - Only use approved test data locations
 - ❌ **Use Program.cs for test endpoints** - Always use SandboxEndpoint.cs
-- ❌ **Create temporary test endpoints** - Extend sandbox with new modes instead
+- ❌ **Create temporary test endpoints** - All tests go in sandbox with modes
 
 ---
 
@@ -114,6 +150,51 @@ Understanding these 5 document types is critical - they represent stages in the 
 - **What:** Temporary fragment during section extraction (not persisted)
 - **Contains:** Accumulated content for current section being processed
 - **Location:** Memory only
+
+### Context Files (Development Aid)
+
+These files provide quick access to the current working state for development and debugging:
+
+**Context Normalized XML** = `data/_work/_normalized.xml`
+- **What:** Copy of the most recent Normalized XML from any transformation
+- **When Written:** Automatically after every successful XSLT transformation in Transform page
+- **Purpose:** Provides immediate context when developing/debugging without specifying project paths
+- **Usage:** Read this file when user asks about "the normalized XML" without specifying a project
+
+**Context Hierarchy XML** = `data/_work/_hierarchy.xml`
+- **What:** Copy of the most recent Hierarchy XML from any save operation
+- **When Written:** Automatically whenever hierarchy is saved (manual edit or auto-generated)
+- **Purpose:** Provides immediate context when developing/debugging hierarchy-related features
+- **Usage:** Read this file when user asks about "the hierarchy" without specifying a project
+
+**Conversion Log** = `data/_work/_conversion.log`
+- **What:** Timestamped log of the most recent section extraction process
+- **When Written:** Automatically at the end of every conversion run (success, failure, or cancellation)
+- **Purpose:** Provides detailed trace of section extraction for debugging matching/extraction issues
+- **Usage:** Read this when user reports conversion problems or asks about extraction failures
+- **Format:** Simple timestamped messages: `[HH:mm:ss] Log message`
+
+**Conversion Extended Log** = `data/_work/_conversion-extended.log`
+- **What:** Enhanced conversion log with statistics, categorized errors, and LLM analysis prompt
+- **When Written:** Alongside _conversion.log at the end of every conversion run
+- **Purpose:** Structured format optimized for LLM analysis of conversion problems
+- **Usage:** Feed this file directly to an LLM when debugging complex extraction issues
+- **Sections:** Configuration, Full Log, Statistics, Errors, Warnings, Duplicates, Analysis Prompt
+
+**Roundtrip XML** = `data/_work/_roundtrip.xml`
+- **What:** Reconstructed Normalized XML from combining all Section XML files
+- **When Written:** After successful roundtrip validation completes
+- **Purpose:** Enables comparison of original normalized XML vs. reconstructed to find extraction issues
+- **Usage:** Read this when debugging why sections don't match the original transformation
+- **Compare with:** `_normalized.xml` to identify what changed during section extraction
+
+**Key Points:**
+- These files represent the **last operation** regardless of project
+- Always updated on success (logs written even on errors/cancellation)
+- Not project-specific - reflects current working state only
+- Read these when user provides insufficient context in their request
+- Never ask user for project paths if you can use these context files instead
+- Extended logs include prompts for LLM analysis - use them!
 
 ### Pipeline Overview
 

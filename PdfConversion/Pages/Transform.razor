@@ -1847,6 +1847,24 @@
                             await File.WriteAllTextAsync(normalizedXmlPath, OutputContent);
                             SavedNormalizedXmlPath = normalizedXmlPath;
                             Logger.LogInformation("Saved normalized XML to {Path}", normalizedXmlPath);
+
+                            // Also write to _work directory for development context
+                            try
+                            {
+                                var workPath = "/app/data/_work";
+                                if (!Directory.Exists(workPath))
+                                {
+                                    Directory.CreateDirectory(workPath);
+                                }
+                                var contextNormalizedPath = Path.Combine(workPath, "_normalized.xml");
+                                await File.WriteAllTextAsync(contextNormalizedPath, OutputContent);
+                                Logger.LogInformation("Saved context normalized XML to {Path}", contextNormalizedPath);
+                            }
+                            catch (Exception workEx)
+                            {
+                                Logger.LogWarning(workEx, "Failed to save context normalized XML to _work folder");
+                                // Non-critical, continue
+                            }
                         }
                     }
                     catch (Exception ex)

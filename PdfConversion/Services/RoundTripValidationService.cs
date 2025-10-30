@@ -223,6 +223,24 @@ public class RoundTripValidationService : IRoundTripValidationService
             await File.WriteAllTextAsync(reconstructedPath, reconstructedXml);
             _logger.LogInformation("Saved reconstructed document to: {Path}", reconstructedPath);
 
+            // Also write to _work directory for development context
+            try
+            {
+                var workPath = "/app/data/_work";
+                if (!Directory.Exists(workPath))
+                {
+                    Directory.CreateDirectory(workPath);
+                }
+                var contextRoundtripPath = Path.Combine(workPath, "_roundtrip.xml");
+                await File.WriteAllTextAsync(contextRoundtripPath, reconstructedXml);
+                _logger.LogInformation("Saved context roundtrip XML to {Path}", contextRoundtripPath);
+            }
+            catch (Exception workEx)
+            {
+                _logger.LogWarning(workEx, "Failed to save context roundtrip XML to _work folder");
+                // Non-critical, continue
+            }
+
             // 6. Generate diff
             _logger.LogInformation("Generating diff between freshly transformed and reconstructed XML");
             var diffResult = _diffService.GenerateXmlDiff(originalXml, reconstructedXml, debugOutputDirectory);
