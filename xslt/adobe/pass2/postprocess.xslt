@@ -58,6 +58,30 @@
                   mode="pass2"
                   priority="15"/>
 
+    <!-- Suppress headers ending with "(continued)" (case-insensitive, with optional whitespace) -->
+    <xsl:template match="h1 | h2 | h3 | h4 | h5 | h6" mode="pass2">
+        <xsl:variable name="full-text" select="normalize-space(string(.))"/>
+
+        <xsl:variable name="has-continued"
+                      select="matches($full-text, '\(continued\)\s*$', 'i')"/>
+        <xsl:if test="not($has-continued)">
+            <xsl:copy>
+                <xsl:apply-templates select="node() | @*" mode="pass2"/>
+            </xsl:copy>
+        </xsl:if>
+    </xsl:template>
+
+    <!-- Special handling for headers containing ONLY "(continued)" -->
+    <!-- Priority 15 ensures this template fires before the general one above -->
+    <xsl:template match="h1[normalize-space(.) = '(continued)'] |
+                         h2[normalize-space(.) = '(continued)'] |
+                         h3[normalize-space(.) = '(continued)'] |
+                         h4[normalize-space(.) = '(continued)'] |
+                         h5[normalize-space(.) = '(continued)'] |
+                         h6[normalize-space(.) = '(continued)']"
+                  mode="pass2"
+                  priority="15"/>
+
     <!-- Convert single-row tables: move row from thead to tbody and convert th to td -->
     <xsl:template match="table[count(.//thead/tr) + count(.//tbody/tr) = 1]" mode="pass2" priority="20">
         <xsl:variable name="single-row" select="(.//thead/tr | .//tbody/tr)[1]"/>
