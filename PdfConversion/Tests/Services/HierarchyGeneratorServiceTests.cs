@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Moq;
 using PdfConversion.Models;
@@ -10,13 +11,23 @@ public class HierarchyGeneratorServiceTests
 {
     private readonly Mock<IOllamaService> _ollamaServiceMock;
     private readonly Mock<ILogger<HierarchyGeneratorService>> _loggerMock;
+    private readonly Mock<RuleBasedHierarchyGenerator> _ruleBasedGeneratorMock;
+    private readonly Mock<IConfiguration> _configurationMock;
     private readonly HierarchyGeneratorService _service;
 
     public HierarchyGeneratorServiceTests()
     {
         _ollamaServiceMock = new Mock<IOllamaService>();
         _loggerMock = new Mock<ILogger<HierarchyGeneratorService>>();
-        _service = new HierarchyGeneratorService(_ollamaServiceMock.Object, _loggerMock.Object);
+        _ruleBasedGeneratorMock = new Mock<RuleBasedHierarchyGenerator>(
+            Mock.Of<ILogger<RuleBasedHierarchyGenerator>>());
+        _configurationMock = new Mock<IConfiguration>();
+
+        _service = new HierarchyGeneratorService(
+            _ollamaServiceMock.Object,
+            _loggerMock.Object,
+            _ruleBasedGeneratorMock.Object,
+            _configurationMock.Object);
     }
 
     [Fact]

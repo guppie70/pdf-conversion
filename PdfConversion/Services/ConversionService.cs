@@ -744,7 +744,8 @@ public class ConversionService : IConversionService
             logCallback("✓ Template loaded successfully");
 
             // 4. Transform source XML
-            logCallback("Transforming source XML...");
+            var sourceXmlPath = Path.Combine("/app/data/input", customer, "projects", project, sourceFile);
+            logCallback($"Transforming source XML: {sourceXmlPath}");
             var transformedXhtml = await TransformSourceXmlAsync(projectId, sourceFile);
 
             if (transformedXhtml == null)
@@ -809,8 +810,7 @@ public class ConversionService : IConversionService
                     {
                         logCallback($"{progress} ℹ Using previously selected duplicate for '{linkName}'");
                         match = resolvedDuplicates[linkName];
-                        // Remove from resolved list as we've now used it
-                        resolvedDuplicates.Remove(linkName);
+                        // Keep cache entry for subsequent instances (3+) of the same header
                     }
                     else
                     {
@@ -1325,18 +1325,18 @@ public class ConversionService : IConversionService
             logCallback($"{progress}   Searching through {allHeaders.Count} unprocessed headers (filtered from {allHeadersUnfiltered.Count} total)");
 
             // Score each duplicate by how well the subsequent headers match
-            var candidateScores = new Dictionary<HeaderMatch, int>();
+            var candidateScores = new List<CandidateScore>();
 
             foreach (var duplicate in duplicateMatches)
             {
                 if (duplicate.MatchedHeader == null) continue;
 
-                int score = 0;
+                int forwardScore = 0;
                 var duplicateIndex = allHeaders.IndexOf(duplicate.MatchedHeader);
 
                 if (duplicateIndex < 0) continue;
 
-                // Look for the subsequent hierarchy items after this duplicate
+                // Calculate forward-looking score (existing logic)
                 for (int j = 0; j < upcomingHierarchy.Count; j++)
                 {
                     var expectedItem = upcomingHierarchy[j];
@@ -1351,7 +1351,7 @@ public class ConversionService : IConversionService
                         if (HeaderMatchesHierarchy(headerText, expectedItem.LinkName))
                         {
                             found = true;
-                            score += (5 - j); // Higher score for closer matches (5 for 1st, 4 for 2nd, etc.)
+                            forwardScore += (5 - j); // Higher score for closer matches (5 for 1st, 4 for 2nd, etc.)
                             logCallback($"{progress}     Found expected header '{expectedItem.LinkName}' at position {j + 1}");
                             break;
                         }
@@ -1360,30 +1360,67 @@ public class ConversionService : IConversionService
                     if (!found)
                     {
                         // Penalty for missing expected header
-                        score -= 2;
+                        forwardScore -= 2;
                         logCallback($"{progress}     Expected header '{expectedItem.LinkName}' not found (penalty: -2)");
                     }
                 }
 
-                candidateScores[duplicate] = score;
-                logCallback($"{progress}     Candidate {duplicate.DuplicateIndex + 1}: '{duplicate.MatchedText}' - Score: {score}");
+                // Calculate tiebreaker score (Phase 1: always returns 0)
+                var (tiebreakerScore, tiebreakerReason) = CalculateTiebreakerScore(duplicate, allHeaders, logCallback, progress);
+
+                candidateScores.Add(new CandidateScore
+                {
+                    Match = duplicate,
+                    ForwardLookingScore = forwardScore,
+                    TiebreakerScore = tiebreakerScore,
+                    TiebreakerReason = tiebreakerReason
+                });
+
+                logCallback($"{progress}     Candidate {duplicate.DuplicateIndex + 1}: '{duplicate.MatchedText}' - Forward: {forwardScore}, Tiebreaker: {tiebreakerScore}");
             }
 
             // Find the best scoring candidate
             if (candidateScores.Count > 0)
             {
-                var bestCandidate = candidateScores.OrderByDescending(kvp => kvp.Value).First();
-                var secondBest = candidateScores.OrderByDescending(kvp => kvp.Value).Skip(1).FirstOrDefault();
+                var sortedCandidates = candidateScores
+                    .OrderByDescending(c => c.ForwardLookingScore)
+                    .ThenByDescending(c => c.TiebreakerScore)
+                    .ToList();
 
-                // Only auto-select if there's a clear winner (at least 3 points difference)
-                if (secondBest.Key == null || bestCandidate.Value - secondBest.Value >= 3)
+                var best = sortedCandidates[0];
+                var secondBest = sortedCandidates.Count > 1 ? sortedCandidates[1] : null;
+
+                // Only auto-select if there's a clear winner
+                bool hasForwardWinner = secondBest == null || best.ForwardLookingScore - secondBest.ForwardLookingScore >= 3;
+                bool hasTiebreakerWinner = secondBest != null &&
+                                           best.ForwardLookingScore == secondBest.ForwardLookingScore &&
+                                           best.TiebreakerScore - secondBest.TiebreakerScore >= 2;
+
+                if (hasForwardWinner || hasTiebreakerWinner)
                 {
-                    logCallback($"{progress}   Best match found with score {bestCandidate.Value}");
-                    return bestCandidate.Key;
+                    if (hasTiebreakerWinner)
+                    {
+                        _logger.LogInformation(
+                            "[Tiebreaker] Auto-selected header '{Header}' | Forward: {Forward} | Tiebreaker: {Tiebreaker} | Reason: {Reason}",
+                            best.Match.MatchedText?.Trim() ?? "",
+                            best.ForwardLookingScore,
+                            best.TiebreakerScore,
+                            best.TiebreakerReason
+                        );
+                        logCallback($"{progress}   ✓ Tiebreaker resolved: {best.Match.MatchedText} (Reason: {best.TiebreakerReason})");
+                    }
+                    else
+                    {
+                        logCallback($"{progress}   Best match found with score {best.ForwardLookingScore}");
+                    }
+                    return best.Match;
                 }
                 else
                 {
-                    logCallback($"{progress}   Scores too close to auto-select (best: {bestCandidate.Value}, second: {secondBest.Value})");
+                    if (secondBest != null)
+                    {
+                        logCallback($"{progress}   Scores too close to auto-select (best: {best.TotalScore}, second: {secondBest.TotalScore})");
+                    }
                 }
             }
 
@@ -1395,6 +1432,190 @@ public class ConversionService : IConversionService
             logCallback($"{progress}   Error during disambiguation: {ex.Message}");
             return null;
         }
+    }
+
+    /// <summary>
+    /// Calculates tiebreaker score for a duplicate header candidate.
+    /// Only used when forward-looking scores are too close to decide.
+    ///
+    /// Priority:
+    /// 1. Backward header pattern matching (header-to-header relationships)
+    /// 2. Non-header context fallback (element type, continuation markers) - only if header matching fails
+    /// </summary>
+    private (int Score, string Reason) CalculateTiebreakerScore(
+        HeaderMatch candidate,
+        List<XElement> allHeaders,
+        Action<string> logCallback,
+        string progress)
+    {
+        if (candidate.MatchedHeader == null)
+            return (0, "No header element");
+
+        int score = 0;
+        var reasons = new List<string>();
+
+        // PRIORITY 1: Backward header pattern matching (pure header-to-header)
+        var (backwardScore, backwardReason) = CalculateBackwardHeaderScore(candidate, allHeaders);
+        if (backwardScore != 0)
+        {
+            score += backwardScore;
+            reasons.Add(backwardReason);
+        }
+
+        // PRIORITY 2: Non-header context fallback (only if header matching didn't help)
+        if (score == 0)
+        {
+            var (fallbackScore, fallbackReason) = CalculateNonHeaderFallbackScore(candidate);
+            score += fallbackScore;
+            if (!string.IsNullOrEmpty(fallbackReason))
+                reasons.Add(fallbackReason);
+        }
+
+        var reason = reasons.Count > 0 ? string.Join(", ", reasons) : "No tiebreakers applied";
+        return (score, reason);
+    }
+
+    /// <summary>
+    /// Analyzes backward header pattern - looks at previous headers before each candidate.
+    /// Pure header-to-header relationship matching.
+    /// </summary>
+    private (int Score, string Reason) CalculateBackwardHeaderScore(
+        HeaderMatch candidate,
+        List<XElement> allHeaders)
+    {
+        if (candidate.MatchedHeader == null)
+            return (0, "");
+
+        int score = 0;
+        var reasons = new List<string>();
+
+        // Find position of this candidate in the header list
+        var candidateIndex = allHeaders.IndexOf(candidate.MatchedHeader);
+        if (candidateIndex < 0)
+            return (0, "");
+
+        // Look backward at previous 2-3 headers
+        var previousHeaders = allHeaders
+            .Take(candidateIndex)
+            .TakeLast(3)
+            .ToList();
+
+        if (previousHeaders.Count == 0)
+        {
+            // No previous headers - likely first header in document
+            score += 2;
+            reasons.Add("FirstHeader(+2)");
+        }
+        else
+        {
+            // Check if the immediately previous header is the same text (repeated header)
+            var prevHeader = previousHeaders.LastOrDefault();
+            if (prevHeader != null)
+            {
+                var prevText = NormalizeHeaderText(prevHeader.Value);
+                var currentText = NormalizeHeaderText(candidate.MatchedHeader.Value);
+
+                if (prevText == currentText)
+                {
+                    // Same header repeated immediately before - likely continuation page
+                    score -= 5;
+                    reasons.Add("RepeatedHeader(-5)");
+                }
+            }
+        }
+
+        var reason = reasons.Count > 0 ? string.Join(", ", reasons) : "";
+        return (score, reason);
+    }
+
+    /// <summary>
+    /// Non-header context fallback scoring (element type + continuation markers).
+    /// Only used when backward header pattern matching fails to differentiate candidates.
+    /// SAVED FOR FALLBACK - currently disabled.
+    /// </summary>
+    private (int Score, string Reason) CalculateNonHeaderFallbackScore(HeaderMatch candidate)
+    {
+        if (candidate.MatchedHeader == null)
+            return (0, "");
+
+        int score = 0;
+        var reasons = new List<string>();
+
+        // Element Type Scoring
+        int elementScore = GetElementTypeScore(candidate.MatchedHeader);
+        if (elementScore != 0)
+        {
+            score += elementScore;
+            reasons.Add($"ElementType({elementScore})");
+        }
+
+        // Continuation Marker Detection
+        if (IsFollowedByContinuationMarker(candidate.MatchedHeader))
+        {
+            score -= 8;
+            reasons.Add("Continuation(-8)");
+        }
+
+        var reason = reasons.Count > 0 ? string.Join(", ", reasons) : "";
+        return (score, reason);
+    }
+
+    /// <summary>
+    /// Scores header elements based on their type.
+    /// H1-H6 headers get positive scores (10 for H1, down to 5 for H6).
+    /// Paragraph/span elements get negative scores (-5) since they're not proper headers.
+    /// </summary>
+    private int GetElementTypeScore(XElement element)
+    {
+        var name = element.Name.LocalName.ToLower();
+        return name switch
+        {
+            "h1" => 10,
+            "h2" => 9,
+            "h3" => 8,
+            "h4" => 7,
+            "h5" => 6,
+            "h6" => 5,
+            "p" => -5,      // Paragraph text penalized
+            "span" => -5,   // Inline text penalized
+            _ => 0
+        };
+    }
+
+    /// <summary>
+    /// Detects if a header is followed by a table containing "(continued)" marker.
+    /// This indicates a continuation page rather than a new section start.
+    /// Stops searching when encountering another header (section boundary).
+    /// </summary>
+    private bool IsFollowedByContinuationMarker(XElement header)
+    {
+        // Check next few elements for tables with "(continued)" marker
+        // Stop when we encounter another header (indicates boundary of this header's content)
+        var nextElements = header.ElementsAfterSelf().Take(5);
+
+        foreach (var elem in nextElements)
+        {
+            // Stop if we hit another header - that's the next section
+            var elemName = elem.Name.LocalName.ToLower();
+            if (elemName.Length == 2 && elemName[0] == 'h' && char.IsDigit(elemName[1]))
+            {
+                break; // Stop searching, we've hit the next header
+            }
+
+            // Look for div with table-wrapper class
+            if (elemName == "div" &&
+                elem.Attribute("class")?.Value.Contains("table-wrapper") == true)
+            {
+                // Check if table contains "(continued)" text
+                var hasContinuation = elem.Descendants()
+                    .Any(d => d.Value.Contains("(continued)"));
+
+                if (hasContinuation)
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

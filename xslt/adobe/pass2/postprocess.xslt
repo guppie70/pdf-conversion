@@ -20,12 +20,12 @@
         </xsl:copy>
     </xsl:template>
 
-    <!-- Suppress paragraphs ending with "(continued)" (case-insensitive, with optional whitespace) -->
+    <!-- Suppress paragraphs ending with "(continued)" (case-insensitive, with optional whitespace inside/outside parens) -->
     <xsl:template match="p" mode="pass2">
         <xsl:variable name="full-text" select="normalize-space(string(.))"/>
 
         <xsl:variable name="has-continued"
-                      select="matches($full-text, '\(continued\)\s*$', 'i')"/>
+                      select="matches($full-text, '\(\s*continued\s*\)\s*$', 'i')"/>
         <xsl:if test="not($has-continued)">
             <xsl:copy>
                 <xsl:apply-templates select="node() | @*" mode="pass2"/>
@@ -33,9 +33,9 @@
         </xsl:if>
     </xsl:template>
 
-    <!-- Special handling for paragraphs containing ONLY "(continued)" -->
+    <!-- Special handling for paragraphs containing ONLY "(continued)" with optional internal spaces -->
     <!-- Priority 15 ensures this template fires before the general one above -->
-    <xsl:template match="p[normalize-space(.) = '(continued)']"
+    <xsl:template match="p[matches(normalize-space(.), '^\(\s*continued\s*\)$', 'i')]"
                   mode="pass2"
                   priority="15"/>
 
@@ -44,7 +44,7 @@
         <xsl:variable name="full-text" select="normalize-space(string(.))"/>
 
         <xsl:variable name="has-continued"
-                      select="matches($full-text, '\(continued\)\s*$', 'i')"/>
+                      select="matches($full-text, '\(\s*continued\s*\)\s*$', 'i')"/>
         <xsl:if test="not($has-continued)">
             <xsl:copy>
                 <xsl:apply-templates select="node() | @*" mode="pass2"/>
@@ -52,18 +52,18 @@
         </xsl:if>
     </xsl:template>
 
-    <!-- Special handling for list items containing ONLY "(continued)" -->
+    <!-- Special handling for list items containing ONLY "(continued)" with optional internal spaces -->
     <!-- Priority 15 ensures this template fires before the general one above -->
-    <xsl:template match="li[normalize-space(.) = '(continued)']"
+    <xsl:template match="li[matches(normalize-space(.), '^\(\s*continued\s*\)$', 'i')]"
                   mode="pass2"
                   priority="15"/>
 
-    <!-- Suppress headers ending with "(continued)" (case-insensitive, with optional whitespace) -->
+    <!-- Suppress headers ending with "(continued)" (case-insensitive, with optional whitespace inside/outside parens) -->
     <xsl:template match="h1 | h2 | h3 | h4 | h5 | h6" mode="pass2">
         <xsl:variable name="full-text" select="normalize-space(string(.))"/>
 
         <xsl:variable name="has-continued"
-                      select="matches($full-text, '\(continued\)\s*$', 'i')"/>
+                      select="matches($full-text, '\(\s*continued\s*\)\s*$', 'i')"/>
         <xsl:if test="not($has-continued)">
             <xsl:copy>
                 <xsl:apply-templates select="node() | @*" mode="pass2"/>
@@ -71,14 +71,14 @@
         </xsl:if>
     </xsl:template>
 
-    <!-- Special handling for headers containing ONLY "(continued)" -->
+    <!-- Special handling for headers containing ONLY "(continued)" with optional internal spaces -->
     <!-- Priority 15 ensures this template fires before the general one above -->
-    <xsl:template match="h1[normalize-space(.) = '(continued)'] |
-                         h2[normalize-space(.) = '(continued)'] |
-                         h3[normalize-space(.) = '(continued)'] |
-                         h4[normalize-space(.) = '(continued)'] |
-                         h5[normalize-space(.) = '(continued)'] |
-                         h6[normalize-space(.) = '(continued)']"
+    <xsl:template match="h1[matches(normalize-space(.), '^\(\s*continued\s*\)$', 'i')] |
+                         h2[matches(normalize-space(.), '^\(\s*continued\s*\)$', 'i')] |
+                         h3[matches(normalize-space(.), '^\(\s*continued\s*\)$', 'i')] |
+                         h4[matches(normalize-space(.), '^\(\s*continued\s*\)$', 'i')] |
+                         h5[matches(normalize-space(.), '^\(\s*continued\s*\)$', 'i')] |
+                         h6[matches(normalize-space(.), '^\(\s*continued\s*\)$', 'i')]"
                   mode="pass2"
                   priority="15"/>
 

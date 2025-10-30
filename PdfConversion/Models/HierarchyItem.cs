@@ -113,6 +113,12 @@ public class HierarchyItem
     public int? SequentialOrder { get; set; }
 
     /// <summary>
+    /// Controls whether this item's children are visible in the tree view
+    /// Defaults to true (expanded) for better initial visibility
+    /// </summary>
+    public bool IsExpanded { get; set; } = true;
+
+    /// <summary>
     /// Returns a formatted string for logging and debugging
     /// </summary>
     public override string ToString() => $"{LinkName} (Level {Level}, ID: {Id})";

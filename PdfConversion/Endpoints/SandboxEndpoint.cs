@@ -51,6 +51,17 @@ public static class SandboxEndpoint
 {
     /// <summary>
     /// Handles the /sandbox endpoint request - routes to different utilities based on mode parameter.
+    ///
+    /// DEFAULT (no mode parameter): Latest active test (currently test-ollama)
+    ///
+    /// Available modes:
+    ///   - llm-comparison: Compare local LLM with Claude Sonnet for hierarchy generation
+    ///   - prompt-gen: Generate hierarchy generation prompt
+    ///   - test-hierarchy: Test hierarchy XML serialization
+    ///   - test-ascii: Test ASCII normalization
+    ///   - test-mode-persistence: Test mode persistence for GenerateHierarchy page
+    ///   - test-root-normalization: Test root element normalization
+    ///   - test-fix-existing: Test fixing existing hierarchy files
     /// </summary>
     public static async Task HandleAsync(
         HttpContext context,
@@ -62,7 +73,13 @@ public static class SandboxEndpoint
         // Check query parameters to route to different utilities
         var mode = context.Request.Query["mode"].FirstOrDefault();
 
-        if (mode == "prompt-gen")
+        if (mode == "llm-comparison")
+        {
+            // LLM comparison (was the old default)
+            var useLiveApi = bool.Parse(context.Request.Query["liveApi"].FirstOrDefault() ?? "false");
+            await HandleLlmComparisonAsync(context, logger, hierarchyGeneratorService, hierarchyService, useLiveApi);
+        }
+        else if (mode == "prompt-gen")
         {
             await HandlePromptGenerationAsync(context, xsltService, hierarchyGeneratorService, logger);
         }
@@ -88,10 +105,8 @@ public static class SandboxEndpoint
         }
         else
         {
-            // Default: LLM comparison
-            // Parse liveApi parameter (default: false for cached mode)
-            var useLiveApi = bool.Parse(context.Request.Query["liveApi"].FirstOrDefault() ?? "false");
-            await HandleLlmComparisonAsync(context, logger, hierarchyGeneratorService, hierarchyService, useLiveApi);
+            // DEFAULT: Latest active test (currently test-tiebreakers)
+            await HandleTestTiebreakersAsync(context, logger);
         }
     }
 
@@ -2212,6 +2227,631 @@ public static class SandboxEndpoint
             logger.LogError(ex, "[Sandbox] Failed to test fix existing hierarchy");
             context.Response.StatusCode = 500;
             await context.Response.WriteAsync($"Error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Tests tiebreaker scoring for duplicate header resolution (Phases 2 & 3).
+    /// Loads ar24-4 test data and applies element type + continuation marker scoring.
+    ///
+    /// Usage: curl http://localhost:8085/sandbox
+    /// </summary>
+    private static async Task HandleTestTiebreakersAsync(
+        HttpContext context,
+        ILogger logger)
+    {
+        try
+        {
+            logger.LogInformation("[Sandbox] Testing tiebreaker scoring with ar24-4 data");
+
+            // Load normalized XML
+            var normalizedPath = "/app/data/input/optiver/projects/ar24-4/_normalized-for-development.xml";
+            if (!File.Exists(normalizedPath))
+            {
+                context.Response.StatusCode = 404;
+                context.Response.ContentType = "text/plain";
+                await context.Response.WriteAsync($"Test file not found: {normalizedPath}");
+                return;
+            }
+
+            var xml = System.Xml.Linq.XDocument.Load(normalizedPath);
+            var allElements = xml.Descendants()
+                .Where(e => IsHeaderOrParagraphElement(e))
+                .ToList();
+
+            // For backward header matching, we need ONLY actual headers (h1-h6)
+            var actualHeaders = xml.Descendants()
+                .Where(e => IsActualHeader(e))
+                .ToList();
+
+            logger.LogInformation("[Sandbox] Loaded {HeaderCount} headers, {TotalCount} headers+paragraphs", actualHeaders.Count, allElements.Count);
+
+            var html = new System.Text.StringBuilder();
+            html.AppendLine("<!DOCTYPE html>");
+            html.AppendLine("<html><head><meta charset='UTF-8'><title>Tiebreaker Test Results</title>");
+            html.AppendLine("<style>");
+            html.AppendLine("body { font-family: 'Segoe UI', sans-serif; background: #1F1F1F; color: #CCCCCC; padding: 20px; }");
+            html.AppendLine("h1 { color: #FFFFFF; border-bottom: 2px solid #0078D4; padding-bottom: 10px; }");
+            html.AppendLine("h2 { color: #6CADDF; margin-top: 30px; }");
+            html.AppendLine(".case { background: #2B2B2B; border: 1px solid #3C3C3C; border-radius: 4px; padding: 15px; margin: 20px 0; }");
+            html.AppendLine(".candidate { background: #313131; border-left: 3px solid #868686; padding: 10px; margin: 10px 0; }");
+            html.AppendLine(".winner { border-left-color: #2EA043; background: #1a3a1a; }");
+            html.AppendLine(".loser { border-left-color: #868686; }");
+            html.AppendLine(".score { font-family: 'Consolas', monospace; color: #85B6FF; }");
+            html.AppendLine(".reason { color: #9D9D9D; font-size: 0.9em; font-style: italic; }");
+            html.AppendLine(".context { background: #181818; border: 1px solid #2B2B2B; padding: 8px; margin: 5px 0; font-size: 0.85em; }");
+            html.AppendLine("code { background: #0D0D0D; color: #E2C08D; padding: 2px 6px; border-radius: 3px; }");
+            html.AppendLine("</style>");
+            html.AppendLine("</head><body>");
+            html.AppendLine("<h1>🎯 Tiebreaker Scoring Test Results</h1>");
+            html.AppendLine($"<p>Test Data: <code>{normalizedPath}</code></p>");
+
+            // Case 1: "Statement of financial position" duplicates
+            html.AppendLine("<h2>Case 1: \"Statement of financial position as at 31 December 2024\"</h2>");
+            html.AppendLine("<div class='case'>");
+
+            var financialHeaders = actualHeaders
+                .Where(e => e.Name.LocalName.ToLower() == "h2" &&
+                           e.Value.Contains("Statement of financial position"))
+                .ToList();
+
+            if (financialHeaders.Count >= 2)
+            {
+                var candidates = new List<(System.Xml.Linq.XElement header, int elementScore, int continuationScore, string reason)>();
+
+                foreach (var header in financialHeaders.Take(2))
+                {
+                    var headerIndex = actualHeaders.IndexOf(header);
+
+                    // PRIORITY 1: Backward header pattern matching (pure header-to-header)
+                    int backwardScore = 0;
+                    string backwardReason = "";
+
+                    if (headerIndex >= 0)
+                    {
+                        var previousHeaders = actualHeaders.Take(headerIndex).TakeLast(3).ToList();
+
+                        if (previousHeaders.Count == 0)
+                        {
+                            backwardScore = 2;
+                            backwardReason = "FirstHeader(+2)";
+                        }
+                        else
+                        {
+                            var prevHeader = previousHeaders.LastOrDefault();
+                            if (prevHeader != null &&
+                                prevHeader.Value.Trim() == header.Value.Trim())
+                            {
+                                backwardScore = -5;
+                                backwardReason = "RepeatedHeader(-5)";
+                            }
+                        }
+                    }
+
+                    // PRIORITY 2: Non-header fallback (DISABLED - for comparison only)
+                    int elementScore = GetElementTypeScore(header);
+                    int continuationScore = IsFollowedByContinuationMarker(header) ? -8 : 0;
+
+                    int totalScore = backwardScore;
+                    string reason = backwardReason != "" ? backwardReason : "NoBackwardSignal";
+                    string fallbackInfo = $"[Fallback would add: Element({elementScore})";
+                    if (continuationScore != 0)
+                        fallbackInfo += $", Continuation({continuationScore})";
+                    fallbackInfo += $"]";
+
+                    candidates.Add((header, backwardScore, 0, reason));
+
+                    html.AppendLine($"<div class='candidate'>");
+                    html.AppendLine($"<strong>Candidate {candidates.Count}</strong>");
+                    html.AppendLine($"<div class='context'>Element: <code>&lt;{header.Name.LocalName}&gt;</code></div>");
+                    html.AppendLine($"<div class='context'>Text: \"{header.Value.Trim().Substring(0, Math.Min(60, header.Value.Trim().Length))}...\"</div>");
+
+                    // Show previous header
+                    if (headerIndex > 0)
+                    {
+                        var prevHeader = actualHeaders.Take(headerIndex).LastOrDefault();
+                        if (prevHeader != null)
+                        {
+                            var prevPreview = prevHeader.Value.Trim();
+                            if (prevPreview.Length > 60)
+                                prevPreview = prevPreview.Substring(0, 60) + "...";
+                            html.AppendLine($"<div class='context'>Previous header: <code>&lt;{prevHeader.Name.LocalName}&gt;</code> \"{System.Web.HttpUtility.HtmlEncode(prevPreview)}\"</div>");
+                        }
+                    }
+
+                    // Show following element
+                    var nextElem = header.ElementsAfterSelf().FirstOrDefault();
+                    if (nextElem != null)
+                    {
+                        var preview = nextElem.Value.Length > 80 ? nextElem.Value.Substring(0, 80) + "..." : nextElem.Value;
+                        html.AppendLine($"<div class='context'>Followed by: <code>&lt;{nextElem.Name.LocalName}&gt;</code> \"{System.Web.HttpUtility.HtmlEncode(preview)}\"</div>");
+                    }
+
+                    html.AppendLine($"<div class='score'>Backward Header Score: {totalScore} {reason}</div>");
+                    html.AppendLine($"<div class='reason'>{fallbackInfo}</div>");
+                    html.AppendLine("</div>");
+                }
+
+                // Determine winner based on backward header score
+                var winner = candidates.OrderByDescending(c => c.elementScore).First();
+                var winnerIndex = candidates.IndexOf(winner);
+                var scoreDiff = Math.Abs(candidates[0].elementScore - candidates[1].elementScore);
+
+                html.AppendLine($"<p><strong>Result: Candidate {winnerIndex + 1}</strong> (Score: {winner.elementScore})</p>");
+                if (scoreDiff >= 2)
+                {
+                    html.AppendLine($"<p class='reason'>✓ AUTO-RESOLVED by backward header matching (difference: {scoreDiff})</p>");
+                }
+                else
+                {
+                    html.AppendLine($"<p class='reason'>⚠ INCONCLUSIVE - scores too close (difference: {scoreDiff}), would require fallback</p>");
+                }
+                html.AppendLine($"<p class='reason'>Expected: Candidate 1 (the header after main table, not the continuation page)</p>");
+            }
+            else
+            {
+                html.AppendLine("<p>⚠ Could not find duplicate headers for this case</p>");
+            }
+
+            html.AppendLine("</div>");
+
+            // Case 2: "Current" duplicates
+            html.AppendLine("<h2>Case 2: \"Current\"</h2>");
+            html.AppendLine("<div class='case'>");
+
+            var currentHeaders = allElements
+                .Where(e => e.Value.Trim() == "Current")
+                .ToList();
+
+            if (currentHeaders.Count >= 2)
+            {
+                var candidates = new List<(System.Xml.Linq.XElement header, int backwardScore, string reason)>();
+
+                foreach (var header in currentHeaders.Take(2))
+                {
+                    var headerIndex = actualHeaders.IndexOf(header);
+
+                    // PRIORITY 1: Backward header pattern matching (pure header-to-header)
+                    int backwardScore = 0;
+                    string backwardReason = "";
+
+                    if (headerIndex >= 0)
+                    {
+                        var previousHeaders = actualHeaders.Take(headerIndex).TakeLast(3).ToList();
+
+                        if (previousHeaders.Count == 0)
+                        {
+                            backwardScore = 2;
+                            backwardReason = "FirstHeader(+2)";
+                        }
+                        else
+                        {
+                            var prevHeader = previousHeaders.LastOrDefault();
+                            if (prevHeader != null &&
+                                prevHeader.Value.Trim() == header.Value.Trim())
+                            {
+                                backwardScore = -5;
+                                backwardReason = "RepeatedHeader(-5)";
+                            }
+                        }
+                    }
+
+                    string reason = backwardReason != "" ? backwardReason : "NoBackwardSignal";
+
+                    // PRIORITY 2: Non-header fallback (DISABLED - for comparison only)
+                    int elementScore = GetElementTypeScore(header);
+                    string fallbackInfo = $"[Fallback would add: Element({elementScore})]";
+
+                    candidates.Add((header, backwardScore, reason));
+
+                    html.AppendLine($"<div class='candidate'>");
+                    html.AppendLine($"<strong>Candidate {candidates.Count}</strong>");
+                    html.AppendLine($"<div class='context'>Element: <code>&lt;{header.Name.LocalName}&gt;</code></div>");
+                    html.AppendLine($"<div class='context'>Text: \"{header.Value.Trim()}\"</div>");
+
+                    // Show previous header
+                    if (headerIndex > 0)
+                    {
+                        var prevHeader = actualHeaders.Take(headerIndex).LastOrDefault();
+                        if (prevHeader != null)
+                        {
+                            var prevPreview = prevHeader.Value.Trim();
+                            if (prevPreview.Length > 60)
+                                prevPreview = prevPreview.Substring(0, 60) + "...";
+                            html.AppendLine($"<div class='context'>Previous header: <code>&lt;{prevHeader.Name.LocalName}&gt;</code> \"{System.Web.HttpUtility.HtmlEncode(prevPreview)}\"</div>");
+                        }
+                    }
+
+                    html.AppendLine($"<div class='score'>Backward Header Score: {backwardScore} {reason}</div>");
+                    html.AppendLine($"<div class='reason'>{fallbackInfo}</div>");
+                    html.AppendLine("</div>");
+                }
+
+                // Determine winner based on backward header score
+                var winner = candidates.OrderByDescending(c => c.backwardScore).First();
+                var winnerIndex = candidates.IndexOf(winner);
+                var scoreDiff = Math.Abs(candidates[0].backwardScore - candidates[1].backwardScore);
+
+                html.AppendLine($"<p><strong>Result: Candidate {winnerIndex + 1}</strong> (Score: {winner.backwardScore})</p>");
+                if (scoreDiff >= 2)
+                {
+                    html.AppendLine($"<p class='reason'>✓ AUTO-RESOLVED by backward header matching (difference: {scoreDiff})</p>");
+                }
+                else
+                {
+                    html.AppendLine($"<p class='reason'>⚠ INCONCLUSIVE - scores too close (difference: {scoreDiff}), would require fallback</p>");
+                }
+                html.AppendLine($"<p class='reason'>Expected: Candidate 2 (the &lt;h4&gt; header, not &lt;p&gt; paragraph text)</p>");
+            }
+            else
+            {
+                html.AppendLine("<p>⚠ Could not find duplicate 'Current' items</p>");
+            }
+
+            html.AppendLine("</div>");
+            html.AppendLine("</body></html>");
+
+            context.Response.ContentType = "text/html; charset=utf-8";
+            await context.Response.WriteAsync(html.ToString());
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "[Sandbox] Error during tiebreaker test");
+            context.Response.StatusCode = 500;
+            context.Response.ContentType = "text/plain";
+            await context.Response.WriteAsync($"Error: {ex.Message}\n\n{ex.StackTrace}");
+        }
+    }
+
+    private static bool IsHeaderOrParagraphElement(System.Xml.Linq.XElement element)
+    {
+        var name = element.Name.LocalName.ToLower();
+        return (name.Length == 2 && name[0] == 'h' && char.IsDigit(name[1])) || name == "p";
+    }
+
+    private static bool IsActualHeader(System.Xml.Linq.XElement element)
+    {
+        var name = element.Name.LocalName.ToLower();
+        return name.Length == 2 && name[0] == 'h' && char.IsDigit(name[1]);
+    }
+
+    private static int GetElementTypeScore(System.Xml.Linq.XElement element)
+    {
+        var name = element.Name.LocalName.ToLower();
+        return name switch
+        {
+            "h1" => 10,
+            "h2" => 9,
+            "h3" => 8,
+            "h4" => 7,
+            "h5" => 6,
+            "h6" => 5,
+            "p" => -5,
+            "span" => -5,
+            _ => 0
+        };
+    }
+
+    private static bool IsFollowedByContinuationMarker(System.Xml.Linq.XElement header)
+    {
+        // Check next few elements for tables with "(continued)" marker
+        // Stop when we encounter another header (indicates boundary of this header's content)
+        var nextElements = header.ElementsAfterSelf().Take(5);
+
+        foreach (var elem in nextElements)
+        {
+            // Stop if we hit another header - that's the next section
+            var elemName = elem.Name.LocalName.ToLower();
+            if (elemName.Length == 2 && elemName[0] == 'h' && char.IsDigit(elemName[1]))
+            {
+                break; // Stop searching, we've hit the next header
+            }
+
+            // Look for div with table-wrapper class
+            if (elemName == "div" &&
+                elem.Attribute("class")?.Value.Contains("table-wrapper") == true)
+            {
+                // Check if table contains "(continued)" text
+                var hasContinuation = elem.Descendants()
+                    .Any(d => d.Value.Contains("(continued)"));
+
+                if (hasContinuation)
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Tests local Ollama LLM with header ambiguity resolution prompt.
+    /// Reads prompt from data/llm-development/_convert-prompts/resolve-header-ambiguity.md
+    /// and sends it to local Ollama instance (deepseek-coder:33b).
+    ///
+    /// Usage: curl http://localhost:8085/sandbox?mode=test-ollama
+    /// </summary>
+    private static async Task HandleTestOllamaAsync(
+        HttpContext context,
+        ILogger logger)
+    {
+        try
+        {
+            logger.LogInformation("[Sandbox] Testing Ollama with header ambiguity resolution prompt");
+
+            // Read the prompt file
+            var promptPath = "/app/data/llm-development/_convert-prompts/resolve-header-ambiguity.md";
+            if (!File.Exists(promptPath))
+            {
+                context.Response.StatusCode = 404;
+                context.Response.ContentType = "text/plain";
+                await context.Response.WriteAsync($"Prompt file not found: {promptPath}");
+                return;
+            }
+
+            var promptText = await File.ReadAllTextAsync(promptPath);
+            logger.LogInformation("[Sandbox] Loaded prompt: {Size} chars", promptText.Length);
+
+            // Call Ollama API
+            var httpClient = new HttpClient
+            {
+                Timeout = TimeSpan.FromMinutes(5) // Ollama can be slow on complex prompts
+            };
+
+            var requestBody = new
+            {
+                model = "deepseek-coder:33b",
+                prompt = promptText,
+                stream = false
+            };
+
+            var jsonContent = System.Text.Json.JsonSerializer.Serialize(requestBody);
+            var content = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json");
+
+            logger.LogInformation("[Sandbox] Calling Ollama API at http://host.docker.internal:11434/api/generate");
+            var startTime = DateTime.UtcNow;
+
+            var response = await httpClient.PostAsync("http://host.docker.internal:11434/api/generate", content);
+            var duration = (DateTime.UtcNow - startTime).TotalSeconds;
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync();
+                logger.LogError("[Sandbox] Ollama API failed: {Status} - {Error}", response.StatusCode, errorBody);
+
+                context.Response.StatusCode = (int)response.StatusCode;
+                context.Response.ContentType = "text/html";
+                await context.Response.WriteAsync($@"
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8'>
+    <title>Ollama Test - Error</title>
+    <style>
+        body {{
+            background: #1F1F1F;
+            color: #CCCCCC;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            padding: 40px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }}
+        h1 {{ color: #F85149; }}
+        .error-box {{
+            background: #5A1D1D;
+            border: 2px solid #F85149;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }}
+        pre {{
+            background: #1F1F1F;
+            color: #CCCCCC;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }}
+    </style>
+</head>
+<body>
+    <h1>❌ Ollama API Error</h1>
+    <div class='error-box'>
+        <p><strong>Status:</strong> {response.StatusCode}</p>
+        <p><strong>Error:</strong></p>
+        <pre>{System.Web.HttpUtility.HtmlEncode(errorBody)}</pre>
+    </div>
+    <p>Make sure Ollama is running and the model is available:</p>
+    <pre>ollama list
+ollama pull deepseek-coder:33b</pre>
+</body>
+</html>");
+                return;
+            }
+
+            var responseBody = await response.Content.ReadAsStringAsync();
+            var responseJson = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(responseBody);
+
+            // Extract response text
+            var ollamaResponse = responseJson.GetProperty("response").GetString() ?? "";
+            var totalDuration = responseJson.TryGetProperty("total_duration", out var td)
+                ? td.GetInt64() / 1_000_000_000.0  // Convert nanoseconds to seconds
+                : duration;
+
+            logger.LogInformation("[Sandbox] Ollama response received: {Size} chars in {Duration}s",
+                ollamaResponse.Length, totalDuration);
+
+            // Build HTML response with the result
+            var html = $@"
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8'>
+    <title>Ollama Test Results - deepseek-coder:33b</title>
+    <style>
+        body {{
+            background: #1F1F1F;
+            color: #CCCCCC;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            margin: 0;
+            padding: 20px;
+        }}
+        h1 {{
+            color: #FFFFFF;
+            font-size: 24px;
+            margin-bottom: 8px;
+        }}
+        .info-banner {{
+            background: #0078D4;
+            color: white;
+            padding: 12px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            font-weight: 600;
+        }}
+        .stats {{
+            background: #181818;
+            border: 1px solid #2B2B2B;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+        }}
+        .stat-item {{
+            text-align: center;
+        }}
+        .stat-value {{
+            color: #0078D4;
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }}
+        .stat-label {{
+            color: #9D9D9D;
+            font-size: 12px;
+        }}
+        .panel {{
+            background: #181818;
+            border: 1px solid #2B2B2B;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 20px 0;
+        }}
+        .panel-header {{
+            background: #1F1F1F;
+            color: #FFFFFF;
+            padding: 12px 16px;
+            border-bottom: 1px solid #2B2B2B;
+            font-weight: 600;
+        }}
+        .panel-subheader {{
+            color: #9D9D9D;
+            font-size: 12px;
+            font-weight: normal;
+            margin-top: 4px;
+        }}
+        .panel-content {{
+            padding: 16px;
+            max-height: 600px;
+            overflow-y: auto;
+        }}
+        pre {{
+            background: #1F1F1F;
+            color: #CCCCCC;
+            font-family: Consolas, Monaco, 'Courier New', monospace;
+            font-size: 13px;
+            margin: 0;
+            padding: 16px;
+            border: 1px solid #2B2B2B;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.5;
+        }}
+        .success {{ color: #2EA043; }}
+    </style>
+</head>
+<body>
+    <div class='info-banner'>
+        ✅ Successfully called Ollama API
+    </div>
+
+    <h1>Ollama Test Results</h1>
+
+    <div class='stats'>
+        <div class='stat-item'>
+            <div class='stat-value'>{totalDuration:F2}s</div>
+            <div class='stat-label'>Response Time</div>
+        </div>
+        <div class='stat-item'>
+            <div class='stat-value'>{ollamaResponse.Length:N0}</div>
+            <div class='stat-label'>Characters</div>
+        </div>
+        <div class='stat-item'>
+            <div class='stat-value'>{promptText.Length:N0}</div>
+            <div class='stat-label'>Prompt Chars</div>
+        </div>
+    </div>
+
+    <div class='panel'>
+        <div class='panel-header'>
+            Prompt
+            <div class='panel-subheader'>From: data/llm-development/_convert-prompts/resolve-header-ambiguity.md</div>
+        </div>
+        <div class='panel-content'>
+            <pre>{System.Web.HttpUtility.HtmlEncode(promptText)}</pre>
+        </div>
+    </div>
+
+    <div class='panel'>
+        <div class='panel-header'>
+            Ollama Response
+            <div class='panel-subheader'>Model: deepseek-coder:33b</div>
+        </div>
+        <div class='panel-content'>
+            <pre>{System.Web.HttpUtility.HtmlEncode(ollamaResponse)}</pre>
+        </div>
+    </div>
+
+    <div style='margin-top: 30px; padding: 15px; background: #181818; border: 1px solid #2B2B2B; border-radius: 4px;'>
+        <strong>Analysis Checklist:</strong>
+        <ul style='margin-top: 10px;'>
+            <li>Did it identify structural differences (H2 vs continuation, P vs H4)?</li>
+            <li>Did it recognize PDF pagination patterns?</li>
+            <li>Did it consider semantic meaning and document structure?</li>
+            <li>Did it provide clear, justified recommendation?</li>
+            <li>Did it avoid just picking the first occurrence without reasoning?</li>
+        </ul>
+    </div>
+</body>
+</html>";
+
+            context.Response.ContentType = "text/html";
+            await context.Response.WriteAsync(html);
+
+            logger.LogInformation("[Sandbox] Ollama test completed successfully");
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogError(ex, "[Sandbox] Network error calling Ollama");
+            context.Response.StatusCode = 500;
+            context.Response.ContentType = "text/plain";
+            await context.Response.WriteAsync(
+                $"Network error: {ex.Message}\n\n" +
+                $"Make sure Ollama is running on your host machine:\n" +
+                $"  ollama serve\n\n" +
+                $"Check the model is available:\n" +
+                $"  ollama list\n" +
+                $"  ollama pull deepseek-coder:33b\n\n" +
+                $"Docker is trying to reach: http://host.docker.internal:11434");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "[Sandbox] Error testing Ollama");
+            context.Response.StatusCode = 500;
+            context.Response.ContentType = "text/plain";
+            await context.Response.WriteAsync($"Error: {ex.Message}\n\nStack trace:\n{ex.StackTrace}");
         }
     }
 }

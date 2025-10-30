@@ -19,7 +19,7 @@
         @if (Item.SubItems.Any())
         {
             <button class="btn btn-sm tree-toggle" @onclick="ToggleExpanded" @onclick:stopPropagation="true">
-                <i class="bi @(IsExpanded ? "bi-chevron-down" : "bi-chevron-right")"></i>
+                <i class="bi @(Item.IsExpanded ? "bi-chevron-down" : "bi-chevron-right")"></i>
             </button>
         }
         else
@@ -79,7 +79,7 @@
     </div>
 </div>
 
-@if (IsExpanded && Item.SubItems.Any())
+@if (Item.IsExpanded && Item.SubItems.Any())
 {
     @foreach (var subItem in Item.SubItems)
     {
@@ -127,7 +127,6 @@
     [Parameter]
     public HierarchyItem? RootItem { get; set; }
 
-    private bool IsExpanded { get; set; } = true;
     private bool IsEditing { get; set; }
     private string EditedLinkName { get; set; } = string.Empty;
 
@@ -164,7 +163,7 @@
 
     private void ToggleExpanded()
     {
-        IsExpanded = !IsExpanded;
+        Item.IsExpanded = !Item.IsExpanded;
     }
 
     private void StartEdit()

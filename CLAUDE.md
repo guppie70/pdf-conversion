@@ -8,39 +8,11 @@
 
 **Application URL:** http://localhost:8085
 
-## 🎯 DEFAULT TESTING APPROACH (USE THIS FIRST)
-
-### Sandbox Endpoint Workflow
-
-**Standard Pattern for ALL testing:**
-
-1. **Add new test to SandboxEndpoint.cs**
-   - Create `HandleYourTestAsync()` method
-   - The LATEST test becomes the default (no mode parameter needed)
-   - Previous tests remain accessible via `?mode=<name>`
-
-2. **Run tests with direct curl commands:**
-   ```bash
-   # Run latest test (default, no mode parameter)
-   curl http://localhost:8085/sandbox
-
-   # Run specific test by name
-   curl "http://localhost:8085/sandbox?mode=test-hierarchy"
-   curl "http://localhost:8085/sandbox?mode=prompt-gen"
-   curl "http://localhost:8085/sandbox?mode=llm-comparison"
-   ```
-
-**NEVER:**
-- ❌ Create .sh files in project root
-- ❌ Add test endpoints to Program.cs
-- ❌ Create test files outside approved locations
-- ❌ Use anything except direct curl commands for testing
-
 ---
 
-## 🚀 Development Patterns & Workflows
+## 🧪 Sandbox Development Pattern (MANDATORY)
 
-### MANDATORY Development Pattern Decision Tree
+### When to Use Sandbox
 
 **Before writing ANY code, follow this decision tree:**
 
@@ -48,77 +20,97 @@
 Start Here
     ↓
 Is this complex logic (algorithm/transformation/parsing)?
-    ├─ YES → Use SANDBOX PATTERN FIRST
-    │         Create /sandbox endpoint → Test isolated → Then implement
+    ├─ YES → SANDBOX FIRST
+    │         Isolate → Iterate → Integrate
     │
     └─ NO → Is this in a specialized domain?
              ├─ YES → Use appropriate AGENT
-             │         (frontend, backend, XSLT, etc.)
              │
-             └─ NO → Is this just investigation?
-                      ├─ YES → Direct work OK
-                      │         (reading files, checking logs)
-                      │
-                      └─ NO → Use appropriate AGENT
+             └─ NO → Direct work OK (investigation only)
 ```
 
-### The Sandbox-First Rule
+**Use sandbox for:**
+- Algorithms (sorting, filtering, transformation)
+- Data processing (parsing, normalization, extraction)
+- Business logic testable in isolation
+- Any logic requiring rapid iteration
+- **ALL testing** (never use .sh files)
 
-**MANDATORY for these scenarios:**
-- Algorithm development (sorting, filtering, transformation logic)
-- Complex data processing (parsing, normalization, extraction)
-- Business logic that can be tested in isolation
-- Any logic where you need rapid iteration to get it right
-- **ANY TESTING** - Always use sandbox endpoint with direct curl commands
+### The 3-Phase Workflow
 
-**WHY:** Sandbox enables sub-second iteration cycles. Full integration takes minutes.
+#### Phase 1: Isolate & Iterate (Sandbox)
 
-**HOW:**
-1. Add new method to `PdfConversion/Endpoints/SandboxEndpoint.cs`:
-   ```csharp
-   private static async Task HandleYourTestAsync(
-       HttpContext context,
-       ILogger logger)
-   {
-       // Your test logic here with hardcoded test data
-   }
-   ```
+**Add method to `PdfConversion/Endpoints/SandboxEndpoint.cs`:**
+```csharp
+private static async Task HandleYourTestAsync(HttpContext context, ILogger logger)
+{
+    // Hardcode test data here
+    var input = @"<h3>Header1</h3><p>Content</p>";
+    var result = YourAlgorithm(input);
+    await context.Response.WriteAsync(result);
+}
+```
 
-2. Make it the default in `HandleAsync()`:
-   ```csharp
-   else
-   {
-       // DEFAULT: Latest active test
-       await HandleYourTestAsync(context, logger);
-   }
-   ```
+**Make it the default:**
+```csharp
+else { await HandleYourTestAsync(context, logger); } // Latest test
+```
 
-3. Iterate rapidly: Edit → Hot-reload (2s) → `curl http://localhost:8085/sandbox` → Verify
+**Iterate rapidly:** Edit → Hot-reload (2s) → `curl http://localhost:8085/sandbox` → Verify
 
-4. Once working, move previous default to named mode (if needed):
-   ```csharp
-   else if (mode == "previous-test")
-   {
-       await HandlePreviousTestAsync(context, logger);
-   }
-   ```
+**Target:** < 5 second iteration cycles
 
-5. Port working logic to actual service and add unit tests
+#### Phase 2: Integrate (Service)
 
-### 🚨 CRITICAL Testing Rules
+**Port working logic only:**
+```csharp
+// Service version - add structure, error handling, logging
+public class YourService {
+    public Result<string> Process(string input) {
+        try {
+            // Same core logic from sandbox
+            return Result.Success(YourAlgorithm(input));
+        } catch (Exception ex) {
+            _logger.LogError(ex, "Failed");
+            return Result.Failure<string>(ex.Message);
+        }
+    }
+}
+```
 
-**ALWAYS use these patterns:**
-- ✅ **Direct curl commands** - `curl http://localhost:8085/sandbox` for latest test
-- ✅ **Sandbox endpoints** - Add methods to SandboxEndpoint.cs for all tests
-- ✅ **Hardcoded test data** - Put test data directly in sandbox methods
-- ✅ **Latest test is default** - No mode parameter needed for active development
-- ✅ **Named modes for history** - Previous tests accessible via `?mode=<name>`
+#### Phase 3: Validate (Tests)
 
-**NEVER do these:**
-- ❌ **Create .sh files in project root** - Use direct curl commands instead
-- ❌ **Create test files in project root** - Only use approved test data locations
-- ❌ **Use Program.cs for test endpoints** - Always use SandboxEndpoint.cs
-- ❌ **Create temporary test endpoints** - All tests go in sandbox with modes
+- Unit tests match sandbox test cases
+- Add edge cases discovered during iteration
+- Tests pass immediately (logic already proven)
+
+### Implementation Rules
+
+**Endpoint Structure:**
+- Latest test = default (no mode parameter)
+- Previous tests = named modes: `curl "http://localhost:8085/sandbox?mode=old-test"`
+- Always use direct curl (never .sh files)
+
+**Test Data:**
+- Hardcode in endpoint (NEVER via parameters/files)
+- Use approved locations only:
+  - Sandbox tests: Hardcoded in `SandboxEndpoint.cs`
+  - XSLT tests: `data/input/_test.xml`
+  - Unit tests: `PdfConversion/Tests/TestData/`
+  - Never in project root
+
+**Quality Gates:**
+- ✅ Correct output for all cases
+- ✅ Edge cases handled
+- ✅ Performance measured (< 100ms for algorithms)
+- ✅ Ready for service integration
+
+### Anti-Patterns
+
+❌ Skip sandbox for "simple" logic → Complex edge cases emerge
+❌ Test via UI workflow → Too slow for iteration
+❌ Pass test data as parameters → URL encoding, size limits
+❌ Mix infrastructure with logic → Reduces testability
 
 ---
 
@@ -198,11 +190,20 @@ These files provide quick access to the current working state for development an
 
 ### Pipeline Overview
 
+**Two input paths converging at transformation:**
+
 ```
-PDF → [Adobe] → ① Input XML → [XSLT] → ② Normalized XML → [C# Services] → ③ Hierarchy + ④ Section XMLs → [Taxxor DM]
-                                                                    ↑
-                                                         ⑤ In-Between XML (temp)
+PDF → [Adobe Acrobat Export] ──┐
+                               ├──→ ① Input XML → [XSLT] → ② Normalized XML → [C# Services] → ③ Hierarchy + ④ Section XMLs → [Taxxor DM]
+PDF → [Docling Service] ───────┘                                                                        ↑
+                                                                                              ⑤ In-Between XML (temp)
 ```
+
+**Key Points:**
+- **Two input methods:** Adobe (manual export) or Docling (automated via API)
+- **Converge at XSLT:** Both produce Input XML, then follow same transformation
+- **XSLT workstream-aware:** Automatically detects Adobe vs. Docling input format
+- **Same output:** Both paths produce identical Taxxor DM-compatible structure
 
 ---
 
@@ -218,18 +219,16 @@ PDF → [Adobe] → ① Input XML → [XSLT] → ② Normalized XML → [C# Serv
 
 ### ⚠️ CRITICAL Agent Rules
 
-1. **SANDBOX FIRST for Algorithm Development**
-   - Agents MUST use `/sandbox` pattern for complex logic BEFORE service implementation
-   - This includes: normalization, parsing, transformation, extraction algorithms
-   - Skipping sandbox = automatic failure for algorithm tasks
+1. **SANDBOX FIRST for Algorithms** → See **🧪 Sandbox Development Pattern**
+   - MANDATORY for: normalization, parsing, transformation, extraction
+   - Skipping sandbox = automatic failure
 
 2. **Domain Expertise Required**
-   - Agents MUST be invoked via Task tool when work matches their domain
-   - Do NOT perform specialized work directly
+   - Invoke agents for specialized work (frontend, backend, XSLT)
+   - Do NOT perform domain work directly
 
 3. **Testing Obligation**
-   - Agents MUST verify logic works in isolation before integration
-   - Use rapid iteration: sandbox → curl → verify → iterate
+   - Verify logic in isolation before integration
 
 ### Debugging Workflow
 
@@ -348,128 +347,41 @@ Full wrapper templates documented in `.claude/agents/xslt-expert.md`
 2. Reload in web UI (http://localhost:8085)
 3. Check preview pane
 
-### Testing with Isolated XML Fragments
+### XSLT-Specific Testing: `/transform-test` Endpoint
 
-**Rapid XSLT testing using the `/transform-test` endpoint:**
+**For general sandbox workflow, see 🧪 Sandbox Development Pattern above.**
 
-This workflow enables sub-second iteration cycles when developing XSLT transformations.
+**XSLT Rapid Testing** using fixed test file:
 
-**Fixed Test File Location:** `data/input/_test.xml` (not project-specific)
-
+**Test File:** `data/input/_test.xml` (fixed location, not project-specific)
 **Endpoint:** `GET /transform-test?xslt=<stylesheet>`
+**Smart Default:** Reads last selected XSLT from `data/user-selections.json`
 
-**Smart Defaults:** The endpoint automatically reads the last selected XSLT file from `data/user-selections.json`
-
-**Parameters:**
-- `xslt` (optional) - XSLT file path relative to `/app/xslt/` (overrides stored selection)
-
-**Workflow:**
-
-1. **Create test XML file** at fixed location:
-   ```bash
-   cat > data/input/_test.xml << 'EOF'
-   <?xml version="1.0" encoding="UTF-8"?>
-   <Document>
-     <!-- Your test fragment here -->
-     <L><LI><LBody>1. First item</LBody></LI></L>
-   </Document>
-   EOF
-   ```
-
-2. **Edit XSLT templates** in `xslt/` directory (hot-reload applies changes)
-
-3. **Test transformation instantly:**
-   ```bash
-   # Test with default transformation.xslt
-   curl http://localhost:8085/transform-test
-
-   # Test with specific XSLT file
-   curl http://localhost:8085/transform-test?xslt=modules/lists.xslt
-
-   # Preview first 20 lines
-   curl http://localhost:8085/transform-test | head -20
-
-   # Save output to file
-   curl http://localhost:8085/transform-test > result.xml
-   ```
-
-4. **Iterate until correct** (edit XSLT → curl → check output)
-
-5. **Verify with full source** after isolated test passes
-
-**Benefits:**
-- ⚡ Sub-second iteration cycles (no UI interaction)
-- 🎯 Isolated testing of specific transformations
-- 📝 Clear examples of edge cases
-- 🔧 Perfect for agent-based development
-
-### Test Data Location Rules
-
-**IMPORTANT:** Never create test files in the project root.
-
-**Allowed locations for test data:**
-- **`data/input/_test.xml`** - For manual XSLT testing via `/transform-test` endpoint
-- **`PdfConversion/Tests/TestData/`** - For automated test fixtures (bUnit/Playwright)
-- **`data/input/test/projects/`** - Test projects with sample data (test-docling-conversion, test-pdf, test-project)
-- **`data/input/optiver/projects/ar24-[1-3]/`** - Use existing project data for full integration tests
-
-**Examples of what NOT to do:**
-- ❌ `test-*.xml` files in project root
-- ❌ `sample-*.xml` files in project root
-- ❌ Any test data outside the approved locations above
-
-**Why this matters:** Test files in the project root clutter the directory structure and make it unclear where test data should live. Always use the designated locations above.
-
-**Example: Testing nested lists**
+**Quick Workflow:**
 ```bash
-# Create test fragment
+# 1. Create test fragment
 cat > data/input/_test.xml << 'EOF'
 <?xml version="1.0"?>
 <Document>
-  <L>
-    <LI><LBody>1. Parent item</LBody>
-      <L>
-        <LI><LBody>1.1 Nested child</LBody></LI>
-      </L>
-    </LI>
-  </L>
+  <L><LI><LBody>1. First item</LBody></LI></L>
 </Document>
 EOF
 
-# Edit xslt/modules/lists.xslt to fix nested list handling
+# 2. Edit XSLT templates in xslt/ (hot-reload)
 
-# Test instantly
+# 3. Test instantly
 curl http://localhost:8085/transform-test
+curl http://localhost:8085/transform-test?xslt=modules/lists.xslt
+curl http://localhost:8085/transform-test | head -20
 
-# Expected output: Valid nested <ul>/<li> structure
+# 4. Iterate until correct
 ```
 
-**Automated Workflow (via /xsltdevelop or xslt-expert agent):**
-
-When using `/xsltdevelop` command or calling the xslt-expert agent directly:
-
-1. **Fragment Detection**: Agent analyzes your request for XML fragments
-2. **Auto-Setup**:
-   - **If fragment found**: Writes to `data/input/_test.xml`
-   - **If no fragment**: Reads `data/user-selections.json` and copies last selected source XML to `_test.xml`
-   - **If uncertain**: Asks via AskUserQuestion
-3. **XSLT Development**: Agent edits XSLT templates
-4. **Instant Testing**: Uses `curl http://localhost:8085/transform-test` for feedback
-5. **Iteration**: Repeats steps 3-4 until correct
-
-**User Selection Persistence:**
-
-Selections made in the UI are automatically saved to:
-- **Browser**: `localStorage` (dev_selectedProject, dev_selectedFile)
-- **Server**: `/app/data/user-selections.json` (persistent, agent-accessible)
-
-This enables the `/transform-test` endpoint and agents to use your last selected XSLT file automatically.
-
-**Error Handling:**
-- `404` - Test file or XSLT file not found
-- `500` - Transformation failed (error message in response body)
-
-**Note:** Always test with full `input.xml` after verifying isolated transformation works.
+**Agent Automation** (`/xsltdevelop` or `xslt-expert`):
+- Auto-detects XML fragments in request
+- Writes to `_test.xml` or copies from last selection
+- Iterates using curl testing
+- Uses stored selections from `data/user-selections.json`
 
 ### Transformation Rules
 - `<H1>` → `<h1>` (headers normalized hierarchically)
@@ -495,6 +407,24 @@ This enables the `/transform-test` endpoint and agents to use your last selected
 2. **Hierarchy Building:** Create navigation tree with `data-ref` attributes
 3. **Section Extraction:** Split content using ⑤ In-Between XML accumulator
 4. **File Generation:** Write individual Section XML files
+
+### Hierarchy Generation Modes
+
+**Three approaches for building hierarchy:**
+
+1. **Rule-Based** - Automatic hierarchy from header types (deterministic, 0.05s)
+   - Service: `HierarchyGeneratorService.cs`
+   - Best for: Well-structured documents with consistent header levels
+
+2. **AI-Based** - LLM analyzes content and proposes structure (experimental)
+   - Service: `OllamaService.cs`, `LlmPromptGenerator.cs`
+   - Best for: Complex documents requiring semantic understanding
+
+3. **Manual Mode** - Build hierarchy from flat list via indent/outdent operations
+   - Service: `ManualHierarchyBuilder.cs`
+   - UI: Multi-select, keyboard shortcuts (Tab/Shift+Tab/Delete/Escape)
+   - Features: Expand/collapse, change tracking, validation
+   - Best for: Custom structures or rule-based refinement
 
 ### Development Workflow
 1. Edit C# files
@@ -566,292 +496,24 @@ Last line shows "Application started" with RECENT timestamp → SUCCESS!
 }
 ```
 
-### VS Code Dark Modern Color Palette
+### CSS Architecture
 
-**IMPORTANT:** All UI components MUST use the official VS Code Default Dark Modern theme colors for consistency.
+**Pattern:** Bootstrap 5 components + VS Code Dark Modern color palette
 
-**Source:** [microsoft/vscode - dark_modern.json](https://github.com/microsoft/vscode/blob/main/extensions/theme-defaults/themes/dark_modern.json)
+**Structure:**
+- Use Bootstrap 5 for layout (grid, components, utilities)
+- Override colors with VS Code Dark Modern theme for consistency
+- Prefer scoped CSS (`.razor.css`) for component-specific styles
+- Global CSS sparingly (typography, theme variables only)
 
-#### Core Backgrounds & Borders
+**Key Principles:**
+- Bootstrap provides structure and responsive behavior
+- VS Code colors provide dark theme consistency
+- Official palette: [dark_modern.json](https://github.com/microsoft/vscode/blob/main/extensions/theme-defaults/themes/dark_modern.json)
 
-```css
-/* Primary Backgrounds */
---editor-bg: #1F1F1F;              /* Main editor background */
---panel-bg: #181818;               /* Panels, sidebar, activity bar */
---widget-bg: #202020;              /* Editor widgets (find, peek) */
---menu-bg: #1F1F1F;                /* Menus, notifications */
+**Complete Color Palette:** See `frontend-developer` agent for 170+ color definitions and implementation examples
 
-/* Borders & Dividers */
---border-primary: #2B2B2B;         /* Primary borders (panels, tabs) */
---border-secondary: #3C3C3C;       /* Secondary borders (inputs, checkboxes) */
---border-subtle: #FFFFFF17;        /* Subtle borders (editor groups) */
---border-widget: #313131;          /* Widget borders */
-
-/* Interactive Backgrounds */
---input-bg: #313131;               /* Input fields, dropdowns */
---button-secondary-bg: #313131;    /* Secondary buttons */
---checkbox-bg: #313131;            /* Checkboxes */
-```
-
-#### Text & Foreground Colors
-
-```css
-/* Text Colors */
---text-primary: #CCCCCC;           /* Primary text, editor text */
---text-bright: #FFFFFF;            /* Active tab text, headers */
---text-muted: #9D9D9D;             /* Inactive text, descriptions */
---text-subtle: #868686;            /* Very subtle text (inactive activity bar) */
---text-input-placeholder: #989898; /* Input placeholder text */
-
-/* Specialized Text */
---line-number: #6E7681;            /* Inactive line numbers */
---line-number-active: #CCCCCC;     /* Active line number */
---icon-foreground: #CCCCCC;        /* Icon color */
---keybinding-label: #CCCCCC;       /* Keybinding labels */
-```
-
-#### Accent & State Colors
-
-```css
-/* Primary Accent (Blue) */
---accent-blue: #0078D4;            /* Focus border, active borders, buttons */
---accent-blue-hover: #026EC1;      /* Button hover state */
---accent-blue-subtle: #2489DB82;   /* Input option active background */
---accent-blue-badge: #0078D4;      /* Activity bar badge, status bar remote */
-
-/* State Indicators */
---success-green: #2EA043;          /* Added files, positive states */
---error-red: #F85149;              /* Errors, deleted files */
---warning-yellow: #BB800966;       /* Warnings, modified indicators */
---modified-blue: #0078D4;          /* Modified files */
-
-/* Tab Selection */
---tab-selected-top: #6caddf;       /* Selected but unfocused tab border */
-```
-
-#### Buttons & Interactive Elements
-
-```css
-/* Primary Button */
---button-bg: #0078D4;              /* Primary button background */
---button-fg: #FFFFFF;              /* Primary button text */
---button-hover-bg: #026EC1;        /* Primary button hover */
---button-border: #FFFFFF12;        /* Button border (subtle) */
-
-/* Secondary Button */
---button-secondary-bg: #313131;    /* Secondary button background */
---button-secondary-fg: #CCCCCC;    /* Secondary button text */
---button-secondary-hover: #3C3C3C; /* Secondary button hover */
-
-/* Badge */
---badge-bg: #616161;               /* Generic badge background */
---badge-fg: #F8F8F8;               /* Generic badge text */
-```
-
-#### Status Bar & Activity Bar
-
-```css
-/* Status Bar */
---statusbar-bg: #181818;           /* Status bar background */
---statusbar-fg: #CCCCCC;           /* Status bar text */
---statusbar-border: #2B2B2B;       /* Status bar border */
---statusbar-hover-bg: #F1F1F133;   /* Status bar item hover */
---statusbar-hover-fg: #FFFFFF;     /* Status bar item hover text */
---statusbar-debug-bg: #0078D4;     /* Debugging mode background */
---statusbar-debug-fg: #FFFFFF;     /* Debugging mode text */
---statusbar-no-folder: #1F1F1F;    /* No folder open background */
-
-/* Activity Bar */
---activitybar-bg: #181818;         /* Activity bar background */
---activitybar-fg: #D7D7D7;         /* Activity bar icons */
---activitybar-inactive-fg: #868686;/* Inactive activity bar icons */
---activitybar-border: #2B2B2B;     /* Activity bar border */
---activitybar-active-border: #0078D4; /* Active view indicator */
-```
-
-#### Tabs & Panels
-
-```css
-/* Tabs */
---tab-active-bg: #1F1F1F;          /* Active tab background */
---tab-active-fg: #FFFFFF;          /* Active tab text */
---tab-active-border-top: #0078D4;  /* Active tab top border */
---tab-inactive-bg: #181818;        /* Inactive tab background */
---tab-inactive-fg: #9D9D9D;        /* Inactive tab text */
---tab-hover-bg: #1F1F1F;           /* Tab hover background */
---tab-border: #2B2B2B;             /* Tab borders */
-
-/* Panel Titles */
---panel-title-active-fg: #CCCCCC;  /* Active panel title */
---panel-title-inactive-fg: #9D9D9D;/* Inactive panel title */
---panel-title-active-border: #0078D4; /* Active panel bottom border */
-```
-
-#### Dropdowns & Inputs
-
-```css
-/* Dropdown */
---dropdown-bg: #313131;            /* Dropdown background */
---dropdown-fg: #CCCCCC;            /* Dropdown text */
---dropdown-border: #3C3C3C;        /* Dropdown border */
---dropdown-list-bg: #1F1F1F;       /* Dropdown list background */
-
-/* Input Fields */
---input-bg: #313131;               /* Input background */
---input-fg: #CCCCCC;               /* Input text */
---input-border: #3C3C3C;           /* Input border */
---input-placeholder: #989898;      /* Placeholder text */
---input-focus-border: #0078D4;     /* Focus border (via focusBorder) */
-```
-
-#### Editor Gutter (Git Decorations)
-
-```css
-/* Git Status Colors */
---gutter-added: #2EA043;           /* Added lines */
---gutter-modified: #0078D4;        /* Modified lines */
---gutter-deleted: #F85149;         /* Deleted lines */
-```
-
-#### Quick Picker & Menus
-
-```css
-/* Quick Input */
---quickinput-bg: #222222;          /* Quick picker background */
---quickinput-fg: #CCCCCC;          /* Quick picker text */
-
-/* Menu */
---menu-bg: #1F1F1F;                /* Menu background */
---menu-selection-bg: #0078D4;      /* Menu item selection */
-
-/* Picker Groups */
---picker-group-border: #3C3C3C;    /* Picker group separator */
-```
-
-#### Progress & Notifications
-
-```css
-/* Progress Bar */
---progress-bg: #0078D4;            /* Progress bar fill */
-
-/* Notifications */
---notification-bg: #1F1F1F;        /* Notification background */
---notification-fg: #CCCCCC;        /* Notification text */
---notification-border: #2B2B2B;    /* Notification border */
---notification-header-bg: #1F1F1F; /* Notification header background */
-```
-
-#### Terminal & Text Blocks
-
-```css
-/* Terminal */
---terminal-fg: #CCCCCC;            /* Terminal text */
---terminal-active-border: #0078D4; /* Active terminal tab */
-
-/* Text Blocks */
---text-blockquote-bg: #2B2B2B;     /* Blockquote background */
---text-blockquote-border: #616161; /* Blockquote border */
---text-codeblock-bg: #2B2B2B;      /* Code block background */
---text-preformat-bg: #3C3C3C;      /* Preformatted text background */
---text-preformat-fg: #D0D0D0;      /* Preformatted text */
---text-separator: #21262D;         /* Text separator line */
-```
-
-#### Links & Chat
-
-```css
-/* Links */
---link-fg: #4daafc;                /* Link color */
---link-active-fg: #4daafc;         /* Active link color */
-
-/* Chat Features */
---chat-slash-command-bg: #26477866; /* Slash command background */
---chat-slash-command-fg: #85B6FF;  /* Slash command text */
---chat-edited-file-fg: #E2C08D;    /* Edited file indicator */
-```
-
-#### Usage Examples
-
-**Panels:**
-```css
-.panel {
-    background: #181818;  /* --panel-bg */
-    border: 1px solid #2B2B2B;  /* --border-primary */
-}
-
-.panel-header {
-    background: #1F1F1F;  /* --editor-bg or menu-bg */
-    color: #FFFFFF;  /* --text-bright */
-    border-bottom: 1px solid #2B2B2B;
-}
-```
-
-**Form Controls:**
-```css
-.form-select, .form-control {
-    background: #313131;  /* --input-bg */
-    border: 1px solid #3C3C3C;  /* --input-border */
-    color: #CCCCCC;  /* --text-primary */
-}
-
-.form-select:focus {
-    border-color: #0078D4;  /* --accent-blue */
-    outline: none;
-}
-```
-
-**Tabs:**
-```css
-.nav-tabs .nav-link {
-    background: #181818;  /* --tab-inactive-bg */
-    color: #9D9D9D;  /* --tab-inactive-fg */
-    border: 1px solid #2B2B2B;
-}
-
-.nav-tabs .nav-link.active {
-    background: #1F1F1F;  /* --tab-active-bg */
-    color: #FFFFFF;  /* --tab-active-fg */
-    border-top: 2px solid #0078D4;  /* --tab-active-border-top */
-}
-```
-
-**Buttons:**
-```css
-.btn-primary {
-    background: #0078D4;  /* --button-bg */
-    color: #FFFFFF;  /* --button-fg */
-    border: 1px solid #FFFFFF12;  /* --button-border */
-}
-
-.btn-primary:hover {
-    background: #026EC1;  /* --button-hover-bg */
-}
-
-.btn-secondary {
-    background: #313131;  /* --button-secondary-bg */
-    color: #CCCCCC;  /* --button-secondary-fg */
-}
-
-.btn-secondary:hover {
-    background: #3C3C3C;  /* --button-secondary-hover */
-}
-```
-
-**Why This Palette:**
-- **Official VS Code theme** - Users instantly recognize the familiar colors
-- **Comprehensive** - Covers all UI elements (170+ color definitions)
-- **Accessibility** - High contrast ratios meet WCAG standards
-- **Professional** - Clean, modern dark theme reduces eye strain
-- **Consistent** - Single source of truth from Microsoft's repository
-- **Proven** - Used by millions of developers daily
-
-**Fonts:**
-- **Primary UI Font:** Segoe UI, system-ui, -apple-system, sans-serif
-- **Monospace/Code Font:** 'Consolas', 'Monaco', 'Courier New', monospace
-- **Font Sizes:** UI text 13-14px, Code 14px, Headers 16-20px
-
-**Reference Implementation:**
-See `PdfConversion/Shared/ToastNotification.razor.css` for toast styling with proper contrast.
+**Bootstrap Documentation:** Available via Context7 MCP server (`/websites/getbootstrap_5_3`) for component patterns and utilities
 
 ### Testing UI (MANDATORY)
 ```javascript
@@ -965,191 +627,6 @@ npm run test:e2e         # Browser tests (Playwright) - 10 tests
 - Event Handling (6 tests)
 - Transformation Options (4 tests)
 
-### Algorithm Development Workflow
-
-**CRITICAL: This workflow is MANDATORY for any complex logic development.**
-
-#### Phase 1: Sandbox Development (ALWAYS FIRST)
-
-**Rule 1: Complex Logic = Sandbox First**
-If your task involves ANY of these, you MUST start with sandbox:
-- Data transformation algorithms
-- Parsing or extraction logic
-- Normalization or standardization rules
-- Business logic calculations
-- Pattern matching or filtering
-- Hierarchical data processing
-
-**Rule 2: Hardcode Test Data**
-```csharp
-// CORRECT: Test data hardcoded in endpoint
-var testXml = @"<h3>Header1</h3><p>Content</p><h3>Header2</h3>";
-var expected = @"<h1>Header1</h1><p>Content</p><h2>Header2</h2>";
-
-// WRONG: Reading from files or parameters (too slow for iteration)
-var testXml = File.ReadAllText(Request.Query["file"]);
-```
-
-**Rule 3: Iteration Speed is Everything**
-- Target: < 5 seconds per iteration cycle
-- Edit code → Hot-reload (2s) → curl test (1s) → See results
-- If iteration takes > 10 seconds, you're doing it wrong
-
-#### Phase 2: Service Integration
-
-**Rule 4: Port Working Logic Only**
-- NEVER port untested logic to services
-- Sandbox logic MUST produce correct output first
-- Copy the exact working algorithm, then add error handling
-
-**Rule 5: Add Proper Structure**
-```csharp
-// Sandbox version (minimal)
-var result = TransformHeaders(input);
-return Results.Text(result);
-
-// Service version (production-ready)
-public class HeaderService {
-    public Result<string> TransformHeaders(input) {
-        try {
-            // Same core logic from sandbox
-            // Add validation, logging, error handling
-        } catch (Exception ex) {
-            _logger.LogError(ex, "Transform failed");
-            return Result.Failure<string>(ex.Message);
-        }
-    }
-}
-```
-
-#### Phase 3: Testing & Validation
-
-**Rule 6: Unit Tests Match Sandbox Tests**
-- Every test case from sandbox → unit test
-- Add edge cases discovered during development
-- Tests should pass immediately (logic already proven)
-
-### Sandbox Pattern Implementation
-
-**Core Principle:** Isolate complex logic from infrastructure concerns.
-
-#### Available Sandbox Modes
-
-The sandbox endpoint (`/sandbox`) supports multiple testing modes via query parameter:
-
-```bash
-# Default: LLM comparison
-curl http://localhost:8085/sandbox
-
-# Prompt generation mode
-curl "http://localhost:8085/sandbox?mode=prompt-gen"
-
-# Test hierarchy XML serialization (example of custom test mode)
-curl "http://localhost:8085/sandbox?mode=test-hierarchy"
-
-# Add new modes as needed for testing
-curl "http://localhost:8085/sandbox?mode=your-test-mode"
-```
-
-**Adding New Test Modes:**
-1. Open `PdfConversion/Endpoints/SandboxEndpoint.cs`
-2. Add new `else if (mode == "your-test-mode")` in `HandleAsync`
-3. Create `HandleYourTestModeAsync` method
-4. Hardcode test data in the method
-5. Test with direct curl command
-
-#### Structure Rules
-
-**Rule 1: Dedicated Endpoint Files**
-```
-PdfConversion/
-├── Endpoints/
-│   ├── SandboxEndpoint.cs      # Primary sandbox (USE THIS FOR ALL TESTS)
-│   ├── AlgorithmTestEndpoint.cs # Algorithm-specific (rarely needed)
-│   └── ValidationEndpoint.cs    # Validation logic (rarely needed)
-```
-
-**Rule 2: Static Methods for Simplicity**
-```csharp
-public static class SandboxEndpoint {
-    public static async Task HandleAsync(
-        HttpContext context,
-        IServiceA serviceA,  // Inject only what you need
-        IServiceB serviceB) {
-        // Logic here
-    }
-}
-```
-
-**Rule 3: Registration Pattern**
-```csharp
-// Program.cs - Keep routing separate from logic
-app.MapGet("/sandbox", async (HttpContext ctx, IServiceA a, IServiceB b) =>
-    await SandboxEndpoint.HandleAsync(ctx, a, b));
-```
-
-#### Development Rules
-
-**Rule 4: Test Data Management**
-- Hardcode directly in endpoint for speed
-- Use representative real-world samples
-- Include edge cases in test data
-- Document expected output
-
-**Rule 5: Output Format**
-- Return raw results for algorithm testing
-- Use text/xml for XML transformations
-- Use application/json for data structures
-- Include diagnostics in development mode
-
-**Rule 6: Parameter Usage**
-- Minimal parameters only (for mode switching)
-- Never pass test data via parameters
-- Use query params for output format only
-```csharp
-var format = context.Request.Query["format"].FirstOrDefault() ?? "xml";
-```
-
-#### Quality Gates
-
-**Before Moving to Production:**
-
-✅ **Sandbox Checklist**
-- [ ] Algorithm produces correct output
-- [ ] Edge cases handled properly
-- [ ] Performance acceptable (measure with Stopwatch)
-- [ ] No hardcoded test data remains
-- [ ] Error cases identified
-
-✅ **Integration Checklist**
-- [ ] Core logic extracted to service
-- [ ] Proper error handling added
-- [ ] Logging implemented
-- [ ] Unit tests written
-- [ ] Integration tested end-to-end
-
-#### Anti-Patterns to Avoid
-
-**❌ DON'T: Skip Sandbox for "Simple" Logic**
-- Even "simple" logic benefits from isolation
-- Complex edge cases emerge during iteration
-- Integration adds complexity
-
-**❌ DON'T: Test with Full Workflow**
-- UI interaction is slow
-- Multiple components obscure issues
-- Debugging is harder
-
-**❌ DON'T: Pass Test Data as Parameters**
-- Slows down iteration
-- URL encoding issues
-- Size limitations
-
-**❌ DON'T: Mix Infrastructure with Logic**
-- Keep algorithm pure and testable
-- Add infrastructure concerns later
-- Maintain separation of concerns
-
 ### Development Checklist
 
 - [ ] Changes made in Docker environment
@@ -1220,17 +697,36 @@ pdf-conversion/
 
 ### Application URLs & Testing (Base: http://localhost:8085)
 
+**User-Facing Pages:**
+
 | URL | Purpose | Test Checklist |
 |-----|---------|----------------|
 | `/` | Landing, service status | Nav links • Health indicators (✓ Connected) |
 | `/transform` | XSLT transformation with preview | Select project → Load XML → Verify preview & source view |
 | `/docling-convert` | PDF→XML conversion (SignalR) | Upload/select PDF → Monitor real-time progress → Check output file |
-| `/generate-hierarchy` | Hierarchy tree editor (drag/drop) | Load XML → Drag/drop reorder → Edit labels → Save changes |
+| `/generate-hierarchy` | Hierarchy builder (3 modes) | Load XML → Choose mode (Rule-based/AI/Manual) → Edit → Save |
 | `/convert` | Section generation | Select files → Start conversion → Monitor log → Verify output files |
 | `/production` | Batch processing | Multi-project workflows → Error handling |
 | `/debug-validation` | Round-trip validation | Select files → Run validation → Review diff viewer |
-| `/test-modal` | Color testing page | Render test → Modal dialogs |
-| `/transform-test` | API endpoint (headless) | `curl http://localhost:8085/transform-test` |
+
+**Testing & Development Pages:**
+
+| URL | Purpose | Test Checklist |
+|-----|---------|----------------|
+| `/sandbox` | **Algorithm testing endpoint** | `curl http://localhost:8085/sandbox` • See 🧪 Sandbox Pattern |
+| `/transform-test` | XSLT fragment testing | `curl http://localhost:8085/transform-test` • Uses `data/input/_test.xml` |
+| `/hierarchy-test` | Hierarchy UI testing page | Manual hierarchy builder testing |
+| `/test-modal` | Color palette testing | Verify modal dialogs • Test VS Code colors |
+
+**API Endpoints:**
+
+| URL | Purpose | Usage |
+|-----|---------|-------|
+| `/api/hierarchy/last-request-params` | Get last hierarchy request | Debug hierarchy generation |
+| `/api/projects/{customer}/{projectId}` | Delete project | `DELETE` method |
+| `/health` | Health check | Docker health probe |
+| `/health/liveness` | Liveness probe | Kubernetes/container orchestration |
+| `/health/readiness` | Readiness probe | Load balancer health checks |
 
 **Playwright pattern:** `mcp__playwright__browser_navigate({ url: "http://localhost:8085/[page]" })`
 
@@ -1246,5 +742,5 @@ pdf-conversion/
 
 ---
 
-**Last Updated:** 2025-01-27
-**Status:** Production-ready, dual-pipeline (Adobe + Docling)
+**Last Updated:** 2025-01-30
+**Status:** Production-ready, dual-pipeline (Adobe + Docling), Manual Mode complete

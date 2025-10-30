@@ -912,7 +912,7 @@
         {
             Logger.LogInformation("Starting round-trip validation for project {ProjectId}", _config.ProjectId);
 
-            ValidationResult = await ValidationService.ValidateRoundTripAsync(_config.ProjectId, _config.HierarchyFile);
+            ValidationResult = await ValidationService.ValidateRoundTripAsync(_config.ProjectId, _config.SourceFile!, _config.HierarchyFile);
 
             Logger.LogInformation("Round-trip validation completed: {Result}", ValidationResult.ToString());
         }

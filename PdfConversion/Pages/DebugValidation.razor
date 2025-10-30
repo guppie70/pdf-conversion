@@ -277,7 +277,7 @@
             selectedFileName = "";
 
             // Run validation for ar24-3 project
-            validationResult = await ValidationService.ValidateRoundTripAsync("optiver/ar24-3", "hierarchy-ar-pdf-en.xml");
+            validationResult = await ValidationService.ValidateRoundTripAsync("optiver/ar24-3", "oahpl-financial-statements-fy24.xml", "hierarchy-ar-pdf-en.xml");
 
             if (validationResult.Success)
             {

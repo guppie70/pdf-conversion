@@ -14,7 +14,7 @@ public interface IRoundTripValidationService
     /// <param name="projectId">The project identifier (format: "customer/projectId")</param>
     /// <param name="hierarchyFile">The hierarchy XML filename</param>
     /// <returns>Validation result with diff information</returns>
-    Task<RoundTripValidationResult> ValidateRoundTripAsync(string projectId, string hierarchyFile);
+    Task<RoundTripValidationResult> ValidateRoundTripAsync(string projectId, string sourceFile, string hierarchyFile);
 }
 
 /// <summary>
@@ -42,7 +42,7 @@ public class RoundTripValidationService : IRoundTripValidationService
         _projectService = projectService;
     }
 
-    public async Task<RoundTripValidationResult> ValidateRoundTripAsync(string projectId, string hierarchyFile)
+    public async Task<RoundTripValidationResult> ValidateRoundTripAsync(string projectId, string sourceFile, string hierarchyFile)
     {
         var startTime = DateTime.UtcNow;
         var result = new RoundTripValidationResult();
@@ -89,52 +89,17 @@ public class RoundTripValidationService : IRoundTripValidationService
                 return result;
             }
 
-            // 3. Find and load the source XML file for fresh transformation
-            _logger.LogInformation("Looking for source XML file for fresh transformation");
+            // 3. Validate source file exists
+            _logger.LogInformation("Using source file: {SourceFile}", sourceFile);
 
-            // Get list of XML files in the project input directory
-            var projectFiles = await _projectService.GetProjectFilesAsync(projectId);
-
-            // Find the most likely source file (the largest XML file that's not hierarchy/metadata)
-            // Sort by file size to get the main document (not sample files)
-            var candidateFiles = projectFiles
-                .Where(f => f.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)
-                    && !f.Contains("hierarchy", StringComparison.OrdinalIgnoreCase)
-                    && !f.Contains("metadata", StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
-            string? sourceFile = null;
-            long largestSize = 0;
-
-            foreach (var file in candidateFiles)
-            {
-                try
-                {
-                    var content = await _projectService.ReadInputFileAsync(projectId, file);
-                    if (content.Length > largestSize)
-                    {
-                        largestSize = content.Length;
-                        sourceFile = file;
-                    }
-                }
-                catch
-                {
-                    // Skip files that can't be read
-                }
-            }
-
-            _logger.LogInformation("Found {Count} candidate XML files, selected {File} with size {Size} characters",
-                candidateFiles.Count, sourceFile, largestSize);
-
-            if (string.IsNullOrEmpty(sourceFile))
+            var sourceFilePath = Path.Combine("/app/data/input", customer, "projects", project, sourceFile);
+            if (!File.Exists(sourceFilePath))
             {
                 result.Success = false;
-                result.ErrorMessage = "No source XML file found in project input directory";
+                result.ErrorMessage = $"Source XML file not found at: {sourceFilePath}";
                 _logger.LogWarning("Validation failed: {Error}", result.ErrorMessage);
                 return result;
             }
-
-            _logger.LogInformation("Using source file: {SourceFile}", sourceFile);
 
             // 4. Perform fresh XSLT transformation
             _logger.LogInformation("Performing fresh XSLT transformation on source XML");

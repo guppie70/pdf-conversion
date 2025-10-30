@@ -233,11 +233,13 @@ public class ManualHierarchyBuilder : IManualHierarchyBuilder
             var header = allHeaders.First(h => h.OriginalOrder == order);
             var oldLevel = header.IndentLevel;
 
+            // Get children BEFORE indenting (GetChildren uses parent's current IndentLevel)
+            var children = GetChildren(allHeaders, order);
+
             // Indent the header
             header.IndentLevel++;
 
             // Indent all children
-            var children = GetChildren(allHeaders, order);
             foreach (var child in children)
             {
                 child.IndentLevel++;
@@ -281,11 +283,13 @@ public class ManualHierarchyBuilder : IManualHierarchyBuilder
             var header = allHeaders.First(h => h.OriginalOrder == order);
             var oldLevel = header.IndentLevel;
 
+            // Get children BEFORE outdenting (GetChildren uses parent's current IndentLevel)
+            var children = GetChildren(allHeaders, order);
+
             // Outdent the header
             header.IndentLevel--;
 
             // Outdent all children
-            var children = GetChildren(allHeaders, order);
             foreach (var child in children)
             {
                 child.IndentLevel--;

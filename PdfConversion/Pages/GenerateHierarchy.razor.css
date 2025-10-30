@@ -753,3 +753,62 @@
 .manual-tree-container ::deep .tree-item.selected .tree-item-content:hover {
     background-color: rgba(0, 122, 204, 0.2) !important;  /* Slightly darker blue on hover */
 }
+
+/* ===================================================================
+   Change Status Indicator - VS Code Dark Modern Theme
+   =================================================================== */
+
+.change-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.25rem 0.625rem;
+    border-radius: 3px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    border: 1px solid transparent;
+    transition: all 0.15s ease;
+}
+
+/* No changes state - success green */
+.change-status.no-changes {
+    color: #2EA043;  /* --success-green */
+    background-color: rgba(46, 160, 67, 0.1);  /* 10% opacity green background */
+    border-color: rgba(46, 160, 67, 0.2);
+}
+
+.change-status.no-changes i {
+    color: #2EA043;
+}
+
+/* Has unsaved changes state - warning yellow */
+.change-status.has-changes {
+    color: #BB8009;  /* Warning yellow */
+    background-color: rgba(187, 128, 9, 0.15);  /* 15% opacity yellow background */
+    border-color: rgba(187, 128, 9, 0.3);
+}
+
+.change-status.has-changes i {
+    color: #BB8009;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+/* Icon styling */
+.change-status i {
+    font-size: 0.9375rem;
+}
+
+/* Status text */
+.change-status .status-text {
+    white-space: nowrap;
+}
+
+/* Subtle pulse animation for unsaved changes indicator */
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.6;
+    }
+}
