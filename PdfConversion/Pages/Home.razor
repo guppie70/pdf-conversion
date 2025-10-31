@@ -7,6 +7,7 @@
 @inject IXslt3ServiceClient Xslt3Client
 @inject IOllamaService OllamaService
 @inject IProjectDeletionService ProjectDeletionService
+@inject IPatternReindexingService PatternReindexingService
 @inject HttpClient Http
 @inject IJSRuntime JSRuntime
 @inject ILogger<Home> Logger
@@ -308,6 +309,46 @@
                                 To start: <code>ollama serve</code><br/>
                                 To install model: <code>ollama pull llama3.1:70b</code>
                             </p>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="card mt-4 tools-card">
+                <div class="card-header">
+                    <h5 class="mb-0">Tools</h5>
+                </div>
+                <div class="card-body">
+                    <button class="btn btn-primary w-100 mb-3"
+                            @onclick="StartReindexing"
+                            disabled="@IsReindexing">
+                        @if (IsReindexing)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                            <span>Re-indexing...</span>
+                        }
+                        else
+                        {
+                            <i class="oi oi-reload me-2"></i>
+                            <span>Re-index Training Material</span>
+                        }
+                    </button>
+
+                    @if (ReindexingLogs.Any())
+                    {
+                        <div class="reindexing-log-panel">
+                            <div class="log-header">
+                                <span>Progress Log</span>
+                                <button class="btn-clear-log" @onclick="ClearReindexingLogs" title="Clear log">
+                                    <i class="oi oi-x"></i>
+                                </button>
+                            </div>
+                            <div class="log-content" @ref="logContainerRef">
+                                @foreach (var log in ReindexingLogs)
+                                {
+                                    <div class="log-entry @GetLogClass(log)">@log</div>
+                                }
+                            </div>
                         </div>
                     }
                 </div>
@@ -1024,6 +1065,83 @@
         return DateTime.MinValue;
     }
 
+    // Pattern re-indexing
+    private bool IsReindexing { get; set; }
+    private List<string> ReindexingLogs { get; set; } = new();
+    private ElementReference logContainerRef;
+    private CancellationTokenSource? _reindexingCts;
+
+    private async Task StartReindexing()
+    {
+        if (IsReindexing) return;
+
+        try
+        {
+            IsReindexing = true;
+            ReindexingLogs.Clear();
+            _reindexingCts = new CancellationTokenSource();
+
+            var progress = new Progress<string>(message =>
+            {
+                ReindexingLogs.Add(message);
+                InvokeAsync(async () =>
+                {
+                    StateHasChanged();
+                    await ScrollToBottomAsync();
+                });
+            });
+
+            var result = await PatternReindexingService.ReindexPatternsAsync(progress, _reindexingCts.Token);
+
+            if (!result.Success && !string.IsNullOrEmpty(result.ErrorMessage))
+            {
+                Logger.LogError("Pattern re-indexing failed: {Error}", result.ErrorMessage);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during pattern re-indexing");
+            ReindexingLogs.Add($"[{DateTime.Now:HH:mm:ss}] ERROR: {ex.Message}");
+        }
+        finally
+        {
+            IsReindexing = false;
+            _reindexingCts?.Dispose();
+            _reindexingCts = null;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void ClearReindexingLogs()
+    {
+        ReindexingLogs.Clear();
+        StateHasChanged();
+    }
+
+    private string GetLogClass(string log)
+    {
+        if (log.Contains("ERROR:"))
+            return "log-error";
+        if (log.Contains("WARNING:"))
+            return "log-warning";
+        if (log.Contains("✓") || log.Contains("complete"))
+            return "log-success";
+        return "log-info";
+    }
+
+    private async Task ScrollToBottomAsync()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("eval",
+                "setTimeout(() => { const el = document.querySelector('.log-content'); if (el) el.scrollTop = el.scrollHeight; }, 50)");
+        }
+        catch
+        {
+            // Ignore JS interop errors
+        }
+    }
+
     public void Dispose()
     {
         // Unsubscribe from events
@@ -1039,5 +1157,9 @@
             timer.Dispose();
         }
         _debounceTimers.Clear();
+
+        // Cancel re-indexing if in progress
+        _reindexingCts?.Cancel();
+        _reindexingCts?.Dispose();
     }
 }

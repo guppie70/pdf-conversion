@@ -101,6 +101,12 @@ public class HierarchyItem
     public bool TocHide { get; set; }
 
     /// <summary>
+    /// Optional: Data number from source document header (e.g., "1", "2.1", "4.6", "note 1")
+    /// Used for hierarchy determination in Rule-Based Generator
+    /// </summary>
+    public string? DataNumber { get; set; }
+
+    /// <summary>
     /// Optional: Header type from source document (H2, H3, H4, etc.)
     /// Used for display badges in Manual Mode
     /// </summary>

@@ -143,7 +143,49 @@ public class RuleBasedHierarchyGenerator
             var lineNumber = i + 1;
             var headerText = header.Text.Trim();
 
-            // Check if this is a major section boundary
+            // PRIORITY 1: Use data-number attribute if present
+            if (!string.IsNullOrEmpty(header.DataNumber))
+            {
+                var dataNumber = header.DataNumber;
+                var level = ParseDataNumberLevel(dataNumber);
+
+                if (level > 0)
+                {
+                    _logger.LogInformation("[RuleBasedHierarchy] Line {Line}: DATA-NUMBER HIERARCHY Level {Level} (data-number=\"{DataNumber}\") → \"{Header}\"",
+                        lineNumber, level, dataNumber, headerText);
+
+                    // Find parent based on data-number prefix
+                    HierarchyItem parent = level == 1 ? rootItem : FindParentByDataNumber(dataNumber, lastItemAtLevel, rootItem);
+
+                    // Add to logs
+                    genericLogs.Add($"Hierarchy from data-number: Level {level} - \"{headerText}\"");
+                    technicalLogs.Add($"[Data-Number Analysis] Line {lineNumber}: data-number=\"{dataNumber}\"");
+                    technicalLogs.Add($"  - Header text: \"{headerText}\"");
+                    technicalLogs.Add($"  - Determined level: {level}");
+                    technicalLogs.Add($"  - Parent context: \"{parent.LinkName}\"");
+
+                    patternsMatched++;
+
+                    var item = CreateHierarchyItem(header, level, parent, lastItemAtLevel);
+                    parent.SubItems.Add(item);
+                    lastItemAtLevel[level] = item;
+
+                    // Update major section context if this is level 1
+                    if (level == 1)
+                    {
+                        currentMajorSection = item;
+                        inDirectorsReport = IsDirectorsReport(headerText);
+                        inNotesSection = IsNotesSection(headerText);
+                        if (inDirectorsReport) directorsReportStartLine = lineNumber;
+                    }
+
+                    // Clear lower levels
+                    ClearLowerLevels(lastItemAtLevel, level);
+                    continue;
+                }
+            }
+
+            // PRIORITY 2: Check if this is a major section boundary (text pattern matching)
             var isMajorSection = IsMajorSection(headerText);
 
             if (isMajorSection)
@@ -324,6 +366,120 @@ public class RuleBasedHierarchyGenerator
                 DurationMs = stopwatch.ElapsedMilliseconds
             }
         };
+    }
+
+    /// <summary>
+    /// Parses data-number attribute to determine hierarchy level.
+    /// Examples: "1" → 1, "2.1" → 2, "4.6.2" → 3, "note 1" → 3
+    /// </summary>
+    private int ParseDataNumberLevel(string dataNumber)
+    {
+        if (string.IsNullOrEmpty(dataNumber))
+            return 0;
+
+        // Normalize: trim and lowercase
+        var normalized = dataNumber.Trim().ToLowerInvariant();
+
+        // Special case: "note N" format (common in financial statements)
+        if (normalized.StartsWith("note "))
+        {
+            // Notes are typically level 3 (under "Notes to financial statements")
+            return 3;
+        }
+
+        // Count dots to determine depth
+        // "1" = 0 dots → Level 1
+        // "2.1" = 1 dot → Level 2
+        // "4.6.2" = 2 dots → Level 3
+        var dotCount = dataNumber.Count(c => c == '.');
+        return dotCount + 1;
+    }
+
+    /// <summary>
+    /// Finds the parent HierarchyItem based on data-number prefix.
+    /// Example: "2.1" should find parent with data-number "2"
+    ///          "4.6.2" should find parent with data-number "4.6"
+    /// </summary>
+    private HierarchyItem FindParentByDataNumber(string dataNumber, Dictionary<int, HierarchyItem> lastItemAtLevel, HierarchyItem rootItem)
+    {
+        if (string.IsNullOrEmpty(dataNumber))
+            return rootItem;
+
+        // Calculate this item's level
+        var level = ParseDataNumberLevel(dataNumber);
+
+        // Level 1 items always have root as parent
+        if (level <= 1)
+            return rootItem;
+
+        // Extract parent prefix by removing the last segment
+        // "2.1" → "2", "4.6.2" → "4.6"
+        var lastDotIndex = dataNumber.LastIndexOf('.');
+        if (lastDotIndex <= 0)
+            return rootItem;
+
+        var parentPrefix = dataNumber.Substring(0, lastDotIndex);
+
+        // Search for parent with matching data-number
+        var parentLevel = level - 1;
+        if (lastItemAtLevel.TryGetValue(parentLevel, out var lastParent))
+        {
+            // Check if last item at parent level has matching data-number
+            if (lastParent.DataNumber != null && lastParent.DataNumber.Equals(parentPrefix, StringComparison.Ordinal))
+            {
+                _logger.LogDebug("[RuleBasedHierarchy] Found parent by data-number: \"{Parent}\" (data-number=\"{ParentNum}\") for child data-number=\"{ChildNum}\"",
+                    lastParent.LinkName, lastParent.DataNumber, dataNumber);
+                return lastParent;
+            }
+
+            // If not exact match, search siblings and ancestors
+            var candidate = FindItemByDataNumber(lastParent, parentPrefix);
+            if (candidate != null)
+            {
+                _logger.LogDebug("[RuleBasedHierarchy] Found parent by search: \"{Parent}\" (data-number=\"{ParentNum}\") for child data-number=\"{ChildNum}\"",
+                    candidate.LinkName, candidate.DataNumber, dataNumber);
+                return candidate;
+            }
+        }
+
+        // Fallback: search all items at parent level
+        for (int searchLevel = parentLevel; searchLevel >= 1; searchLevel--)
+        {
+            if (lastItemAtLevel.TryGetValue(searchLevel, out var item))
+            {
+                var found = FindItemByDataNumber(item, parentPrefix);
+                if (found != null)
+                {
+                    _logger.LogDebug("[RuleBasedHierarchy] Found parent by fallback search: \"{Parent}\" (data-number=\"{ParentNum}\") for child data-number=\"{ChildNum}\"",
+                        found.LinkName, found.DataNumber, dataNumber);
+                    return found;
+                }
+            }
+        }
+
+        // Last resort: return root
+        _logger.LogWarning("[RuleBasedHierarchy] Could not find parent for data-number=\"{DataNumber}\", using root as parent", dataNumber);
+        return rootItem;
+    }
+
+    /// <summary>
+    /// Recursively searches for an item with matching data-number
+    /// </summary>
+    private HierarchyItem? FindItemByDataNumber(HierarchyItem searchRoot, string targetDataNumber)
+    {
+        // Check this item
+        if (searchRoot.DataNumber != null && searchRoot.DataNumber.Equals(targetDataNumber, StringComparison.Ordinal))
+            return searchRoot;
+
+        // Search children recursively
+        foreach (var child in searchRoot.SubItems)
+        {
+            var found = FindItemByDataNumber(child, targetDataNumber);
+            if (found != null)
+                return found;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -517,6 +673,9 @@ public class RuleBasedHierarchyGenerator
             DataRef = $"{normalizedId}.xml",
             Path = parent.Path,
             SubItems = new List<HierarchyItem>(),
+
+            // Store data-number for parent matching
+            DataNumber = header.DataNumber,
 
             // Legacy field (kept for compatibility, convert 0.0-1.0 to 0-100)
             Confidence = (int)(confidence * 100),

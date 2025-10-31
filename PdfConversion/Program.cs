@@ -127,6 +127,7 @@ builder.Services.AddScoped<IHierarchyGeneratorService, HierarchyGeneratorService
 builder.Services.AddSingleton<IHierarchyRequestLogger, HierarchyRequestLogger>();
 builder.Services.AddScoped<HierarchyComparisonService>();
 builder.Services.AddScoped<PatternLearningService>();
+builder.Services.AddScoped<IPatternReindexingService, PatternReindexingService>();
 
 // Configure HttpClient for XSLT3Service
 var xslt3ServiceUrl = builder.Configuration.GetValue<string>("XSLT3_SERVICE_URL") ?? "http://xslt3service:4806";
