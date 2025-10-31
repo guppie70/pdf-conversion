@@ -240,23 +240,73 @@ public class RuleBasedHierarchyGenerator
 
     /// <summary>
     /// Checks if a pattern is a "major section" pattern (typically Level 1).
-    /// A pattern is major if it appears at Level 1 in >= 80% of cases.
+    /// A pattern is major if:
+    /// 1. It appears at Level 1 in >= 80% of cases, OR
+    /// 2. It's a structural parent (5+ other patterns list it as typical parent)
     /// This is GENERIC - no hard-coded section names.
     /// </summary>
     private bool IsMajorSectionPattern(SectionPattern pattern)
     {
+        // Check 1: Typically at Level 1?
         if (pattern.LevelFrequency.TryGetValue(1, out var level1Count))
         {
             var totalCount = pattern.LevelFrequency.Values.Sum();
             var level1Percentage = (double)level1Count / totalCount;
 
-            // If this pattern appears at Level 1 in >= 80% of cases, it's a major section
-            var isMajor = level1Percentage >= MajorSectionThreshold;
+            if (level1Percentage >= MajorSectionThreshold)
+            {
+                _logger.LogDebug("[Major Section] Pattern \"{Pattern}\" typically L1 ({Pct:F1}% = {L1}/{Total})",
+                    pattern.NormalizedTitle, level1Percentage * 100, level1Count, totalCount);
+                return true;
+            }
+        }
 
-            _logger.LogDebug("[Numbering Detection] Pattern \"{Pattern}\": Level 1 frequency = {Pct:F1}% ({L1}/{Total}) - Major: {IsMajor}",
-                pattern.NormalizedTitle, level1Percentage * 100, level1Count, totalCount, isMajor);
+        // Check 2: Structural parent?
+        if (_comprehensivePatterns != null && IsStructuralParent(pattern, _comprehensivePatterns))
+        {
+            _logger.LogInformation("[Major Section] Pattern \"{Pattern}\" is structural parent (keeps despite no L1 dominance)",
+                pattern.NormalizedTitle);
+            return true;
+        }
 
-            return isMajor;
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if a pattern is a structural parent by counting how many other patterns
+    /// list it as a typical parent in the training data.
+    /// A pattern that is commonly a parent to other sections is structurally important
+    /// even if it doesn't always appear at Level 1.
+    /// </summary>
+    private bool IsStructuralParent(SectionPattern pattern, ComprehensivePatternDatabase database)
+    {
+        if (database?.Patterns == null || !database.Patterns.Any())
+            return false;
+
+        var normalizedTitle = pattern.NormalizedTitle;
+
+        // Count how many OTHER patterns list this pattern as a typical parent
+        var childCount = 0;
+        foreach (var otherPattern in database.Patterns)
+        {
+            if (otherPattern.NormalizedTitle == normalizedTitle)
+                continue; // Skip self
+
+            // Check if this pattern is in the typical parents
+            if (otherPattern.TypicalParents?.Any(p => p.ParentNormalizedTitle == normalizedTitle) == true)
+            {
+                childCount++;
+            }
+        }
+
+        // If 5+ patterns list this as their parent, it's a structural section
+        const int StructuralParentThreshold = 5;
+
+        if (childCount >= StructuralParentThreshold)
+        {
+            _logger.LogDebug("[Structural Parent Check] Pattern \"{Pattern}\" is parent to {Count} other patterns (threshold: {Threshold})",
+                normalizedTitle, childCount, StructuralParentThreshold);
+            return true;
         }
 
         return false;
@@ -416,11 +466,42 @@ public class RuleBasedHierarchyGenerator
                     // EXCEPTION: Keep major section patterns even without data-numbers
                     if (classifiedSection.MatchedPattern != null && IsMajorSectionPattern(classifiedSection.MatchedPattern))
                     {
-                        _logger.LogInformation("[Pass 2] Line {Line}: Major section pattern - KEEPING despite no data-number → \"{Header}\"",
-                            lineNumber, headerText);
-                        technicalLogs.Add($"[Pass 2] Line {lineNumber}: Major section (pattern match) - kept despite no data-number");
-                        technicalLogs.Add($"  - Pattern: \"{classifiedSection.MatchedPattern.NormalizedTitle}\"");
-                        technicalLogs.Add($"  - Level 1 frequency: {(classifiedSection.MatchedPattern.LevelFrequency.GetValueOrDefault(1, 0) * 100.0 / classifiedSection.MatchedPattern.LevelFrequency.Values.Sum()):F1}%");
+                        // Determine why it's considered major (L1 frequency or structural parent)
+                        var isL1Dominant = false;
+                        var l1Percentage = 0.0;
+                        if (classifiedSection.MatchedPattern.LevelFrequency.TryGetValue(1, out var l1Count))
+                        {
+                            var totalCount = classifiedSection.MatchedPattern.LevelFrequency.Values.Sum();
+                            l1Percentage = (double)l1Count / totalCount;
+                            isL1Dominant = l1Percentage >= MajorSectionThreshold;
+                        }
+
+                        var isStructuralParent = !isL1Dominant && _comprehensivePatterns != null &&
+                            IsStructuralParent(classifiedSection.MatchedPattern, _comprehensivePatterns);
+
+                        if (isL1Dominant)
+                        {
+                            _logger.LogInformation("[Pass 2] Line {Line}: L1-dominant section - KEEPING despite no data-number → \"{Header}\"",
+                                lineNumber, headerText);
+                            technicalLogs.Add($"[Pass 2] Line {lineNumber}: L1-dominant section - kept despite no data-number");
+                            technicalLogs.Add($"  - Pattern: \"{classifiedSection.MatchedPattern.NormalizedTitle}\"");
+                            technicalLogs.Add($"  - Level 1 frequency: {l1Percentage:F1}% (threshold: {MajorSectionThreshold:F1}%)");
+                        }
+                        else if (isStructuralParent)
+                        {
+                            _logger.LogInformation("[Pass 2] Line {Line}: Structural section - KEEPING despite no data-number → \"{Header}\"",
+                                lineNumber, headerText);
+                            technicalLogs.Add($"[Pass 2] Line {lineNumber}: Structural section (parent to many) - kept despite no data-number");
+                            technicalLogs.Add($"  - Pattern: \"{classifiedSection.MatchedPattern.NormalizedTitle}\"");
+                            technicalLogs.Add($"  - Reason: Common parent in training data (5+ child patterns)");
+                        }
+                        else
+                        {
+                            _logger.LogInformation("[Pass 2] Line {Line}: Major section pattern - KEEPING despite no data-number → \"{Header}\"",
+                                lineNumber, headerText);
+                            technicalLogs.Add($"[Pass 2] Line {lineNumber}: Major section (pattern match) - kept despite no data-number");
+                            technicalLogs.Add($"  - Pattern: \"{classifiedSection.MatchedPattern.NormalizedTitle}\"");
+                        }
                         // Continue processing this header (do not skip)
                     }
                     else
