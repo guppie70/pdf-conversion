@@ -929,9 +929,15 @@
                     Logger.LogInformation("[OnInitializedAsync] Restored XSLT: {File}", SelectedXsltFile);
                 }
 
-                // If source XML was restored, load hierarchy files and transform
+                // If source XML was restored, auto-select appropriate XSLT and load hierarchy
                 if (!string.IsNullOrEmpty(SelectedSourceXml))
                 {
+                    // Load XSLT files
+                    LoadXsltFiles();
+
+                    // Override saved XSLT with auto-selection based on source XML filename
+                    await AutoSelectXsltForSourceXml();
+
                     // Load hierarchy XML files from metadata folder
                     LoadHierarchyXmlFiles();
 
@@ -995,6 +1001,17 @@
                 // Save only the filename for consistency with Transform page
                 var filename = Path.GetFileName(SelectedSourceXml);
                 await UserSelectionService.UpdateSelectionAsync(sourceXml: filename);
+
+                // Load XSLT files if not already loaded
+                if (!_availableXsltFiles.Any())
+                {
+                    LoadXsltFiles();
+                }
+
+                // Auto-select appropriate XSLT based on source XML filename
+                await AutoSelectXsltForSourceXml();
+
+                // Trigger transformation with new XSLT
                 await AutoTransformAndLoadAsync();
             }
         }
@@ -1321,8 +1338,10 @@
             // Read source XML
             var xmlContent = await File.ReadAllTextAsync(SelectedSourceXml);
 
-            // Read XSLT
-            var xsltPath = $"/app/xslt/{SelectedXsltFile}";
+            // Read XSLT - handle both relative and absolute paths
+            var xsltPath = SelectedXsltFile.StartsWith("/app/xslt/")
+                ? SelectedXsltFile
+                : $"/app/xslt/{SelectedXsltFile}";
             if (!File.Exists(xsltPath))
             {
                 ShowAlert("danger", $"XSLT file not found: {SelectedXsltFile}");
@@ -1487,6 +1506,33 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to load XSLT files");
+        }
+    }
+
+    private async Task AutoSelectXsltForSourceXml()
+    {
+        if (string.IsNullOrEmpty(SelectedSourceXml) || !_availableXsltFiles.Any())
+            return;
+
+        var sourceFileName = Path.GetFileName(SelectedSourceXml).ToLowerInvariant();
+        string? newXslt = null;
+
+        if (sourceFileName.Contains("docling"))
+        {
+            newXslt = _availableXsltFiles.FirstOrDefault(f => f.Contains("docling/transformation.xslt"));
+            Logger.LogInformation("Auto-selected Docling XSLT for source file: {File}", sourceFileName);
+        }
+        else
+        {
+            newXslt = _availableXsltFiles.FirstOrDefault(f => f.Contains("adobe/transformation.xslt"));
+            Logger.LogInformation("Auto-selected Adobe XSLT for source file: {File}", sourceFileName);
+        }
+
+        if (!string.IsNullOrEmpty(newXslt) && newXslt != SelectedXsltFile)
+        {
+            SelectedXsltFile = newXslt;
+            await UserSelectionService.UpdateSelectionAsync(xslt: SelectedXsltFile);
+            Logger.LogInformation("Updated XSLT selection to: {Xslt}", SelectedXsltFile);
         }
     }
 

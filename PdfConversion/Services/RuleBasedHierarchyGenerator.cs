@@ -15,6 +15,7 @@ public class RuleBasedHierarchyGenerator
 {
     private readonly ILogger<RuleBasedHierarchyGenerator> _logger;
     private readonly PatternDatabase? _patterns;
+    private readonly NotePatternDatabase? _notePatterns;
 
     // Major section keywords that ALWAYS create level 1 boundaries (fallback if patterns not loaded)
     private static readonly string[] MajorSectionKeywords = new[]
@@ -39,6 +40,7 @@ public class RuleBasedHierarchyGenerator
     {
         _logger = logger;
         _patterns = LoadPatterns();
+        _notePatterns = LoadNotePatterns();
     }
 
     /// <summary>
@@ -78,6 +80,65 @@ public class RuleBasedHierarchyGenerator
         catch (Exception ex)
         {
             _logger.LogError(ex, "[RuleBasedHierarchy] Failed to load pattern database, falling back to hardcoded rules");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Loads or mines note patterns from training data.
+    /// Mines patterns on-demand if not cached, then returns the database.
+    /// </summary>
+    private NotePatternDatabase? LoadNotePatterns()
+    {
+        try
+        {
+            var path = Path.Combine("data", "patterns", "note-patterns.json");
+
+            // Try to load cached patterns first
+            if (File.Exists(path))
+            {
+                var json = File.ReadAllText(path);
+                var options = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                };
+                var patterns = JsonSerializer.Deserialize<NotePatternDatabase>(json, options);
+
+                if (patterns != null && patterns.Patterns.Count > 0)
+                {
+                    _logger.LogInformation("[RuleBasedHierarchy] Loaded note pattern database: {Patterns} patterns from {Files} hierarchies",
+                        patterns.Patterns.Count,
+                        patterns.TotalHierarchiesAnalyzed);
+                    return patterns;
+                }
+            }
+
+            // Mine patterns if not cached
+            _logger.LogInformation("[RuleBasedHierarchy] Note patterns not cached, mining from training data...");
+
+            // Create a logger for NotePatternMiner using LoggerFactory
+            using var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+            var minerLogger = loggerFactory.CreateLogger<NotePatternMiner>();
+
+            var miner = new NotePatternMiner(minerLogger);
+            var minedPatterns = miner.MinePatterns();
+
+            // Cache the results
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var jsonOptions = new JsonSerializerOptions
+            {
+                WriteIndented = true
+            };
+            var jsonToSave = JsonSerializer.Serialize(minedPatterns, jsonOptions);
+            File.WriteAllText(path, jsonToSave);
+
+            _logger.LogInformation("[RuleBasedHierarchy] Cached note patterns to {Path}", path);
+
+            return minedPatterns;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[RuleBasedHierarchy] Failed to load/mine note patterns, proceeding without notes context");
             return null;
         }
     }
@@ -137,6 +198,12 @@ public class RuleBasedHierarchyGenerator
         var inNotesSection = false;
         var directorsReportStartLine = -1;
 
+        // Notes context tracking
+        var inNotesContext = false;
+        var notesParentLevel = 0;
+        var notesParentDataNumber = "";
+        HierarchyItem? notesParentItem = null;
+
         for (int i = 0; i < headers.Count; i++)
         {
             var header = headers[i];
@@ -148,14 +215,65 @@ public class RuleBasedHierarchyGenerator
             {
                 var dataNumber = header.DataNumber;
                 var level = ParseDataNumberLevel(dataNumber);
+                var isKnownNotePattern = false;
+
+                // Check if we should adjust level based on notes context
+                if (inNotesContext && _notePatterns != null)
+                {
+                    var normalizedTitle = NormalizeNoteTitle(headerText);
+
+                    // Check if this matches a known note pattern
+                    if (_notePatterns.IsKnownNotePattern(normalizedTitle, minFrequencyThreshold: 0.01))
+                    {
+                        // This is a note subsection - assign level relative to notes parent
+                        level = notesParentLevel + 1;
+                        isKnownNotePattern = true;
+
+                        _logger.LogInformation("[Notes Context] Line {Line}: Note section detected → \"{Header}\"",
+                            lineNumber, headerText);
+                        _logger.LogInformation("[Notes Context]   - Matched known note pattern: \"{Pattern}\"", normalizedTitle);
+                        _logger.LogInformation("[Notes Context]   - Assigned level: {Level} (notes parent + 1)", level);
+
+                        technicalLogs.Add($"[Notes Context] Line {lineNumber}: Known note pattern detected");
+                        technicalLogs.Add($"  - Header text: \"{headerText}\"");
+                        technicalLogs.Add($"  - Normalized: \"{normalizedTitle}\"");
+                        technicalLogs.Add($"  - Notes parent level: {notesParentLevel}");
+                        technicalLogs.Add($"  - Decision: Assign Level {level} (note under parent)");
+                    }
+                    // Check if we're exiting notes context (higher or equal level to notes parent)
+                    else if (level <= notesParentLevel)
+                    {
+                        inNotesContext = false;
+                        notesParentItem = null;
+                        _logger.LogInformation("[Notes Context] Exiting notes mode");
+                        _logger.LogInformation("[Notes Context]   - Trigger: data-number=\"{DataNumber}\" at level {Level} (>= notes parent level {ParentLevel})",
+                            dataNumber, level, notesParentLevel);
+
+                        technicalLogs.Add($"[Notes Context] Exiting notes context");
+                        technicalLogs.Add($"  - Trigger: Found higher/equal level section (level {level} >= {notesParentLevel})");
+                    }
+                }
 
                 if (level > 0)
                 {
                     _logger.LogInformation("[RuleBasedHierarchy] Line {Line}: DATA-NUMBER HIERARCHY Level {Level} (data-number=\"{DataNumber}\") → \"{Header}\"",
                         lineNumber, level, dataNumber, headerText);
 
-                    // Find parent based on data-number prefix
-                    HierarchyItem parent = level == 1 ? rootItem : FindParentByDataNumber(dataNumber, lastItemAtLevel, rootItem);
+                    // Find parent - use notes parent if this is a known note pattern
+                    HierarchyItem parent;
+                    if (isKnownNotePattern && notesParentItem != null)
+                    {
+                        parent = notesParentItem;
+                        _logger.LogInformation("[Notes Context]   - Using notes parent: \"{Parent}\"", parent.LinkName);
+                    }
+                    else if (level == 1)
+                    {
+                        parent = rootItem;
+                    }
+                    else
+                    {
+                        parent = FindParentByDataNumber(dataNumber, lastItemAtLevel, rootItem);
+                    }
 
                     // Add to logs
                     genericLogs.Add($"Hierarchy from data-number: Level {level} - \"{headerText}\"");
@@ -177,6 +295,25 @@ public class RuleBasedHierarchyGenerator
                         inDirectorsReport = IsDirectorsReport(headerText);
                         inNotesSection = IsNotesSection(headerText);
                         if (inDirectorsReport) directorsReportStartLine = lineNumber;
+                    }
+
+                    // Check if this section triggers notes context mode
+                    if (IsNotesToSection(headerText))
+                    {
+                        inNotesContext = true;
+                        notesParentLevel = level;
+                        notesParentDataNumber = dataNumber;
+                        notesParentItem = item;
+
+                        _logger.LogInformation("[Notes Context] Entering notes mode");
+                        _logger.LogInformation("[Notes Context]   - Trigger: \"{Header}\"", headerText);
+                        _logger.LogInformation("[Notes Context]   - Parent level: {Level}", notesParentLevel);
+                        _logger.LogInformation("[Notes Context]   - Parent data-number: \"{DataNumber}\"", notesParentDataNumber);
+
+                        technicalLogs.Add($"[Notes Context] Entering notes context mode");
+                        technicalLogs.Add($"  - Trigger section: \"{headerText}\"");
+                        technicalLogs.Add($"  - Notes parent level: {notesParentLevel}");
+                        technicalLogs.Add($"  - Notes parent data-number: \"{notesParentDataNumber}\"");
                     }
 
                     // Clear lower levels
@@ -851,5 +988,46 @@ public class RuleBasedHierarchyGenerator
             count += CountItems(subItem);
         }
         return count;
+    }
+
+    /// <summary>
+    /// Checks if header text indicates a "Notes to..." section that should trigger notes context.
+    /// Examples: "Notes to the consolidated financial statements", "Notes to financial statements"
+    /// </summary>
+    private bool IsNotesToSection(string headerText)
+    {
+        if (string.IsNullOrWhiteSpace(headerText))
+            return false;
+
+        // Common patterns for notes sections
+        return headerText.Contains("Notes to", StringComparison.OrdinalIgnoreCase) ||
+               headerText.Contains("Notes on", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Normalizes note titles for pattern matching.
+    /// Uses same normalization as NotePatternMiner for consistency.
+    /// </summary>
+    private string NormalizeNoteTitle(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return string.Empty;
+
+        // Convert to lowercase
+        var normalized = title.Trim().ToLowerInvariant();
+
+        // Remove common prefixes like "note:", "note 1:", etc.
+        normalized = Regex.Replace(normalized, @"^note\s*\d*\s*:?\s*", string.Empty, RegexOptions.IgnoreCase);
+
+        // Remove ALL punctuation
+        normalized = Regex.Replace(normalized, @"['`"",:;!?()\[\]{}\*\.\-/]", string.Empty);
+
+        // Collapse multiple spaces to single space
+        normalized = Regex.Replace(normalized, @"\s+", " ");
+
+        // Remove leading/trailing spaces
+        normalized = normalized.Trim();
+
+        return normalized;
     }
 }

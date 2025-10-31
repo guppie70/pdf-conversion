@@ -180,6 +180,20 @@ These files provide quick access to the current working state for development an
 - **Usage:** Read this when debugging why sections don't match the original transformation
 - **Compare with:** `_normalized.xml` to identify what changed during section extraction
 
+**Generation Technical Log** = `data/_work/_generation-technical.log`
+- **What:** Detailed technical logs from rule-based hierarchy generation
+- **When Written:** Automatically after successful rule-based hierarchy generation
+- **Purpose:** Provides low-level debugging information about pattern matching and decision logic
+- **Usage:** Read this when debugging hierarchy generation issues or understanding pattern application
+- **Format:** Plain text log lines from RuleBasedHierarchyGenerator
+
+**Generation Generic Log** = `data/_work/_generation-generic.log`
+- **What:** User-friendly logs from rule-based hierarchy generation
+- **When Written:** Automatically after successful rule-based hierarchy generation
+- **Purpose:** Provides high-level summary of generation process and results
+- **Usage:** Read this for quick overview of what the generator did
+- **Format:** Plain text log lines suitable for end users
+
 **Key Points:**
 - These files represent the **last operation** regardless of project
 - Always updated on success (logs written even on errors/cancellation)
