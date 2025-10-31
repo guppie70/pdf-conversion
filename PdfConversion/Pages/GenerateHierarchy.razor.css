@@ -221,6 +221,16 @@
     color: #CCCCCC;
     border: 1px solid #3C3C3C;
     transition: all 0.15s ease;
+    min-width: 32px; /* Icon-only buttons - square shape */
+    padding: 0.25rem 0.5rem; /* Compact padding for icons */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.panel-header-toolbar .btn i {
+    font-size: 1rem; /* Bootstrap icons size */
+    line-height: 1;
 }
 
 .panel-header-toolbar .btn:hover:not(:disabled) {
@@ -811,4 +821,137 @@
     50% {
         opacity: 0.6;
     }
+}
+
+/* ===================================================================
+   Rule-Based Generation Modal - Log Display
+   =================================================================== */
+
+.log-section {
+    margin-top: 1rem;
+}
+
+.log-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #3e3e42;
+}
+
+.log-label {
+    font-weight: 600;
+    color: #cccccc;
+    font-size: 14px;
+}
+
+.log-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.log-toggle input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: #0078D4;
+}
+
+.toggle-label {
+    color: #9D9D9D;
+    font-size: 13px;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.log-toggle:hover .toggle-label {
+    color: #cccccc;
+}
+
+.log-container {
+    background: #1e1e1e;
+    border: 1px solid #3e3e42;
+    border-radius: 4px;
+    padding: 1rem;
+    max-height: 400px;
+    overflow-y: auto;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.log-entry {
+    padding: 0.25rem 0;
+    color: #cccccc;
+}
+
+.log-entry.generic {
+    color: #cccccc;
+}
+
+.log-entry.technical {
+    color: #9D9D9D;
+    font-size: 12px;
+}
+
+/* Special styling for log entries that start with brackets (like [Service]) */
+.log-entry.technical::first-line {
+    color: #858585;
+}
+
+/* Summary box */
+.summary-box {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: #252526;
+    border: 1px solid #0078D4;
+    border-radius: 4px;
+}
+
+.summary-title {
+    font-weight: 600;
+    color: #ffffff;
+    margin-bottom: 0.5rem;
+    font-size: 14px;
+}
+
+.summary-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.summary-list li {
+    padding: 0.25rem 0;
+    color: #cccccc;
+    font-size: 13px;
+}
+
+.summary-list li::before {
+    content: "• ";
+    color: #0078D4;
+    font-weight: bold;
+    margin-right: 0.5rem;
+}
+
+/* Custom scrollbar for log container */
+.log-container::-webkit-scrollbar {
+    width: 12px;
+}
+
+.log-container::-webkit-scrollbar-track {
+    background: #252526;
+}
+
+.log-container::-webkit-scrollbar-thumb {
+    background: #424242;
+    border-radius: 6px;
+}
+
+.log-container::-webkit-scrollbar-thumb:hover {
+    background: #4e4e4e;
 }

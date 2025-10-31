@@ -118,8 +118,48 @@ public class HierarchyItem
     /// </summary>
     public bool IsExpanded { get; set; } = true;
 
+    // ==========================================
+    // CONFIDENCE SCORING FIELDS (Rule-Based Generator)
+    // ==========================================
+
+    /// <summary>
+    /// Confidence score for this hierarchy decision (0.0 = very uncertain, 1.0 = very confident).
+    /// Calculated by Rule-Based Hierarchy Generator based on structural patterns.
+    /// </summary>
+    public double ConfidenceScore { get; set; } = 1.0;
+
+    /// <summary>
+    /// Flags indicating sources of uncertainty in this decision.
+    /// Empty list means high confidence.
+    /// </summary>
+    public List<UncertaintyFlag> UncertaintyFlags { get; set; } = new();
+
+    /// <summary>
+    /// Context: Previous header at same level (for debugging/review).
+    /// Null if this is the first item at this level.
+    /// </summary>
+    public string? PreviousHeader { get; set; }
+
+    /// <summary>
+    /// Context: Next header at same level (for debugging/review).
+    /// Null if this is the last item at this level.
+    /// </summary>
+    public string? NextHeader { get; set; }
+
+    /// <summary>
+    /// Context: Approximate word count in content under this header.
+    /// Used for confidence calculation (very short or very long content lowers confidence).
+    /// </summary>
+    public int WordCount { get; set; }
+
+    /// <summary>
+    /// Context: Number of immediate child headers under this header.
+    /// Used for confidence calculation (structure indicator).
+    /// </summary>
+    public int ChildCount { get; set; }
+
     /// <summary>
     /// Returns a formatted string for logging and debugging
     /// </summary>
-    public override string ToString() => $"{LinkName} (Level {Level}, ID: {Id})";
+    public override string ToString() => $"{LinkName} (Level {Level}, ID: {Id}, Confidence: {ConfidenceScore:F2})";
 }

@@ -151,49 +151,49 @@
                                 @onclick="OutdentSelectedHeaders"
                                 disabled="@(!CanOutdentCurrentSelection())"
                                 title="Outdent selected headers (Shift+Tab)">
-                            <i class="bi bi-arrow-left"></i> Outdent
+                            <i class="bi bi-arrow-left"></i>
                         </button>
 
                         <button class="btn btn-sm btn-outline-secondary"
                                 @onclick="IndentSelectedHeaders"
                                 disabled="@(!CanIndentCurrentSelection())"
                                 title="Indent selected headers (Tab)">
-                            <i class="bi bi-arrow-right"></i> Indent
+                            <i class="bi bi-arrow-right"></i>
                         </button>
 
                         <button class="btn btn-sm btn-outline-secondary"
                                 @onclick="ExcludeSelectedHeaders"
                                 disabled="@(!_selectedManualItemIds.Any())"
-                                title="Exclude selected headers (Delete)">
-                            <i class="bi bi-x-circle"></i> Exclude
+                                title="Delete selected headers (Delete)">
+                            <i class="bi bi-trash"></i>
                         </button>
 
                         <button class="btn btn-sm btn-outline-secondary"
                                 @onclick="ExpandAllItems"
                                 disabled="@(_manualHierarchyItems == null || !_manualHierarchyItems.Any())"
                                 title="Expand all items">
-                            <i class="bi bi-arrows-expand"></i> Expand All
+                            <i class="bi bi-arrows-expand"></i>
                         </button>
 
                         <button class="btn btn-sm btn-outline-secondary"
                                 @onclick="CollapseAllItems"
                                 disabled="@(_manualHierarchyItems == null || !_manualHierarchyItems.Any())"
                                 title="Collapse all items">
-                            <i class="bi bi-arrows-collapse"></i> Collapse All
+                            <i class="bi bi-arrows-collapse"></i>
                         </button>
 
                         <button class="btn btn-sm btn-outline-secondary"
                                 @onclick="IncludeAllHeaders"
                                 disabled="@(_manualHeaders == null || !_manualHeaders.Any())"
                                 title="Reset all headers to flat list">
-                            <i class="bi bi-arrow-counterclockwise"></i> Reset All
+                            <i class="bi bi-arrow-counterclockwise"></i>
                         </button>
 
                         <button class="btn btn-sm btn-outline-secondary"
                                 @onclick="DeselectAllHeaders"
                                 disabled="@(!_selectedManualItemIds.Any())"
                                 title="Clear selection (Esc)">
-                            <i class="bi bi-x-square"></i> Deselect
+                            <i class="bi bi-x-square"></i>
                         </button>
                     </div>
                 }
@@ -435,7 +435,7 @@
     @if (_showRuleBasedModal)
     {
         <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-            <div class="modal-dialog modal-dialog-scrollable">
+            <div class="modal-dialog modal-dialog-scrollable modal-lg">
                 <div class="modal-content">
                     <div class="modal-header">
                         <h5 class="modal-title">Rule-Based Hierarchy Generation</h5>
@@ -450,58 +450,118 @@
                             </div>
                         }
 
-                        <div class="mb-3">
-                            <h6 class="fw-bold">About Rule-Based Generation</h6>
-                            <p class="text-muted mb-2">
-                                Rule-based generation uses deterministic algorithms to build a hierarchy from your document headers.
-                                It's fast (instant), consistent, and doesn't require AI models.
-                            </p>
-                            <ul class="small text-muted mb-0">
-                                <li>Analyzes heading structure (h1, h2, h3, etc.)</li>
-                                <li>Creates hierarchical relationships based on heading levels</li>
-                                <li>Generates standardized IDs and data-refs</li>
-                                <li>No training examples needed</li>
-                            </ul>
-                        </div>
-
-                        <!-- XSLT Selection -->
-                        <div class="mb-3">
-                            <label class="form-label fw-bold">XSLT Transformation</label>
-                            <select class="form-select" @bind="_selectedRuleBasedXslt">
-                                <option value="">-- Select XSLT File --</option>
-                                @foreach (var file in _availableXsltFiles)
-                                {
-                                    <option value="@file">@file.Replace("/app/xslt/", "")</option>
-                                }
-                            </select>
-                            @if (!string.IsNullOrEmpty(_selectedRuleBasedXslt))
-                            {
-                                <small class="text-muted d-block mt-1">
-                                    @_selectedRuleBasedXslt.Replace("/app/xslt/", "") selected
-                                </small>
-                            }
-                        </div>
-
-                        @if (_isGeneratingRuleBased)
+                        @if (!_isGeneratingRuleBased && _genericLogs.Count == 0)
                         {
-                            <div class="text-center py-4">
-                                <div class="spinner-border text-primary" role="status">
-                                    <span class="visually-hidden">Generating...</span>
+                            <!-- Project selection UI - only show before generation starts -->
+                            <div class="mb-3">
+                                <h6 class="fw-bold">About Rule-Based Generation</h6>
+                                <p class="text-muted mb-2">
+                                    Rule-based generation uses deterministic algorithms to build a hierarchy from your document headers.
+                                    It's fast (instant), consistent, and doesn't require AI models.
+                                </p>
+                                <ul class="small text-muted mb-0">
+                                    <li>Analyzes heading structure (h1, h2, h3, etc.)</li>
+                                    <li>Creates hierarchical relationships based on heading levels</li>
+                                    <li>Generates standardized IDs and data-refs</li>
+                                    <li>No training examples needed</li>
+                                </ul>
+                            </div>
+
+                            <!-- XSLT Selection -->
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">XSLT Transformation</label>
+                                <select class="form-select" @bind="_selectedRuleBasedXslt">
+                                    <option value="">-- Select XSLT File --</option>
+                                    @foreach (var file in _availableXsltFiles)
+                                    {
+                                        <option value="@file">@file.Replace("/app/xslt/", "")</option>
+                                    }
+                                </select>
+                                @if (!string.IsNullOrEmpty(_selectedRuleBasedXslt))
+                                {
+                                    <small class="text-muted d-block mt-1">
+                                        @_selectedRuleBasedXslt.Replace("/app/xslt/", "") selected
+                                    </small>
+                                }
+                            </div>
+                        }
+
+                        @if (_isGeneratingRuleBased || _genericLogs.Count > 0)
+                        {
+                            <!-- Log display area with toggle -->
+                            <div class="log-section">
+                                <div class="log-header">
+                                    <span class="log-label">Generation Log:</span>
+                                    <label class="log-toggle">
+                                        <input type="checkbox" @bind="_showTechnicalLogs" />
+                                        <span class="toggle-label">Technical Details</span>
+                                    </label>
                                 </div>
-                                <p class="mt-2 text-muted">Generating hierarchy...</p>
+
+                                <div class="log-container" @ref="_logScrollContainer">
+                                    @if (_showTechnicalLogs)
+                                    {
+                                        @foreach (var log in _technicalLogs)
+                                        {
+                                            <div class="log-entry technical">@log</div>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        @foreach (var log in _genericLogs)
+                                        {
+                                            <div class="log-entry generic">@log</div>
+                                        }
+                                    }
+
+                                    @if (_isGeneratingRuleBased && _genericLogs.Count == 0)
+                                    {
+                                        <div class="text-center py-4">
+                                            <div class="spinner-border text-primary" role="status">
+                                                <span class="visually-hidden">Generating...</span>
+                                            </div>
+                                            <p class="mt-2 text-muted">Starting generation...</p>
+                                        </div>
+                                    }
+                                </div>
+
+                                @if (_generationStats != null)
+                                {
+                                    <!-- Summary statistics box -->
+                                    <div class="summary-box">
+                                        <div class="summary-title">Summary:</div>
+                                        <ul class="summary-list">
+                                            <li>Converted @_generationStats.HeadersProcessed headers → @_generationStats.ItemsCreated sections</li>
+                                            <li>Hierarchy depth: @_generationStats.MaxDepth levels</li>
+                                            <li>Patterns matched: @_generationStats.PatternsMatched/@_generationStats.HeadersProcessed (@((_generationStats.HeadersProcessed > 0 ? (_generationStats.PatternsMatched * 100.0 / _generationStats.HeadersProcessed) : 0).ToString("F1"))%)</li>
+                                            <li>Generation time: @_generationStats.DurationMs ms</li>
+                                        </ul>
+                                    </div>
+                                }
                             </div>
                         }
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" @onclick="CloseRuleBasedModal" disabled="@_isGeneratingRuleBased">
-                            Cancel
+                            @(_generationStats != null ? "Close" : "Cancel")
                         </button>
-                        <button type="button"
-                                class="btn btn-primary"
-                                @onclick="GenerateWithRules"
-                                disabled="@(_isGeneratingRuleBased || string.IsNullOrEmpty(_selectedRuleBasedXslt))">
-                            <i class="bi bi-gear"></i> Generate
-                        </button>
+                        @if (_generationStats == null)
+                        {
+                            <button type="button"
+                                    class="btn btn-primary"
+                                    @onclick="GenerateWithRules"
+                                    disabled="@(_isGeneratingRuleBased || string.IsNullOrEmpty(_selectedRuleBasedXslt))">
+                                <i class="bi bi-gear"></i> Generate
+                            </button>
+                        }
+                        else
+                        {
+                            <button type="button"
+                                    class="btn btn-primary"
+                                    @onclick="CloseRuleBasedModal">
+                                <i class="bi bi-check-circle"></i> View Hierarchy
+                            </button>
+                        }
                     </div>
                 </div>
             </div>
@@ -542,6 +602,11 @@
     private bool _isGeneratingRuleBased = false;
     private string? _ruleBasedError = null;
     private string _selectedRuleBasedXslt = "/app/xslt/transformation.xslt";
+    private bool _showTechnicalLogs = false;
+    private List<string> _genericLogs = new();
+    private List<string> _technicalLogs = new();
+    private GenerationStatistics? _generationStats = null;
+    private ElementReference _logScrollContainer;
 
     // Manual Mode fields
     private enum HierarchyMode { LoadExisting, Manual }
@@ -1729,6 +1794,10 @@
     {
         _showRuleBasedModal = false;
         _ruleBasedError = null;
+        _genericLogs.Clear();
+        _technicalLogs.Clear();
+        _generationStats = null;
+        _showTechnicalLogs = false;
         StateHasChanged();
     }
 
@@ -1794,6 +1863,17 @@
             // Store validation result for UI display (rule-based shouldn't hallucinate)
             _validationResult = proposal.ValidationResult;
 
+            // Extract logs and statistics from the generation result
+            if (proposal.RuleBasedGenerationResult != null)
+            {
+                _genericLogs = proposal.RuleBasedGenerationResult.GenericLogs;
+                _technicalLogs = proposal.RuleBasedGenerationResult.TechnicalLogs;
+                _generationStats = proposal.RuleBasedGenerationResult.Statistics;
+
+                // Force UI update to show logs
+                StateHasChanged();
+            }
+
             // Convert HierarchyProposal to HierarchyStructure and load into editor
             var hierarchyStructure = proposal.ToHierarchyStructure();
             CurrentHierarchy = hierarchyStructure;
@@ -1804,8 +1884,24 @@
             // Don't show Test API button for rule-based
             _showTestApiButton = false;
 
-            // Close modal
-            _showRuleBasedModal = false;
+            // Switch to Manual mode to show the generated hierarchy in editor
+            _currentMode = HierarchyMode.Manual;
+            // Don't call LoadManualModeHeadersAsync() - it would overwrite the generated hierarchy!
+            // The generated hierarchy is already in CurrentHierarchy, ready for editing.
+
+            // Populate _manualHierarchyItems from the generated hierarchy for display
+            if (CurrentHierarchy?.Root?.SubItems != null && CurrentHierarchy.Root.SubItems.Any())
+            {
+                _manualHierarchyItems = CurrentHierarchy.Root.SubItems.ToList();
+                AssignSequentialOrderToTree(_manualHierarchyItems);
+            }
+            else
+            {
+                _manualHierarchyItems = new List<HierarchyItem>();
+            }
+
+            // DON'T close modal - let user see the logs and stats
+            // They can close it manually or click "View Hierarchy"
 
             Logger.LogInformation("Rule-based hierarchy generated with {Count} items", proposal.TotalItems);
         }

@@ -93,10 +93,17 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
                 // Extract headers from XML
                 var extractedHeaders = ExtractHeadersFromXml(normalizedXml);
 
-                // Call rule-based generator
+                // Call rule-based generator (returns GenerationResult with Root, GenericLogs, TechnicalLogs)
                 var ruleBasedStartTime = DateTime.UtcNow;
-                var rootItem = _ruleBasedGenerator.GenerateHierarchy(extractedHeaders);
+                var result = _ruleBasedGenerator.GenerateHierarchy(extractedHeaders);
+                var rootItem = result.Root;
                 var ruleBasedDuration = DateTime.UtcNow - ruleBasedStartTime;
+
+                // Log the generic logs (user-friendly)
+                foreach (var log in result.GenericLogs)
+                {
+                    _logger.LogInformation("[HierarchyGenerator] {Log}", log);
+                }
 
                 // Build proposal with same structure as LLM approach
                 var allItems = new List<HierarchyItem>();
@@ -113,7 +120,8 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
                     Uncertainties = new List<HierarchyItem>(),
                     Reasoning = "Generated using deterministic rule-based approach",
                     TotalItems = allItems.Count,
-                    ValidationResult = new HierarchyValidationResult { IsValid = true }
+                    ValidationResult = new HierarchyValidationResult { IsValid = true },
+                    RuleBasedGenerationResult = result // Include logs for UI display
                 };
             }
 

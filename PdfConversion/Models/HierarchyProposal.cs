@@ -39,6 +39,11 @@ public class HierarchyProposal
     public HierarchyValidationResult? ValidationResult { get; set; }
 
     /// <summary>
+    /// Generation result with logs and statistics (only populated for rule-based generation)
+    /// </summary>
+    public GenerationResult? RuleBasedGenerationResult { get; set; }
+
+    /// <summary>
     /// Converts this proposal to a HierarchyStructure
     /// </summary>
     public HierarchyStructure ToHierarchyStructure()

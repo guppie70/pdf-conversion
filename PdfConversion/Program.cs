@@ -125,6 +125,8 @@ builder.Services.AddScoped<IOllamaService, OllamaService>();
 builder.Services.AddScoped<RuleBasedHierarchyGenerator>();
 builder.Services.AddScoped<IHierarchyGeneratorService, HierarchyGeneratorService>();
 builder.Services.AddSingleton<IHierarchyRequestLogger, HierarchyRequestLogger>();
+builder.Services.AddScoped<HierarchyComparisonService>();
+builder.Services.AddScoped<PatternLearningService>();
 
 // Configure HttpClient for XSLT3Service
 var xslt3ServiceUrl = builder.Configuration.GetValue<string>("XSLT3_SERVICE_URL") ?? "http://xslt3service:4806";
@@ -526,6 +528,7 @@ app.MapGet("/sandbox", async (
     IXsltTransformationService xsltService,
     IHierarchyGeneratorService hierarchyGeneratorService,
     IHierarchyService hierarchyService,
+    IOllamaService ollamaService,
     ILogger<Program> logger) =>
 {
     await PdfConversion.Endpoints.SandboxEndpoint.HandleAsync(
@@ -533,6 +536,7 @@ app.MapGet("/sandbox", async (
         xsltService,
         hierarchyGeneratorService,
         hierarchyService,
+        ollamaService,
         logger);
 });
 
