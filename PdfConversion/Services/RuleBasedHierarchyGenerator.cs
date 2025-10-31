@@ -16,6 +16,12 @@ public class RuleBasedHierarchyGenerator
     private readonly ILogger<RuleBasedHierarchyGenerator> _logger;
     private readonly PatternDatabase? _patterns;
     private readonly NotePatternDatabase? _notePatterns;
+    private readonly ComprehensivePatternDatabase? _comprehensivePatterns;
+    private readonly ContentClassificationService? _classificationService;
+
+    // Configuration: Thresholds for numbering scheme detection
+    private const double NumberingSchemeThreshold = 0.30; // 30% of headers must have data-numbers
+    private const double MajorSectionThreshold = 0.80;    // 80% of pattern occurrences at Level 1
 
     // Major section keywords that ALWAYS create level 1 boundaries (fallback if patterns not loaded)
     private static readonly string[] MajorSectionKeywords = new[]
@@ -41,6 +47,13 @@ public class RuleBasedHierarchyGenerator
         _logger = logger;
         _patterns = LoadPatterns();
         _notePatterns = LoadNotePatterns();
+        _comprehensivePatterns = LoadComprehensivePatterns();
+        _classificationService = _comprehensivePatterns != null
+            ? new ContentClassificationService(
+                LoggerFactory.Create(builder => builder.AddConsole())
+                    .CreateLogger<ContentClassificationService>(),
+                _comprehensivePatterns)
+            : null;
     }
 
     /// <summary>
@@ -144,7 +157,115 @@ public class RuleBasedHierarchyGenerator
     }
 
     /// <summary>
-    /// Generates hierarchy using rule-based logic with dual-level logging
+    /// Loads or mines comprehensive patterns from training data.
+    /// Mines patterns on-demand if not cached, then returns the database.
+    /// </summary>
+    private ComprehensivePatternDatabase? LoadComprehensivePatterns()
+    {
+        try
+        {
+            var path = Path.Combine("data", "patterns", "comprehensive-patterns.json");
+
+            // Try to load cached patterns first
+            if (File.Exists(path))
+            {
+                var json = File.ReadAllText(path);
+                var options = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                };
+                var patterns = JsonSerializer.Deserialize<ComprehensivePatternDatabase>(json, options);
+
+                if (patterns != null && patterns.Patterns.Count > 0)
+                {
+                    _logger.LogInformation("[RuleBasedHierarchy] Loaded comprehensive pattern database: {Patterns} patterns from {Files} hierarchies",
+                        patterns.Patterns.Count,
+                        patterns.TotalHierarchiesAnalyzed);
+                    return patterns;
+                }
+            }
+
+            // Mine patterns if not cached
+            _logger.LogInformation("[RuleBasedHierarchy] Comprehensive patterns not cached, mining from training data...");
+
+            // Create a logger for ComprehensivePatternMiner using LoggerFactory
+            using var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+            var minerLogger = loggerFactory.CreateLogger<ComprehensivePatternMiner>();
+
+            var miner = new ComprehensivePatternMiner(minerLogger);
+            var minedPatterns = miner.MinePatterns();
+
+            // Cache the results
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var jsonOptions = new JsonSerializerOptions
+            {
+                WriteIndented = true
+            };
+            var jsonToSave = JsonSerializer.Serialize(minedPatterns, jsonOptions);
+            File.WriteAllText(path, jsonToSave);
+
+            _logger.LogInformation("[RuleBasedHierarchy] Cached comprehensive patterns to {Path}", path);
+
+            return minedPatterns;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[RuleBasedHierarchy] Failed to load/mine comprehensive patterns, proceeding without comprehensive database");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Detects if document uses explicit numbering scheme (data-number attributes).
+    /// If >= 30% of headers have data-numbers, the document is considered to use numbering.
+    /// </summary>
+    private bool DetectNumberingScheme(List<ClassifiedSection> sections)
+    {
+        if (sections.Count == 0) return false;
+
+        var totalSections = sections.Count;
+        var numberedSections = sections.Count(s => !string.IsNullOrEmpty(s.DataNumber));
+        var percentage = (double)numberedSections / totalSections;
+
+        // If >= 30% of headers have data-numbers, document uses numbering scheme
+        var usesNumbering = percentage >= NumberingSchemeThreshold;
+
+        _logger.LogInformation("[Numbering Detection] {Numbered}/{Total} sections have data-numbers ({Pct:F1}%)",
+            numberedSections, totalSections, percentage * 100);
+        _logger.LogInformation("[Numbering Detection] Document uses explicit numbering: {Uses}",
+            usesNumbering ? "YES" : "NO");
+
+        return usesNumbering;
+    }
+
+    /// <summary>
+    /// Checks if a pattern is a "major section" pattern (typically Level 1).
+    /// A pattern is major if it appears at Level 1 in >= 80% of cases.
+    /// This is GENERIC - no hard-coded section names.
+    /// </summary>
+    private bool IsMajorSectionPattern(SectionPattern pattern)
+    {
+        if (pattern.LevelFrequency.TryGetValue(1, out var level1Count))
+        {
+            var totalCount = pattern.LevelFrequency.Values.Sum();
+            var level1Percentage = (double)level1Count / totalCount;
+
+            // If this pattern appears at Level 1 in >= 80% of cases, it's a major section
+            var isMajor = level1Percentage >= MajorSectionThreshold;
+
+            _logger.LogDebug("[Numbering Detection] Pattern \"{Pattern}\": Level 1 frequency = {Pct:F1}% ({L1}/{Total}) - Major: {IsMajor}",
+                pattern.NormalizedTitle, level1Percentage * 100, level1Count, totalCount, isMajor);
+
+            return isMajor;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Generates hierarchy using two-pass rule-based logic with dual-level logging
+    /// Pass 1: Content Classification - identify WHAT each section is
+    /// Pass 2: Hierarchy Building - determine WHERE each section belongs
     /// </summary>
     public GenerationResult GenerateHierarchy(List<HierarchyGeneratorService.HeaderInfo> headers)
     {
@@ -158,9 +279,21 @@ public class RuleBasedHierarchyGenerator
         genericLogs.Add($"Processing {headers.Count} headers from document");
 
         // Technical logs: detailed debugging information
-        technicalLogs.Add("[RuleBasedHierarchyGenerator] Starting generation");
+        technicalLogs.Add("[RuleBasedHierarchyGenerator] Starting generation with two-pass architecture");
         technicalLogs.Add($"[Input] {headers.Count} headers found in normalized XML");
         technicalLogs.Add($"[Pattern Database] Using {(_patterns != null ? "learned patterns" : "hardcoded rules")}");
+
+        if (_comprehensivePatterns != null)
+        {
+            genericLogs.Add("Two-pass architecture enabled: Content Classification + Hierarchy Building");
+            technicalLogs.Add($"[Comprehensive Patterns] {_comprehensivePatterns.Patterns.Count} section patterns available");
+            technicalLogs.Add($"[Comprehensive Patterns] {_comprehensivePatterns.TotalHierarchiesAnalyzed} training hierarchies analyzed");
+        }
+        else
+        {
+            genericLogs.Add("Legacy mode: Using data-number + Level 1 patterns only");
+            technicalLogs.Add("[Comprehensive Patterns] Not available, using legacy logic");
+        }
 
         if (_patterns != null)
         {
@@ -176,8 +309,8 @@ public class RuleBasedHierarchyGenerator
 
         _logger.LogInformation("[RuleBasedHierarchy] Starting rule-based hierarchy generation with {Count} headers",
             headers.Count);
-        _logger.LogInformation("[RuleBasedHierarchy] Using {Mode} for section detection",
-            _patterns != null ? "learned patterns" : "hardcoded rules");
+        _logger.LogInformation("[RuleBasedHierarchy] Mode: {Mode}",
+            _comprehensivePatterns != null ? "Two-pass (comprehensive)" : "Legacy (data-number + Level 1)");
 
         // Create root item
         var rootItem = new HierarchyItem
@@ -204,12 +337,146 @@ public class RuleBasedHierarchyGenerator
         var notesParentDataNumber = "";
         HierarchyItem? notesParentItem = null;
 
+        // PASS 1: Content Classification (if comprehensive patterns available)
+        List<ClassifiedSection>? classifiedSections = null;
+        if (_classificationService != null && _comprehensivePatterns != null)
+        {
+            genericLogs.Add("[Pass 1] Classifying content against pattern database...");
+            technicalLogs.Add("[Pass 1] Content Classification starting");
+
+            classifiedSections = _classificationService.ClassifyHeaders(headers);
+
+            var matchedCount = classifiedSections.Count(s => s.MatchedPattern != null);
+            genericLogs.Add($"[Pass 1] Classified {matchedCount}/{headers.Count} sections ({(matchedCount * 100.0 / headers.Count):F1}% match rate)");
+            technicalLogs.Add($"[Pass 1] Classification complete: {matchedCount}/{headers.Count} matched");
+
+            // Log Pass 1 results to technical log
+            for (int i = 0; i < classifiedSections.Count; i++)
+            {
+                var section = classifiedSections[i];
+                section.LineNumber = i + 1;
+
+                if (section.MatchedPattern != null)
+                {
+                    var mostCommonLevel = section.MatchedPattern.MostCommonLevel;
+                    var levelDist = string.Join(", ", section.MatchedPattern.LevelFrequency
+                        .OrderByDescending(kvp => kvp.Value)
+                        .Take(2)
+                        .Select(kvp => $"L{kvp.Key}:{kvp.Value}x"));
+
+                    technicalLogs.Add($"[Pass 1] Line {i + 1}: \"{section.HeaderText}\"");
+                    technicalLogs.Add($"  - Matched: \"{section.MatchedPattern.NormalizedTitle}\" (conf: {section.MatchConfidence:F2})");
+                    technicalLogs.Add($"  - Typical levels: {levelDist}");
+
+                    if (section.MatchedPattern.TypicalParents.Any())
+                    {
+                        var topParent = section.MatchedPattern.TypicalParents.First();
+                        technicalLogs.Add($"  - Typical parent: \"{topParent.ParentNormalizedTitle}\" ({topParent.Frequency}x)");
+                    }
+                }
+                else
+                {
+                    technicalLogs.Add($"[Pass 1] Line {i + 1}: \"{section.HeaderText}\" - No pattern match");
+                }
+            }
+
+            genericLogs.Add("[Pass 2] Building hierarchy structure...");
+            technicalLogs.Add("[Pass 2] Hierarchy Building starting");
+        }
+
+        // Detect numbering scheme for filtering (outside the classification block)
+        bool usesNumberingScheme = false;
+        if (classifiedSections != null && _comprehensivePatterns != null)
+        {
+            usesNumberingScheme = DetectNumberingScheme(classifiedSections);
+
+            if (usesNumberingScheme)
+            {
+                _logger.LogInformation("[Pass 2] Numbering scheme detected - filtering to numbered headers only");
+                genericLogs.Add("[Pass 2] Document uses numbering - filtering unnumbered headers");
+                technicalLogs.Add("[Numbering Scheme] Document uses explicit numbering");
+                technicalLogs.Add("[Numbering Scheme] Only headers with data-numbers will create hierarchy items");
+                technicalLogs.Add("[Numbering Scheme] Exception: Major section patterns kept even without data-numbers");
+            }
+        }
+
         for (int i = 0; i < headers.Count; i++)
         {
             var header = headers[i];
             var lineNumber = i + 1;
             var headerText = header.Text.Trim();
+            ClassifiedSection? classifiedSection = classifiedSections?[i];
 
+            // TWO-PASS MODE: Use comprehensive pattern matching if available
+            if (classifiedSection != null && _comprehensivePatterns != null)
+            {
+                // FILTER: If document uses numbering, skip headers without data-numbers
+                if (usesNumberingScheme && string.IsNullOrEmpty(classifiedSection.DataNumber))
+                {
+                    // EXCEPTION: Keep major section patterns even without data-numbers
+                    if (classifiedSection.MatchedPattern != null && IsMajorSectionPattern(classifiedSection.MatchedPattern))
+                    {
+                        _logger.LogInformation("[Pass 2] Line {Line}: Major section pattern - KEEPING despite no data-number → \"{Header}\"",
+                            lineNumber, headerText);
+                        technicalLogs.Add($"[Pass 2] Line {lineNumber}: Major section (pattern match) - kept despite no data-number");
+                        technicalLogs.Add($"  - Pattern: \"{classifiedSection.MatchedPattern.NormalizedTitle}\"");
+                        technicalLogs.Add($"  - Level 1 frequency: {(classifiedSection.MatchedPattern.LevelFrequency.GetValueOrDefault(1, 0) * 100.0 / classifiedSection.MatchedPattern.LevelFrequency.Values.Sum()):F1}%");
+                        // Continue processing this header (do not skip)
+                    }
+                    else
+                    {
+                        _logger.LogInformation("[Pass 2] Line {Line}: SKIPPED (no data-number in numbered document) → \"{Header}\"",
+                            lineNumber, headerText);
+                        technicalLogs.Add($"[Pass 2] Line {lineNumber}: SKIPPED (in-section content) → \"{headerText}\"");
+                        continue; // Skip this header entirely
+                    }
+                }
+
+                // Get previous classified section for context
+                ClassifiedSection? previousSection = i > 0 ? classifiedSections![i - 1] : null;
+
+                // Determine level using multi-signal analysis
+                var (level, signal, reasoning) = DetermineLevelForSection(
+                    classifiedSection,
+                    previousSection,
+                    lastItemAtLevel);
+
+                // Store determination results
+                classifiedSection.DeterminedLevel = level;
+                classifiedSection.DeterminationSignal = signal;
+                classifiedSection.DeterminationReasoning = reasoning;
+
+                // Log Pass 2 decision
+                technicalLogs.Add($"[Pass 2] Line {lineNumber}: \"{headerText}\"");
+                technicalLogs.Add($"  - Signal used: {signal}");
+                technicalLogs.Add($"  - Reasoning: {reasoning}");
+                technicalLogs.Add($"  - Decision: Assign Level {level}");
+
+                // Find parent
+                var parent = FindParentForSection(classifiedSection, level, lastItemAtLevel, rootItem);
+                technicalLogs.Add($"  - Parent: \"{parent.LinkName}\"");
+
+                // Create and add item
+                patternsMatched++;
+                var item = CreateHierarchyItem(header, level, parent, lastItemAtLevel);
+                parent.SubItems.Add(item);
+                lastItemAtLevel[level] = item;
+
+                // Update major section context if this is level 1
+                if (level == 1)
+                {
+                    currentMajorSection = item;
+                    inDirectorsReport = IsDirectorsReport(headerText);
+                    inNotesSection = IsNotesSection(headerText);
+                    if (inDirectorsReport) directorsReportStartLine = lineNumber;
+                }
+
+                // Clear lower levels
+                ClearLowerLevels(lastItemAtLevel, level);
+                continue;
+            }
+
+            // LEGACY MODE: Use data-number + Level 1 pattern matching
             // PRIORITY 1: Use data-number attribute if present
             if (!string.IsNullOrEmpty(header.DataNumber))
             {
@@ -1029,5 +1296,276 @@ public class RuleBasedHierarchyGenerator
         normalized = normalized.Trim();
 
         return normalized;
+    }
+
+    /// <summary>
+    /// Finds parent by matching against learned parent-child relationships from training data.
+    /// This method prioritizes high-frequency relationships that appear consistently across many hierarchies.
+    /// Only returns a match if the parent pattern meets the minimum frequency threshold.
+    /// </summary>
+    private HierarchyItem? FindParentByLearnedPattern(
+        List<ParentPattern> typicalParents,
+        Dictionary<int, HierarchyItem> lastItemAtLevel,
+        int minFrequency = 10)
+    {
+        // Get the most common parent pattern(s) above threshold
+        var qualifyingParents = typicalParents
+            .Where(p => p.Frequency >= minFrequency)
+            .OrderByDescending(p => p.Frequency)
+            .ToList();
+
+        if (!qualifyingParents.Any())
+        {
+            return null;
+        }
+
+        // Search through recent items at various levels (newest to oldest)
+        foreach (var level in lastItemAtLevel.Keys.OrderByDescending(k => k))
+        {
+            var item = lastItemAtLevel[level];
+            var normalizedItemTitle = NormalizeText(item.LinkName);
+
+            // Check if this item matches any qualifying parent
+            foreach (var parentPattern in qualifyingParents)
+            {
+                if (normalizedItemTitle.Equals(parentPattern.ParentNormalizedTitle, StringComparison.Ordinal))
+                {
+                    _logger.LogInformation("[Pass 2] Found learned parent: \"{Parent}\" (Level {Level}, frequency: {Freq}x in training)",
+                        item.LinkName, item.Level, parentPattern.Frequency);
+                    return item;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Pass 2: Determines level for a section using multiple signals.
+    /// Uses classified section data from Pass 1 to make intelligent placement decisions.
+    /// PRIORITY ORDER:
+    /// 1. Learned parent-child relationships (highest confidence from training data)
+    /// 2. data-number (explicit structure)
+    /// 3. Pattern match (typical level for this section type)
+    /// 4. Sequential context (position relative to previous section)
+    /// 5. Header type fallback (HTML tag as last resort)
+    /// </summary>
+    private (int level, string signal, string reasoning) DetermineLevelForSection(
+        ClassifiedSection section,
+        ClassifiedSection? previousSection,
+        Dictionary<int, HierarchyItem> lastItemAtLevel)
+    {
+        // Signal 1 (HIGHEST PRIORITY): Learned parent-child relationship from training data
+        // This is statistical evidence from 269 hierarchies - more reliable than data-number assumptions
+        if (section.MatchedPattern?.TypicalParents.Any() == true)
+        {
+            // Find if any recent item matches a typical parent with high frequency
+            var learnedParent = FindParentByLearnedPattern(
+                section.MatchedPattern.TypicalParents,
+                lastItemAtLevel,
+                minFrequency: 10); // Must appear in at least 10 training hierarchies
+
+            if (learnedParent != null)
+            {
+                var level = learnedParent.Level + 1;
+                var topParent = section.MatchedPattern.TypicalParents
+                    .OrderByDescending(p => p.Frequency)
+                    .First();
+
+                // Log if this overrides a data-number signal
+                string overrideNote = "";
+                if (!string.IsNullOrEmpty(section.DataNumber))
+                {
+                    overrideNote = $" (overriding data-number=\"{section.DataNumber}\")";
+                }
+
+                return (level,
+                        "learned-parent-child",
+                        $"Learned parent \"{learnedParent.LinkName}\" ({topParent.Frequency}x in training){overrideNote} → Level {level}");
+            }
+        }
+
+        // Signal 2: data-number (explicit structure)
+        if (!string.IsNullOrEmpty(section.DataNumber))
+        {
+            var level = ParseDataNumberLevel(section.DataNumber);
+            if (level > 0)
+            {
+                return (level, "data-number", $"data-number=\"{section.DataNumber}\" → Level {level}");
+            }
+        }
+
+        // Signal 3: Matched pattern with high confidence
+        if (section.MatchedPattern != null && section.MatchConfidence >= 0.05)
+        {
+            // Get most common level for this pattern
+            var mostCommonLevel = section.MatchedPattern.MostCommonLevel;
+            var frequency = section.MatchedPattern.LevelFrequency[mostCommonLevel];
+
+            return (mostCommonLevel,
+                    "pattern-match",
+                    $"Pattern \"{section.MatchedPattern.NormalizedTitle}\" typically Level {mostCommonLevel} ({frequency}x, conf: {section.MatchConfidence:F2})");
+        }
+
+        // Signal 4: Parent-child relationship from patterns (adjacent sections)
+        if (previousSection?.MatchedPattern != null && section.MatchedPattern != null)
+        {
+            var expectedLevel = InferLevelFromParentChild(
+                section.NormalizedTitle,
+                previousSection.NormalizedTitle,
+                previousSection.DeterminedLevel);
+
+            if (expectedLevel > 0)
+            {
+                return (expectedLevel,
+                        "parent-child",
+                        $"Known child of \"{previousSection.NormalizedTitle}\" → Level {expectedLevel}");
+            }
+        }
+
+        // Signal 5: Sequential context (previous level + 1 for likely subsection)
+        if (previousSection != null && !IsLikelySibling(section, previousSection))
+        {
+            var contextLevel = Math.Min(previousSection.DeterminedLevel + 1, 4); // Cap at level 4
+            return (contextLevel,
+                    "sequential-context",
+                    $"Following \"{previousSection.HeaderText}\" (Level {previousSection.DeterminedLevel}) → Level {contextLevel}");
+        }
+
+        // Signal 6: Header type fallback
+        var headerType = section.HeaderLevel.ToLowerInvariant();
+        var fallbackLevel = headerType switch
+        {
+            "h1" => 1,
+            "h2" => 2,
+            "h3" => 3,
+            "h4" => 4,
+            _ => 2  // Default to Level 2 if unknown
+        };
+
+        return (fallbackLevel,
+                "header-type-fallback",
+                $"HTML tag <{headerType}> → Level {fallbackLevel} (no other signals available)");
+    }
+
+    /// <summary>
+    /// Infers level for a child section based on parent-child pattern relationships
+    /// </summary>
+    private int InferLevelFromParentChild(string childNormalized, string parentNormalized, int parentLevel)
+    {
+        if (_comprehensivePatterns == null)
+            return 0;
+
+        // Find the child pattern
+        var childPattern = _comprehensivePatterns.Patterns.FirstOrDefault(p =>
+            p.NormalizedTitle.Equals(childNormalized, StringComparison.Ordinal));
+
+        if (childPattern == null)
+            return 0;
+
+        // Check if this parent is a known parent for this child
+        var parentRelationship = childPattern.TypicalParents.FirstOrDefault(p =>
+            p.ParentNormalizedTitle.Equals(parentNormalized, StringComparison.Ordinal));
+
+        if (parentRelationship != null && parentRelationship.Frequency >= 2)
+        {
+            // This is a known relationship - child should be one level deeper than parent
+            return parentLevel + 1;
+        }
+
+        return 0;
+    }
+
+    /// <summary>
+    /// Checks if two sections are likely siblings (same level) vs parent-child
+    /// </summary>
+    private bool IsLikelySibling(ClassifiedSection current, ClassifiedSection previous)
+    {
+        // If both have data-numbers, check if they're siblings
+        if (!string.IsNullOrEmpty(current.DataNumber) && !string.IsNullOrEmpty(previous.DataNumber))
+        {
+            var currentLevel = ParseDataNumberLevel(current.DataNumber);
+            var previousLevel = ParseDataNumberLevel(previous.DataNumber);
+
+            // Same level in numbering = siblings
+            if (currentLevel == previousLevel)
+                return true;
+        }
+
+        // If both matched patterns and have same most-common-level, likely siblings
+        if (current.MatchedPattern != null && previous.MatchedPattern != null)
+        {
+            if (current.MatchedPattern.MostCommonLevel == previous.MatchedPattern.MostCommonLevel)
+                return true;
+        }
+
+        // Default: assume parent-child relationship (safer for nesting)
+        return false;
+    }
+
+    /// <summary>
+    /// Pass 2: Finds parent for a section using multiple strategies
+    /// </summary>
+    private HierarchyItem FindParentForSection(
+        ClassifiedSection section,
+        int level,
+        Dictionary<int, HierarchyItem> lastItemAtLevel,
+        HierarchyItem rootItem)
+    {
+        // Strategy 1: data-number prefix matching (existing logic)
+        if (!string.IsNullOrEmpty(section.DataNumber))
+        {
+            var parent = FindParentByDataNumber(section.DataNumber, lastItemAtLevel, rootItem);
+            if (parent != rootItem || level == 1)  // Found specific parent OR this is Level 1
+                return parent;
+        }
+
+        // Strategy 2: Learned parent-child patterns
+        if (section.MatchedPattern?.TypicalParents.Any() == true)
+        {
+            var parent = FindParentByPattern(
+                section.MatchedPattern.TypicalParents,
+                lastItemAtLevel);
+
+            if (parent != null)
+                return parent;
+        }
+
+        // Strategy 3: Most recent item at parent level (fallback)
+        if (level > 1 && lastItemAtLevel.TryGetValue(level - 1, out var parentItem))
+        {
+            return parentItem;
+        }
+
+        // Last resort: root
+        return rootItem;
+    }
+
+    /// <summary>
+    /// Finds parent by matching against typical parent patterns
+    /// </summary>
+    private HierarchyItem? FindParentByPattern(
+        List<ParentPattern> typicalParents,
+        Dictionary<int, HierarchyItem> lastItemAtLevel)
+    {
+        // Search through recent items at various levels
+        foreach (var level in lastItemAtLevel.Keys.OrderByDescending(k => k))
+        {
+            var item = lastItemAtLevel[level];
+            var normalizedItemTitle = NormalizeText(item.LinkName);
+
+            // Check if this item matches any typical parent
+            foreach (var parentPattern in typicalParents.OrderByDescending(p => p.Frequency))
+            {
+                if (normalizedItemTitle.Equals(parentPattern.ParentNormalizedTitle, StringComparison.Ordinal))
+                {
+                    _logger.LogDebug("[Pass 2] Found parent by pattern: \"{Parent}\" (pattern frequency: {Freq})",
+                        item.LinkName, parentPattern.Frequency);
+                    return item;
+                }
+            }
+        }
+
+        return null;
     }
 }
