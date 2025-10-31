@@ -1870,6 +1870,9 @@
                 _technicalLogs = proposal.RuleBasedGenerationResult.TechnicalLogs;
                 _generationStats = proposal.RuleBasedGenerationResult.Statistics;
 
+                // Save logs to context files for debugging
+                await SaveGenerationLogsAsync();
+
                 // Force UI update to show logs
                 StateHasChanged();
             }
@@ -1916,6 +1919,46 @@
             Environment.SetEnvironmentVariable("HierarchyGeneration__Mode", null);
             _isGeneratingRuleBased = false;
             StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Saves generation logs to context files in data/_work/ for debugging
+    /// </summary>
+    private async Task SaveGenerationLogsAsync()
+    {
+        try
+        {
+            var workDir = Path.Combine("data", "_work");
+
+            // Ensure directory exists
+            if (!Directory.Exists(workDir))
+            {
+                Directory.CreateDirectory(workDir);
+            }
+
+            // Save technical logs
+            if (_technicalLogs.Any())
+            {
+                var technicalLogPath = Path.Combine(workDir, "_generation-technical.log");
+                var technicalContent = string.Join(Environment.NewLine, _technicalLogs);
+                await File.WriteAllTextAsync(technicalLogPath, technicalContent);
+                Logger.LogDebug("Saved technical logs to {Path}", technicalLogPath);
+            }
+
+            // Save generic logs
+            if (_genericLogs.Any())
+            {
+                var genericLogPath = Path.Combine(workDir, "_generation-generic.log");
+                var genericContent = string.Join(Environment.NewLine, _genericLogs);
+                await File.WriteAllTextAsync(genericLogPath, genericContent);
+                Logger.LogDebug("Saved generic logs to {Path}", genericLogPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Don't fail the generation if log writing fails
+            Logger.LogError(ex, "Failed to save generation logs to disk");
         }
     }
 
