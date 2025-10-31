@@ -458,7 +458,7 @@ public class RuleBasedHierarchyGenerator
 
                 // Create and add item
                 patternsMatched++;
-                var item = CreateHierarchyItem(header, level, parent, lastItemAtLevel);
+                var item = CreateHierarchyItem(header, level, parent, lastItemAtLevel, classifiedSection);
                 parent.SubItems.Add(item);
                 lastItemAtLevel[level] = item;
 
@@ -551,7 +551,7 @@ public class RuleBasedHierarchyGenerator
 
                     patternsMatched++;
 
-                    var item = CreateHierarchyItem(header, level, parent, lastItemAtLevel);
+                    var item = CreateHierarchyItem(header, level, parent, lastItemAtLevel, classifiedSection);
                     parent.SubItems.Add(item);
                     lastItemAtLevel[level] = item;
 
@@ -608,7 +608,7 @@ public class RuleBasedHierarchyGenerator
 
                 patternsMatched++;
 
-                var item = CreateHierarchyItem(header, 1, rootItem, lastItemAtLevel);
+                var item = CreateHierarchyItem(header, 1, rootItem, lastItemAtLevel, classifiedSection);
                 rootItem.SubItems.Add(item);
                 lastItemAtLevel[1] = item;
                 currentMajorSection = item;
@@ -676,7 +676,7 @@ public class RuleBasedHierarchyGenerator
 
                     patternsMatched++;
 
-                    var item = CreateHierarchyItem(header, noteLevel, parent, lastItemAtLevel);
+                    var item = CreateHierarchyItem(header, noteLevel, parent, lastItemAtLevel, classifiedSection);
                     parent.SubItems.Add(item);
                     lastItemAtLevel[noteLevel] = item;
 
@@ -1062,12 +1062,13 @@ public class RuleBasedHierarchyGenerator
         HierarchyGeneratorService.HeaderInfo header,
         int level,
         HierarchyItem parent,
-        Dictionary<int, HierarchyItem> lastItemAtLevel)
+        Dictionary<int, HierarchyItem> lastItemAtLevel,
+        ClassifiedSection? classifiedSection = null)
     {
         var normalizedId = FilenameUtils.NormalizeFileName(header.Text);
 
         // Calculate confidence score based on structural patterns
-        var (confidence, flags, reasoning) = CalculateConfidence(header, level, lastItemAtLevel);
+        var (confidence, flags, reasoning) = CalculateConfidence(header, level, lastItemAtLevel, classifiedSection);
 
         return new HierarchyItem
         {
@@ -1100,11 +1101,66 @@ public class RuleBasedHierarchyGenerator
     private (double confidence, List<UncertaintyFlag> flags, string reasoning) CalculateConfidence(
         HierarchyGeneratorService.HeaderInfo header,
         int level,
-        Dictionary<int, HierarchyItem> lastItemAtLevel)
+        Dictionary<int, HierarchyItem> lastItemAtLevel,
+        ClassifiedSection? classifiedSection)
     {
         var score = 0.5; // Base score
         var flags = new List<UncertaintyFlag>();
         var reasons = new List<string>();
+
+        // PATTERN 0: Pattern matching from training data (STRONGEST SIGNAL)
+        if (classifiedSection?.MatchedPattern != null)
+        {
+            var pattern = classifiedSection.MatchedPattern;
+
+            // Check if pattern has level frequency data
+            if (pattern.LevelFrequency != null && pattern.LevelFrequency.Any())
+            {
+                // Find most common level for this pattern
+                var totalOccurrences = pattern.LevelFrequency.Values.Sum();
+                var currentLevelCount = pattern.LevelFrequency.GetValueOrDefault(level, 0);
+                var currentLevelPercentage = totalOccurrences > 0
+                    ? (double)currentLevelCount / totalOccurrences
+                    : 0;
+
+                if (currentLevelPercentage >= 0.95) // 95%+ at this level
+                {
+                    score += 0.40;
+                    reasons.Add($"Pattern strongly suggests L{level} ({currentLevelPercentage:P0} of {totalOccurrences} cases)");
+                }
+                else if (currentLevelPercentage >= 0.80) // 80-95%
+                {
+                    score += 0.30;
+                    reasons.Add($"Pattern typically L{level} ({currentLevelPercentage:P0} of {totalOccurrences} cases)");
+                }
+                else if (currentLevelPercentage >= 0.60) // 60-80%
+                {
+                    score += 0.20;
+                    reasons.Add($"Pattern often L{level} ({currentLevelPercentage:P0} of {totalOccurrences} cases)");
+                }
+                else if (currentLevelPercentage >= 0.40) // 40-60%
+                {
+                    score += 0.10;
+                    reasons.Add($"Pattern sometimes L{level} ({currentLevelPercentage:P0} of {totalOccurrences} cases)");
+                }
+                else if (currentLevelPercentage > 0) // < 40% but exists
+                {
+                    // No bonus, but note it
+                    reasons.Add($"Pattern rarely L{level} ({currentLevelPercentage:P0} of {totalOccurrences} cases)");
+                }
+                else // Never at this level
+                {
+                    // Find where it usually appears
+                    var mostCommonLevel = pattern.LevelFrequency
+                        .OrderByDescending(kvp => kvp.Value)
+                        .First();
+
+                    score -= 0.20;
+                    flags.Add(UncertaintyFlag.LevelMismatch);
+                    reasons.Add($"Pattern never L{level} - typically L{mostCommonLevel.Key} ({mostCommonLevel.Value}x)");
+                }
+            }
+        }
 
         // PATTERN 1: Data-number presence and format
         if (!string.IsNullOrEmpty(header.DataNumber))

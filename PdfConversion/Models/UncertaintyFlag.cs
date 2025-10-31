@@ -28,5 +28,8 @@ public enum UncertaintyFlag
     IsolatedHeader,
 
     /// <summary>Gap in numbered sequence (e.g., 1, 2, 4 - missing 3)</summary>
-    MissingSequence
+    MissingSequence,
+
+    /// <summary>Pattern data suggests different level than assigned</summary>
+    LevelMismatch
 }

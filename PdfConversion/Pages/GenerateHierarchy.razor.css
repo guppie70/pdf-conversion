@@ -764,6 +764,17 @@
     background-color: rgba(0, 122, 204, 0.2) !important;  /* Slightly darker blue on hover */
 }
 
+/* Make edit icon visible on selected items - white for maximum contrast */
+.manual-tree-container ::deep .tree-item.selected .tree-edit-icon {
+    color: #ffffff !important;  /* White text */
+    opacity: 1;  /* Always visible on selected items */
+}
+
+.manual-tree-container ::deep .tree-item.selected .tree-edit-icon:hover {
+    color: #4fc3f7 !important;  /* VS Code accent blue on hover */
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
 /* ===================================================================
    Change Status Indicator - VS Code Dark Modern Theme
    =================================================================== */
