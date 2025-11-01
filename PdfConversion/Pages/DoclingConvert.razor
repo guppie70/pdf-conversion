@@ -16,12 +16,12 @@
 @inject IFileGroupBuilderService FileGroupBuilder
 @implements IAsyncDisposable
 
-<PageTitle>Docling Convert - Step 1</PageTitle>
+<PageTitle>Convert</PageTitle>
 
 <div class="docling-convert-container">
     <div class="docling-header">
-        <h3>Docling Convert - Step 1</h3>
-        <p class="text-muted">Upload PDF or Word files and convert them to DocBook XML using Docling</p>
+        <h3>Convert</h3>
+        <p class="text-muted">Convert a PDF or Word file to standard XHTML format to use in the Transform section</p>
     </div>
 
     <!-- Configuration Panel -->
@@ -30,138 +30,27 @@
             <h5>Configuration</h5>
         </div>
         <div class="panel-body">
-            <!-- Mode Selection -->
-            <div class="form-group mb-3">
-                <label class="form-label">File Source</label>
-                <div class="mode-selection">
-                    <div class="form-check">
-                        <input class="form-check-input"
-                               type="radio"
-                               name="fileMode"
-                               id="modeNewUpload"
-                               checked="@(FileMode == FileModeEnum.NewUpload)"
-                               @onchange="@(() => HandleModeChange(FileModeEnum.NewUpload))"
-                               disabled="@IsConverting">
-                        <label class="form-check-label" for="modeNewUpload">
-                            Upload New File
-                        </label>
-                    </div>
-                    <div class="form-check">
-                        <input class="form-check-input"
-                               type="radio"
-                               name="fileMode"
-                               id="modeExistingFile"
-                               checked="@(FileMode == FileModeEnum.ExistingFile)"
-                               @onchange="@(() => HandleModeChange(FileModeEnum.ExistingFile))"
-                               disabled="@IsConverting">
-                        <label class="form-check-label" for="modeExistingFile">
-                            Re-process Existing File
-                        </label>
-                    </div>
-                </div>
+            <!-- Existing File Selection -->
+            <div class="form-group">
+                <label for="existingFileSelect" class="form-label">Select File</label>
+                <ProjectFileSelector
+                    FileGroups="@ExistingFileGroups"
+                    SelectedValue="@SelectedExistingFile"
+                    OnSelectionChanged="@HandleExistingFileSelectionChanged"
+                    PlaceholderText="-- Select File --"
+                    IsDisabled="@IsConverting"
+                    CssClass="form-select" />
             </div>
 
-            @if (FileMode == FileModeEnum.NewUpload)
+            <!-- Validation Alert -->
+            @if (!IsConverting && string.IsNullOrEmpty(ErrorMessage) && string.IsNullOrEmpty(SuccessMessage))
             {
-                <!-- Project Selection for New Upload -->
-                <div class="form-group">
-                    <label for="projectSelect" class="form-label">Project</label>
-                    <select id="projectSelect"
-                            class="form-select"
-                            value="@SelectedProject"
-                            @onchange="HandleProjectChange"
-                            disabled="@IsConverting">
-                        <option value="">-- Select Project --</option>
-                        @foreach (var customerGroup in Projects.GroupBy(p => p.Customer).OrderBy(g => g.Key))
-                        {
-                            <optgroup label="@customerGroup.Key">
-                                @foreach (var project in customerGroup.OrderBy(p => p.ProjectId))
-                                {
-                                    <option value="@project.ProjectId">@project.DisplayString</option>
-                                }
-                            </optgroup>
-                        }
-                    </select>
-                </div>
-
-                <!-- Validation Alert -->
-                @if (!IsConverting && string.IsNullOrEmpty(ErrorMessage) && string.IsNullOrEmpty(SuccessMessage))
+                @if (string.IsNullOrEmpty(SelectedExistingFile))
                 {
-                    @if (string.IsNullOrEmpty(SelectedProject))
-                    {
-                        <div class="alert alert-warning mt-3" role="alert">
-                            <i class="bi bi-exclamation-triangle"></i>
-                            Please select a project to continue
-                        </div>
-                    }
-                    else if (UploadedFileData == null)
-                    {
-                        <div class="alert alert-warning mt-3" role="alert">
-                            <i class="bi bi-exclamation-triangle"></i>
-                            Please select a PDF or Word file to convert
-                        </div>
-                    }
-                }
-
-                <!-- File Upload Area -->
-                <div class="form-group mt-3">
-                    <label class="form-label">Document File</label>
-                    <div @ref="_dropZoneElement"
-                         class="upload-area">
-
-                        @if (UploadedFileData == null)
-                        {
-                            <div class="upload-prompt">
-                                <i class="bi bi-cloud-arrow-up" style="font-size: 2.5rem; color: #0d6efd;"></i>
-                                <p class="mt-2 mb-1"><strong>Drag & drop PDF or Word file here</strong></p>
-                                <p class="text-muted small mb-1">or click to browse</p>
-                                <p class="text-muted small mb-0">Supported: PDF, DOCX, DOC (max 50MB)</p>
-                                <InputFile OnChange="HandleFileSelect" accept=".pdf,.docx,.doc" class="d-none" id="fileInput" />
-                                <button type="button" class="btn btn-primary mt-2" @onclick="OpenFileDialog">
-                                    Browse Files
-                                </button>
-                            </div>
-                        }
-                        else
-                        {
-                            <div class="file-info">
-                                <i class="bi bi-file-earmark-check" style="font-size: 2rem; color: #28a745;"></i>
-                                <div class="file-details mt-2">
-                                    <p class="mb-1"><strong>@UploadedFileName</strong></p>
-                                    <p class="text-muted mb-0">Size: @FormatFileSize(UploadedFileData.Length)</p>
-                                </div>
-                                <button type="button" class="btn btn-secondary btn-sm mt-2" @onclick="ClearFile">
-                                    <i class="bi bi-x-circle"></i> Clear
-                                </button>
-                            </div>
-                        }
+                    <div class="alert alert-warning mt-3" role="alert">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        Please select a file to convert
                     </div>
-                </div>
-            }
-            else
-            {
-                <!-- Existing File Selection for Re-processing -->
-                <div class="form-group">
-                    <label for="existingFileSelect" class="form-label">Existing File</label>
-                    <ProjectFileSelector
-                        FileGroups="@ExistingFileGroups"
-                        SelectedValue="@SelectedExistingFile"
-                        OnSelectionChanged="@HandleExistingFileSelectionChanged"
-                        PlaceholderText="-- Select Existing File --"
-                        IsDisabled="@IsConverting"
-                        CssClass="form-select" />
-                </div>
-
-                <!-- Validation Alert for Existing File Mode -->
-                @if (!IsConverting && string.IsNullOrEmpty(ErrorMessage) && string.IsNullOrEmpty(SuccessMessage))
-                {
-                    @if (string.IsNullOrEmpty(SelectedExistingFile))
-                    {
-                        <div class="alert alert-warning mt-3" role="alert">
-                            <i class="bi bi-exclamation-triangle"></i>
-                            Please select an existing file to re-process
-                        </div>
-                    }
                 }
             }
 
@@ -296,19 +185,10 @@
 </div>
 
 @code {
-    // Enum for file mode
-    private enum FileModeEnum
-    {
-        NewUpload,
-        ExistingFile
-    }
-
     // State
-    private FileModeEnum FileMode { get; set; } = FileModeEnum.NewUpload;
     private List<ProjectInfo> Projects { get; set; } = new();
     private string SelectedProject { get; set; } = string.Empty;
     private string SelectedExistingFile { get; set; } = string.Empty;
-    private IBrowserFile? UploadedFile { get; set; }
     private byte[]? UploadedFileData { get; set; }
     private string? UploadedFileName { get; set; }
     private string? UploadedContentType { get; set; }
@@ -334,27 +214,14 @@
 
     private System.Timers.Timer? _conversionTimer;
     private bool _monacoInitialized = false;
-    private ElementReference _dropZoneElement;
-    private DotNetObjectReference<DoclingConvert>? _dotNetHelper;
 
     private bool IsReadyToConvert
     {
         get
         {
-            if (FileMode == FileModeEnum.NewUpload)
-            {
-                var hasProject = !string.IsNullOrEmpty(SelectedProject);
-                var hasFile = UploadedFileData != null;
-                var isReady = hasProject && hasFile;
-                Logger.LogInformation($"[IsReadyToConvert] Mode=NewUpload, hasProject={hasProject} ('{SelectedProject}'), hasFile={hasFile}, isReady={isReady}");
-                return isReady;
-            }
-            else
-            {
-                var hasExistingFile = !string.IsNullOrEmpty(SelectedExistingFile);
-                Logger.LogInformation($"[IsReadyToConvert] Mode=ExistingFile, hasExistingFile={hasExistingFile} ('{SelectedExistingFile}')");
-                return hasExistingFile;
-            }
+            var hasExistingFile = !string.IsNullOrEmpty(SelectedExistingFile);
+            Logger.LogInformation($"[IsReadyToConvert] hasExistingFile={hasExistingFile} ('{SelectedExistingFile}')");
+            return hasExistingFile;
         }
     }
 
@@ -468,23 +335,6 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
-        {
-            Logger.LogInformation($"[OnAfterRenderAsync] First render - SelectedProject='{SelectedProject}', UploadedFile={UploadedFile?.Name ?? "null"}");
-
-            // Initialize drag and drop with JavaScript interop
-            try
-            {
-                _dotNetHelper = DotNetObjectReference.Create(this);
-                await JSRuntime.InvokeVoidAsync("initializeFileDrop", _dropZoneElement, _dotNetHelper);
-                Logger.LogInformation("File drop initialized");
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "Error initializing file drop");
-            }
-        }
-
         if (!string.IsNullOrEmpty(DoclingOutput) && !_monacoInitialized)
         {
             try
@@ -525,16 +375,6 @@
         {
             var selection = await UserSelectionService.GetSelectionAsync();
 
-            // Restore file mode
-            if (!string.IsNullOrEmpty(selection.LastDoclingFileMode))
-            {
-                if (Enum.TryParse<FileModeEnum>(selection.LastDoclingFileMode, out var mode))
-                {
-                    FileMode = mode;
-                    Logger.LogInformation($"Restored file mode: {FileMode}");
-                }
-            }
-
             // Restore output format
             if (!string.IsNullOrEmpty(selection.LastDoclingOutputFormat))
             {
@@ -542,46 +382,8 @@
                 Logger.LogInformation($"Restored output format: {OutputFormat}");
             }
 
-            // Restore project selection (for NewUpload mode)
-            if (!string.IsNullOrEmpty(selection.LastDoclingProject))
-            {
-                // Parse "customer/project-id" format
-                var parts = selection.LastDoclingProject.Split('/');
-                if (parts.Length == 2)
-                {
-                    var customer = parts[0];
-                    var projectId = parts[1];
-
-                    // Find matching project by customer and project ID
-                    var project = Projects.FirstOrDefault(p => p.Customer == customer && p.ProjectId == projectId);
-                    if (project != null)
-                    {
-                        SelectedProject = project.ProjectId;
-                        Logger.LogInformation($"Restored project: {customer}/{projectId}");
-                    }
-                    else
-                    {
-                        Logger.LogWarning($"Saved project '{selection.LastDoclingProject}' no longer exists");
-                    }
-                }
-                else
-                {
-                    // Legacy format (just project ID) - try to find first matching project
-                    var project = Projects.FirstOrDefault(p => p.ProjectId == selection.LastDoclingProject);
-                    if (project != null)
-                    {
-                        SelectedProject = project.ProjectId;
-                        Logger.LogInformation($"Restored project using legacy format: {SelectedProject}");
-                    }
-                    else
-                    {
-                        Logger.LogWarning($"Saved project '{selection.LastDoclingProject}' no longer exists");
-                    }
-                }
-            }
-
-            // Restore existing file selection (for ExistingFile mode)
-            if (FileMode == FileModeEnum.ExistingFile && !string.IsNullOrEmpty(selection.LastDoclingExistingFile))
+            // Restore existing file selection
+            if (!string.IsNullOrEmpty(selection.LastDoclingExistingFile))
             {
                 var fileExists = ExistingFileGroups.SelectMany(g => g.Files).Any(f => f.FullPath == selection.LastDoclingExistingFile);
                 if (fileExists)
@@ -594,8 +396,7 @@
                 }
                 else
                 {
-                    Logger.LogWarning($"Saved file '{selection.LastDoclingExistingFile}' no longer exists, falling back to NewUpload mode");
-                    FileMode = FileModeEnum.NewUpload;
+                    Logger.LogWarning($"Saved file '{selection.LastDoclingExistingFile}' no longer exists");
                     SelectedExistingFile = string.Empty;
                 }
             }
@@ -643,43 +444,6 @@
         }
     }
 
-    private async void HandleModeChange(FileModeEnum newMode)
-    {
-        FileMode = newMode;
-        ErrorMessage = string.Empty;
-        SuccessMessage = string.Empty;
-
-        // Clear state when switching modes
-        if (newMode == FileModeEnum.NewUpload)
-        {
-            SelectedExistingFile = string.Empty;
-        }
-        else
-        {
-            SelectedProject = string.Empty;
-            ClearFile();
-        }
-
-        // Save file mode selection
-        await SaveFileModeAsync();
-
-        StateHasChanged();
-    }
-
-    private async Task SaveFileModeAsync()
-    {
-        try
-        {
-            var selection = await UserSelectionService.GetSelectionAsync();
-            selection.LastDoclingFileMode = FileMode.ToString();
-            await UserSelectionService.SaveSelectionAsync(selection);
-            Logger.LogDebug($"Saved file mode: {FileMode}");
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error saving file mode selection");
-        }
-    }
 
     private async Task HandleExistingFileChange(ChangeEventArgs e)
     {
@@ -716,152 +480,6 @@
         StateHasChanged();
     }
 
-    private async Task OpenFileDialog()
-    {
-        try
-        {
-            await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('fileInput').click()");
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error opening file dialog");
-        }
-    }
-
-
-    private async Task HandleFileSelect(InputFileChangeEventArgs e)
-    {
-        try
-        {
-            var file = e.File;
-            UploadedFileName = file.Name;
-            UploadedContentType = file.ContentType;
-
-            // Read file data immediately to avoid stale reference
-            using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
-            using var memoryStream = new MemoryStream();
-            await stream.CopyToAsync(memoryStream);
-            UploadedFileData = memoryStream.ToArray();
-
-            UploadedFile = file; // Keep for display purposes
-            ErrorMessage = string.Empty;
-            SuccessMessage = string.Empty;
-            Logger.LogInformation($"File loaded: {UploadedFileName} ({FormatFileSize(UploadedFileData.Length)} bytes)");
-
-            // Save file to disk if project is selected
-            await SaveUploadedFileAsync();
-
-            StateHasChanged();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error reading uploaded file");
-            ErrorMessage = $"Failed to load file: {ex.Message}";
-            UploadedFile = null;
-            UploadedFileData = null;
-            StateHasChanged();
-        }
-    }
-
-    // Note: OnFileDropped methods removed - drag/drop now triggers InputFile directly
-    // This avoids JSON serialization limits for large files
-
-    [JSInvokable]
-    public async Task OnFileDropError(string errorMessage)
-    {
-        Logger.LogError($"File drop error: {errorMessage}");
-        ErrorMessage = errorMessage;
-        await InvokeAsync(StateHasChanged);
-    }
-
-    private async Task SaveUploadedFileAsync()
-    {
-        if (UploadedFileData == null || string.IsNullOrEmpty(UploadedFileName))
-        {
-            Logger.LogDebug("Skipping file save: missing data or filename");
-            return;
-        }
-
-        if (string.IsNullOrEmpty(SelectedProject))
-        {
-            // File loaded but project not selected yet - this is OK
-            Logger.LogDebug("File loaded into memory, waiting for project selection to save to disk");
-            SuccessMessage = $"File '{UploadedFileName}' loaded. Select a project to save it to disk.";
-            return;
-        }
-
-        try
-        {
-            var project = Projects.FirstOrDefault(p => p.ProjectId == SelectedProject);
-            if (project == null)
-            {
-                Logger.LogWarning($"Project not found: {SelectedProject}");
-                ErrorMessage = $"Selected project '{SelectedProject}' not found. File not saved to disk.";
-                return;
-            }
-
-            var filePath = Path.Combine(project.FolderPath, UploadedFileName);
-
-            // Check if file exists and log
-            bool isOverwrite = File.Exists(filePath);
-            if (isOverwrite)
-            {
-                Logger.LogInformation($"Overwriting existing file: {filePath}");
-            }
-
-            await File.WriteAllBytesAsync(filePath, UploadedFileData);
-            Logger.LogInformation($"Saved uploaded file to: {filePath}");
-
-            // Show success message
-            var projectLabel = project.CustomLabel ?? project.ProjectId;
-            SuccessMessage = isOverwrite
-                ? $"File '{UploadedFileName}' updated in project '{projectLabel}'."
-                : $"File '{UploadedFileName}' saved to project '{projectLabel}'.";
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error saving uploaded file");
-            ErrorMessage = $"Failed to save file to disk: {ex.Message}";
-        }
-    }
-
-    private async void HandleProjectChange(ChangeEventArgs e)
-    {
-        SelectedProject = e.Value?.ToString() ?? string.Empty;
-        Logger.LogInformation($"[HandleProjectChange] Project changed to: '{SelectedProject}'");
-        Logger.LogInformation($"[HandleProjectChange] State after project change - SelectedProject='{SelectedProject}', UploadedFile={UploadedFile?.Name ?? "null"}");
-
-        // If a file is already loaded in memory and project was just selected, save it now
-        if (!string.IsNullOrEmpty(SelectedProject) && UploadedFileData != null && !string.IsNullOrEmpty(UploadedFileName))
-        {
-            Logger.LogInformation($"Project selected with file already loaded - saving file to project folder");
-            await SaveUploadedFileAsync();
-        }
-
-        // Save project selection
-        if (!string.IsNullOrEmpty(SelectedProject))
-        {
-            try
-            {
-                // Find the project to get customer information
-                var project = Projects.FirstOrDefault(p => p.ProjectId == SelectedProject);
-                if (project != null)
-                {
-                    var selection = await UserSelectionService.GetSelectionAsync();
-                    // Store in "customer/project-id" format
-                    selection.LastDoclingProject = $"{project.Customer}/{project.ProjectId}";
-                    await UserSelectionService.SaveSelectionAsync(selection);
-                    Logger.LogDebug($"Saved project selection: {selection.LastDoclingProject}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "Error saving project selection");
-            }
-        }
-
-        StateHasChanged();
-    }
 
     private async void HandleOutputFormatChange(ChangeEventArgs e)
     {
@@ -884,18 +502,6 @@
         StateHasChanged();
     }
 
-    private void ClearFile()
-    {
-        UploadedFile = null;
-        UploadedFileData = null;
-        UploadedFileName = null;
-        UploadedContentType = null;
-        DoclingOutput = string.Empty;
-        ErrorMessage = string.Empty;
-        SuccessMessage = string.Empty;
-        _monacoInitialized = false;
-        StateHasChanged(); // Trigger UI update to enable/disable button
-    }
 
     private async Task ConvertWithDocling()
     {
@@ -1015,31 +621,23 @@
                     var htmlWithBase64 = result.OutputContent;
                     Logger.LogInformation($"Retrieved result: {htmlWithBase64.Length} bytes with base64-embedded images");
 
-                    // Determine project folder based on mode
+                    // Determine project folder from selected file path
                     string projectFolderPath;
                     string baseFilename;
 
-                    if (FileMode == FileModeEnum.ExistingFile && !string.IsNullOrEmpty(SelectedExistingFile))
+                    if (!string.IsNullOrEmpty(SelectedExistingFile))
                     {
-                        // Existing file mode - derive project folder from file path
+                        // Derive project folder from file path
                         // Example: /app/data/input/taxxor/projects/ar25-1/taxxor-small.pdf
                         // -> project folder: /app/data/input/taxxor/projects/ar25-1
                         projectFolderPath = Path.GetDirectoryName(SelectedExistingFile) ?? string.Empty;
                         baseFilename = Path.GetFileNameWithoutExtension(SelectedExistingFile);
-                        Logger.LogInformation($"ExistingFile mode: Using project folder from file path: {projectFolderPath}");
+                        Logger.LogInformation($"Using project folder from file path: {projectFolderPath}");
                     }
                     else
                     {
-                        // New upload mode - find project by ProjectId
-                        var project = Projects.FirstOrDefault(p => p.ProjectId == SelectedProject);
-                        if (project == null)
-                        {
-                            ErrorMessage = "Selected project not found";
-                            return;
-                        }
-                        projectFolderPath = project.FolderPath;
-                        baseFilename = Path.GetFileNameWithoutExtension(UploadedFileName ?? "document");
-                        Logger.LogInformation($"NewUpload mode: Using project folder: {projectFolderPath}");
+                        ErrorMessage = "No file selected";
+                        return;
                     }
 
                     if (string.IsNullOrEmpty(projectFolderPath))
@@ -1361,20 +959,6 @@
             catch (Exception ex)
             {
                 Logger.LogError(ex, "Error disposing SignalR connection");
-            }
-        }
-
-        // Clean up JavaScript interop
-        if (_dotNetHelper != null)
-        {
-            try
-            {
-                await JSRuntime.InvokeVoidAsync("disposeFileDrop", _dropZoneElement);
-                _dotNetHelper.Dispose();
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "Error disposing file drop interop");
             }
         }
     }

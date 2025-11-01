@@ -14,6 +14,57 @@
     margin-bottom: 1.5rem;
     padding-bottom: 1rem;
     border-bottom: 2px solid #3e3e42;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.home-header .header-left {
+    flex: 1;
+}
+
+.home-header .header-right {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+/* Round Add Project Button - VS Code Dark Modern */
+.btn-add-project {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background-color: #0078D4; /* --button-bg */
+    border: 1px solid #FFFFFF12; /* --button-border */
+    color: #FFFFFF; /* --button-fg */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-size: 24px;
+    font-weight: 300;
+    line-height: 1;
+    padding: 0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.btn-add-project:hover {
+    background-color: #026EC1; /* --button-hover-bg */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    transform: translateY(-1px);
+}
+
+.btn-add-project:active {
+    background-color: #005A9E;
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.btn-add-project:focus-visible {
+    outline: 2px solid #0078D4;
+    outline-offset: 2px;
 }
 
 /* Sort Controls Card - matching System Status Card styling */
@@ -782,6 +833,48 @@
 .actions-cell {
     text-align: center;
     padding: 0.5rem 0.75rem;
+}
+
+/* Action Buttons Container */
+.actions-cell {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+/* Files Button - VS Code Dark Modern */
+.btn-files {
+    background: transparent;
+    border: none;
+    color: #0078D4; /* --accent-blue */
+    font-size: 16px;
+    cursor: pointer;
+    padding: 6px 10px;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.7;
+}
+
+.btn-files:hover {
+    background: rgba(0, 120, 212, 0.1); /* Light blue background on hover */
+    opacity: 1;
+}
+
+.btn-files:active {
+    background: rgba(0, 120, 212, 0.2);
+    transform: scale(0.95);
+}
+
+.btn-files:focus-visible {
+    outline: 2px solid #0078D4; /* --accent-blue */
+    outline-offset: 2px;
+}
+
+.btn-files i {
+    pointer-events: none;
 }
 
 /* Delete Button - VS Code Dark Modern */

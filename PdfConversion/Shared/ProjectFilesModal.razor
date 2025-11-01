@@ -1,0 +1,447 @@
+@namespace PdfConversion.Shared
+@using Microsoft.AspNetCore.Components.Forms
+@using PdfConversion.Services
+@using PdfConversion.Models
+@inject IProjectArchiveService ArchiveService
+@inject ILogger<ProjectFilesModal> Logger
+@inject IJSRuntime JSRuntime
+
+@if (IsVisible)
+{
+    <div class="modal-backdrop" @onclick="HandleBackdropClick"></div>
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Project Files: @ProjectDisplayString</h5>
+                <button type="button" class="btn-close" @onclick="Cancel" aria-label="Close"></button>
+            </div>
+
+            <div class="modal-tabs">
+                <button type="button"
+                        class="tab-button @(ActiveTab == "upload" ? "active" : "")"
+                        @onclick='() => SetActiveTab("upload")'>
+                    Upload
+                </button>
+                <button type="button"
+                        class="tab-button @(ActiveTab == "download" ? "active" : "")"
+                        @onclick='() => SetActiveTab("download")'
+                        disabled="@(!HasFiles)">
+                    Download
+                </button>
+            </div>
+
+            <div class="modal-body">
+                @if (!string.IsNullOrEmpty(ErrorMessage))
+                {
+                    <div class="alert alert-danger">
+                        <i class="oi oi-warning"></i> @ErrorMessage
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(SuccessMessage))
+                {
+                    <div class="alert alert-success">
+                        <i class="oi oi-check"></i> @SuccessMessage
+                    </div>
+                }
+
+                @if (ActiveTab == "upload")
+                {
+                    <div class="upload-section">
+                        <div class="section-header">
+                            <h6>Adobe Professional Export</h6>
+                        </div>
+                        <div class="upload-group">
+                            <label class="upload-label">XML File</label>
+                            <InputFile OnChange="HandleXmlUpload" accept=".xml" class="file-input" />
+                            <small class="help-text">Upload XML file exported from Adobe Acrobat</small>
+                        </div>
+                        <div class="upload-group">
+                            <label class="upload-label">Images</label>
+                            <InputFile OnChange="HandleImagesUpload" accept=".png,.jpg,.jpeg" multiple class="file-input" />
+                            <small class="help-text">Upload multiple images (PNG, JPG, JPEG)</small>
+                        </div>
+
+                        <div class="section-header">
+                            <h6>PDF/Word Upload</h6>
+                        </div>
+                        <div class="upload-group">
+                            <label class="upload-label">Document File</label>
+                            <InputFile OnChange="HandleDocumentUpload" accept=".pdf,.docx,.doc" class="file-input" />
+                            <small class="help-text">Upload PDF or Word document for conversion</small>
+                        </div>
+
+                        @if (IsUploading)
+                        {
+                            <div class="upload-progress">
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                                <span>Uploading files...</span>
+                            </div>
+                        }
+
+                        @if (UploadedFiles.Any())
+                        {
+                            <div class="uploaded-files">
+                                <strong>Uploaded Files:</strong>
+                                <ul>
+                                    @foreach (var file in UploadedFiles)
+                                    {
+                                        <li>@file</li>
+                                    }
+                                </ul>
+                            </div>
+                        }
+                    </div>
+                }
+
+                @if (ActiveTab == "download")
+                {
+                    <div class="download-section">
+                        <p class="download-description">
+                            Download a ZIP archive containing all project output files:
+                        </p>
+                        <ul class="download-contents">
+                            <li>Section XML files (data/*.xml)</li>
+                            <li>All images (images/*)</li>
+                            <li>Hierarchy files (metadata/*.xml, hierarchy.xml)</li>
+                            <li>Normalized XML (normalized.xml)</li>
+                        </ul>
+
+                        <button type="button"
+                                class="btn btn-primary btn-download"
+                                @onclick="DownloadArchive"
+                                disabled="@IsDownloading">
+                            @if (IsDownloading)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                                <span>Preparing download...</span>
+                            }
+                            else
+                            {
+                                <i class="oi oi-data-transfer-download me-2"></i>
+                                <span>Download ZIP</span>
+                            }
+                        </button>
+
+                        @if (!HasFiles)
+                        {
+                            <div class="alert alert-info mt-3">
+                                <i class="oi oi-info"></i> No output files available yet. Process the project first.
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" @onclick="Cancel">Close</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public bool IsVisible { get; set; }
+
+    [Parameter]
+    public string Customer { get; set; } = string.Empty;
+
+    [Parameter]
+    public string ProjectId { get; set; } = string.Empty;
+
+    [Parameter]
+    public string ProjectDisplayString { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    [Parameter]
+    public EventCallback OnFilesUploaded { get; set; }
+
+    private string ActiveTab { get; set; } = "upload";
+    private bool IsUploading { get; set; } = false;
+    private bool IsDownloading { get; set; } = false;
+    private bool HasFiles { get; set; } = false;
+    private string? ErrorMessage { get; set; }
+    private string? SuccessMessage { get; set; }
+    private List<string> UploadedFiles { get; set; } = new();
+
+    private const long MaxFileSize = 100 * 1024 * 1024; // 100MB
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsVisible && !string.IsNullOrEmpty(Customer) && !string.IsNullOrEmpty(ProjectId))
+        {
+            // Check if project has files to download
+            HasFiles = await ArchiveService.HasFilesToArchiveAsync(Customer, ProjectId);
+
+            // Always start on Upload tab
+            ActiveTab = "upload";
+        }
+    }
+
+    private void SetActiveTab(string tab)
+    {
+        ActiveTab = tab;
+        ErrorMessage = null;
+        SuccessMessage = null;
+    }
+
+    private async Task HandleXmlUpload(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            IsUploading = true;
+            ErrorMessage = null;
+            SuccessMessage = null;
+
+            var file = e.File;
+
+            // Validate file type
+            if (!file.Name.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+            {
+                ErrorMessage = "Only .xml files are allowed";
+                return;
+            }
+
+            // Validate file size
+            if (file.Size > MaxFileSize)
+            {
+                ErrorMessage = $"File exceeds maximum size of {MaxFileSize / (1024 * 1024)}MB";
+                return;
+            }
+
+            // Normalize filename (use "adobe-source.xml" as default)
+            var targetFileName = "adobe-source.xml";
+            var targetPath = Path.Combine("/app/data/input", Customer, "projects", ProjectId, targetFileName);
+
+            // Ensure directory exists
+            var directory = Path.GetDirectoryName(targetPath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            // Save file
+            await using var fileStream = new FileStream(targetPath, FileMode.Create);
+            await file.OpenReadStream(MaxFileSize).CopyToAsync(fileStream);
+
+            UploadedFiles.Add($"{targetFileName} ({FormatFileSize(file.Size)})");
+            SuccessMessage = "XML file uploaded successfully";
+
+            Logger.LogInformation("Uploaded XML file: {FileName} to {Path}", file.Name, targetPath);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to upload XML: {ex.Message}";
+            Logger.LogError(ex, "Error uploading XML file");
+        }
+        finally
+        {
+            IsUploading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleImagesUpload(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            IsUploading = true;
+            ErrorMessage = null;
+            SuccessMessage = null;
+
+            var validExtensions = new[] { ".png", ".jpg", ".jpeg" };
+            var uploadedCount = 0;
+
+            foreach (var file in e.GetMultipleFiles(100)) // Max 100 files
+            {
+                // Validate file type
+                var extension = Path.GetExtension(file.Name).ToLowerInvariant();
+                if (!validExtensions.Contains(extension))
+                {
+                    Logger.LogWarning("Skipped invalid file type: {FileName}", file.Name);
+                    continue;
+                }
+
+                // Validate file size
+                if (file.Size > MaxFileSize)
+                {
+                    Logger.LogWarning("Skipped oversized file: {FileName}", file.Name);
+                    continue;
+                }
+
+                // Keep original filename
+                var targetPath = Path.Combine("/app/data/input", Customer, "projects", ProjectId, "images", "from-conversion", file.Name);
+
+                // Ensure directory exists
+                var directory = Path.GetDirectoryName(targetPath);
+                if (!string.IsNullOrEmpty(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                // Save file
+                await using var fileStream = new FileStream(targetPath, FileMode.Create);
+                await file.OpenReadStream(MaxFileSize).CopyToAsync(fileStream);
+
+                UploadedFiles.Add($"{file.Name} ({FormatFileSize(file.Size)})");
+                uploadedCount++;
+
+                Logger.LogInformation("Uploaded image: {FileName} to {Path}", file.Name, targetPath);
+            }
+
+            SuccessMessage = $"Uploaded {uploadedCount} image(s) successfully";
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to upload images: {ex.Message}";
+            Logger.LogError(ex, "Error uploading images");
+        }
+        finally
+        {
+            IsUploading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleDocumentUpload(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            IsUploading = true;
+            ErrorMessage = null;
+            SuccessMessage = null;
+
+            var file = e.File;
+
+            // Validate file type
+            var extension = Path.GetExtension(file.Name).ToLowerInvariant();
+            var validExtensions = new[] { ".pdf", ".docx", ".doc" };
+            if (!validExtensions.Contains(extension))
+            {
+                ErrorMessage = "Only PDF, DOCX, and DOC files are allowed";
+                return;
+            }
+
+            // Validate file size
+            if (file.Size > MaxFileSize)
+            {
+                ErrorMessage = $"File exceeds maximum size of {MaxFileSize / (1024 * 1024)}MB";
+                return;
+            }
+
+            // Normalize filename based on extension
+            var targetFileName = extension == ".pdf" ? "docling-source.pdf" : $"docling-source{extension}";
+            var targetPath = Path.Combine("/app/data/input", Customer, "projects", ProjectId, targetFileName);
+
+            // Ensure directory exists
+            var directory = Path.GetDirectoryName(targetPath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            // Save file
+            await using var fileStream = new FileStream(targetPath, FileMode.Create);
+            await file.OpenReadStream(MaxFileSize).CopyToAsync(fileStream);
+
+            UploadedFiles.Add($"{targetFileName} ({FormatFileSize(file.Size)})");
+            SuccessMessage = "Document uploaded successfully";
+
+            Logger.LogInformation("Uploaded document: {FileName} to {Path}", file.Name, targetPath);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to upload document: {ex.Message}";
+            Logger.LogError(ex, "Error uploading document");
+        }
+        finally
+        {
+            IsUploading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DownloadArchive()
+    {
+        try
+        {
+            IsDownloading = true;
+            ErrorMessage = null;
+
+            Logger.LogInformation("Creating archive for download: {Customer}/{ProjectId}", Customer, ProjectId);
+
+            var zipBytes = await ArchiveService.CreateProjectArchiveAsync(Customer, ProjectId);
+
+            if (zipBytes == null || zipBytes.Length == 0)
+            {
+                ErrorMessage = "Failed to create archive. No files found or error occurred.";
+                return;
+            }
+
+            var filename = ArchiveService.GetArchiveFilename(Customer, ProjectId);
+
+            // Trigger download using JavaScript
+            var jsCode = GenerateDownloadScript(zipBytes, filename);
+            await JSRuntime.InvokeVoidAsync("eval", jsCode);
+
+            SuccessMessage = $"Archive downloaded: {filename}";
+            Logger.LogInformation("Archive download triggered: {Filename}, {Size} bytes", filename, zipBytes.Length);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to download archive: {ex.Message}";
+            Logger.LogError(ex, "Error downloading archive");
+        }
+        finally
+        {
+            IsDownloading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task Cancel()
+    {
+        // Reset state
+        ActiveTab = "upload";
+        ErrorMessage = null;
+        SuccessMessage = null;
+        UploadedFiles.Clear();
+
+        await OnClose.InvokeAsync();
+    }
+
+    private async Task HandleBackdropClick()
+    {
+        await Cancel();
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        double len = bytes;
+        int order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+
+    private string GenerateDownloadScript(byte[] zipBytes, string filename)
+    {
+        var byteArray = string.Join(",", zipBytes);
+        return $@"const blob = new Blob([new Uint8Array([{byteArray}])], {{ type: 'application/zip' }});
+                   const url = URL.createObjectURL(blob);
+                   const a = document.createElement('a');
+                   a.href = url;
+                   a.download = '{filename}';
+                   document.body.appendChild(a);
+                   a.click();
+                   document.body.removeChild(a);
+                   URL.revokeObjectURL(url);";
+    }
+}

@@ -17,13 +17,20 @@
 
 <div class="home-container">
     <div class="home-header">
-        <h1>Projects</h1>
-        @if (LastUpdated.HasValue)
-        {
-            <p class="last-updated">
-                <i class="oi oi-clock"></i> Last updated: @GetTimeAgo(LastUpdated.Value)
-            </p>
-        }
+        <div class="header-left">
+            <h1>Projects</h1>
+            @if (LastUpdated.HasValue)
+            {
+                <p class="last-updated">
+                    <i class="oi oi-clock"></i> Last updated: @GetTimeAgo(LastUpdated.Value)
+                </p>
+            }
+        </div>
+        <div class="header-right">
+            <button class="btn-add-project" @onclick="ShowAddProjectModal" aria-label="Add Project" title="Add Project">
+                +
+            </button>
+        </div>
     </div>
 
     <div class="row">
@@ -127,6 +134,11 @@
                                                 }
                                             </td>
                                             <td class="actions-cell col-actions">
+                                                <button class="btn-files"
+                                                        @onclick="@(() => ShowProjectFilesModal(project.Customer, project.ProjectId, project.DisplayString))"
+                                                        title="Manage files">
+                                                    <i class="bi bi-folder"></i>
+                                                </button>
                                                 <button class="btn-delete"
                                                         @onclick="@(() => ShowDeleteConfirmation(project.Customer, project.ProjectId, project.DisplayString))"
                                                         title="Delete project">
@@ -379,6 +391,19 @@
         ConfirmButtonText="Delete"
         OnConfirm="@ConfirmDelete"
         OnCancel="@CancelDelete" />
+
+    <AddProjectModal
+        IsVisible="@showAddProjectModal"
+        OnProjectCreated="@OnProjectCreated"
+        OnCancel="@CloseAddProjectModal" />
+
+    <ProjectFilesModal
+        IsVisible="@showProjectFilesModal"
+        Customer="@selectedProjectCustomer"
+        ProjectId="@selectedProjectId"
+        ProjectDisplayString="@selectedProjectDisplayString"
+        OnClose="@(() => CloseProjectFilesModal())"
+        OnFilesUploaded="@(() => OnFilesUploaded())" />
 
     <ToastNotification @ref="toastNotification" />
 </div>
@@ -1140,6 +1165,64 @@
         {
             // Ignore JS interop errors
         }
+    }
+
+    // Add Project Modal state
+    private bool showAddProjectModal = false;
+
+    private void ShowAddProjectModal()
+    {
+        showAddProjectModal = true;
+    }
+
+    private void CloseAddProjectModal()
+    {
+        showAddProjectModal = false;
+    }
+
+    private async Task OnProjectCreated()
+    {
+        showAddProjectModal = false;
+
+        // Reload projects to show the new project
+        await LoadProjectsAsync();
+
+        // Update project count
+        ProjectCount = ProjectsByCustomer.Values.Sum(list => list.Count);
+
+        // Show success toast
+        ToastNotification.ShowSuccess("Project created successfully");
+    }
+
+    // Project Files Modal state
+    private bool showProjectFilesModal = false;
+    private string selectedProjectCustomer = string.Empty;
+    private string selectedProjectId = string.Empty;
+    private string selectedProjectDisplayString = string.Empty;
+
+    private void ShowProjectFilesModal(string customer, string projectId, string displayString)
+    {
+        selectedProjectCustomer = customer;
+        selectedProjectId = projectId;
+        selectedProjectDisplayString = displayString;
+        showProjectFilesModal = true;
+    }
+
+    private void CloseProjectFilesModal()
+    {
+        showProjectFilesModal = false;
+        selectedProjectCustomer = string.Empty;
+        selectedProjectId = string.Empty;
+        selectedProjectDisplayString = string.Empty;
+    }
+
+    private async Task OnFilesUploaded()
+    {
+        // Optionally reload projects or show notification
+        Logger.LogInformation("Files uploaded for {Customer}/{ProjectId}", selectedProjectCustomer, selectedProjectId);
+
+        // Reload projects to update last modified time
+        await LoadProjectsAsync();
     }
 
     public void Dispose()

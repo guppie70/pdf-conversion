@@ -111,6 +111,10 @@ public class ProjectDeletionService : IProjectDeletionService
             }
 
             _logger.LogInformation("Successfully deleted project {Customer}/{ProjectId}", customer, projectId);
+
+            // Clean up empty customer directories (best effort)
+            await CleanupEmptyCustomerDirectoriesAsync(customer);
+
             return ProjectDeletionResult.FullSuccess(customer, projectId);
         }
         catch (Exception ex)
@@ -118,6 +122,56 @@ public class ProjectDeletionService : IProjectDeletionService
             _logger.LogError(ex, "Unexpected error deleting project {Customer}/{ProjectId}", customer, projectId);
             return ProjectDeletionResult.Failure(customer, projectId, ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Cleans up empty customer directory structures after project deletion.
+    /// This is a best-effort operation - errors are logged but don't fail the deletion.
+    /// </summary>
+    private async Task CleanupEmptyCustomerDirectoriesAsync(string customer)
+    {
+        await Task.Run(() =>
+        {
+            try
+            {
+                // Clean up input directories
+                var inputProjectsPath = Path.Combine(_inputBasePath, customer, "projects");
+                if (Directory.Exists(inputProjectsPath) && !Directory.EnumerateFileSystemEntries(inputProjectsPath).Any())
+                {
+                    Directory.Delete(inputProjectsPath);
+                    _logger.LogInformation("Deleted empty input projects directory: {Path}", inputProjectsPath);
+
+                    // Check if parent customer directory is now empty
+                    var inputCustomerPath = Path.Combine(_inputBasePath, customer);
+                    if (Directory.Exists(inputCustomerPath) && !Directory.EnumerateFileSystemEntries(inputCustomerPath).Any())
+                    {
+                        Directory.Delete(inputCustomerPath);
+                        _logger.LogInformation("Deleted empty input customer directory: {Path}", inputCustomerPath);
+                    }
+                }
+
+                // Clean up output directories
+                var outputProjectsPath = Path.Combine(_outputBasePath, customer, "projects");
+                if (Directory.Exists(outputProjectsPath) && !Directory.EnumerateFileSystemEntries(outputProjectsPath).Any())
+                {
+                    Directory.Delete(outputProjectsPath);
+                    _logger.LogInformation("Deleted empty output projects directory: {Path}", outputProjectsPath);
+
+                    // Check if parent customer directory is now empty
+                    var outputCustomerPath = Path.Combine(_outputBasePath, customer);
+                    if (Directory.Exists(outputCustomerPath) && !Directory.EnumerateFileSystemEntries(outputCustomerPath).Any())
+                    {
+                        Directory.Delete(outputCustomerPath);
+                        _logger.LogInformation("Deleted empty output customer directory: {Path}", outputCustomerPath);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Log but don't fail - this is best-effort cleanup
+                _logger.LogWarning(ex, "Failed to clean up empty customer directories for {Customer}", customer);
+            }
+        });
     }
 
     private async Task<(bool success, string? error)> TryDeleteDirectoryAsync(string path)
