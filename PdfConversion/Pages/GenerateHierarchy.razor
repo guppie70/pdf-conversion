@@ -21,33 +21,6 @@
 <PageTitle>Generate Hierarchy</PageTitle>
 
 <div class="generate-hierarchy-page">
-    <div class="generation-mode-bar">
-        <div class="mode-buttons">
-            <button class="btn btn-sm @(_currentMode == HierarchyMode.Free ? "btn-primary" : "btn-outline-secondary")"
-                    @onclick="() => ChangeModeAsync(HierarchyMode.Free)"
-                    disabled="@(string.IsNullOrEmpty(SelectedProject))">
-                <i class="bi bi-folder-open"></i> Load Existing
-            </button>
-
-            <button class="btn btn-sm @(_currentMode == HierarchyMode.Restricted ? "btn-primary" : "btn-outline-secondary")"
-                    @onclick="() => ChangeModeAsync(HierarchyMode.Restricted)"
-                    disabled="@(string.IsNullOrEmpty(SelectedSourceXml))">
-                <i class="bi bi-hand-index"></i> Manual Mode
-            </button>
-
-            <button class="btn btn-sm btn-outline-secondary"
-                    @onclick="ShowRuleBasedModal"
-                    disabled="@(string.IsNullOrEmpty(SelectedSourceXml))">
-                <i class="bi bi-gear"></i> Generate with Rules
-            </button>
-
-            <button class="btn btn-sm btn-outline-secondary"
-                    @onclick="ShowAiGenerationModal"
-                    disabled="@(string.IsNullOrEmpty(SelectedSourceXml) || !_ollamaHealthy)">
-                <i class="bi bi-robot"></i> Generate with AI
-            </button>
-        </div>
-    </div>
 
     <div class="settings-panel">
         <div>
@@ -133,77 +106,21 @@
     <div class="hierarchy-workspace">
         <div class="left-panel">
             <div class="panel-header">
-                <h5>
-                    @if (_currentMode == HierarchyMode.Restricted)
-                    {
-                        <text>Manual Hierarchy Builder</text>
-                    }
-                    else
-                    {
-                        <text>Hierarchy Tree</text>
-                    }
-                </h5>
+                <div class="mode-tabs">
+                    <button class="mode-tab @(_currentMode == HierarchyMode.Restricted ? "active" : "")"
+                            @onclick="() => ChangeModeAsync(HierarchyMode.Restricted)">
+                        Restricted Mode
+                    </button>
+                    <button class="mode-tab @(_currentMode == HierarchyMode.Free ? "active" : "")"
+                            @onclick="() => ChangeModeAsync(HierarchyMode.Free)">
+                        Free Mode
+                    </button>
+                </div>
 
-                @if (_currentMode == HierarchyMode.Restricted)
-                {
-                    <div class="panel-header-toolbar">
-                        <button class="btn btn-sm btn-outline-secondary"
-                                @onclick="OutdentSelectedHeaders"
-                                disabled="@(!CanOutdentCurrentSelection())"
-                                title="Outdent selected headers (Shift+Tab)">
-                            <i class="bi bi-arrow-left"></i>
-                        </button>
-
-                        <button class="btn btn-sm btn-outline-secondary"
-                                @onclick="IndentSelectedHeaders"
-                                disabled="@(!CanIndentCurrentSelection())"
-                                title="Indent selected headers (Tab)">
-                            <i class="bi bi-arrow-right"></i>
-                        </button>
-
-                        <button class="btn btn-sm btn-outline-secondary"
-                                @onclick="ExcludeSelectedHeaders"
-                                disabled="@(!_selectedManualItemIds.Any())"
-                                title="Delete selected headers (Delete)">
-                            <i class="bi bi-trash"></i>
-                        </button>
-
-                        <button class="btn btn-sm btn-outline-secondary"
-                                @onclick="ExpandAllItems"
-                                disabled="@(_manualHierarchyItems == null || !_manualHierarchyItems.Any())"
-                                title="Expand all items">
-                            <i class="bi bi-arrows-expand"></i>
-                        </button>
-
-                        <button class="btn btn-sm btn-outline-secondary"
-                                @onclick="CollapseAllItems"
-                                disabled="@(_manualHierarchyItems == null || !_manualHierarchyItems.Any())"
-                                title="Collapse all items">
-                            <i class="bi bi-arrows-collapse"></i>
-                        </button>
-
-                        <button class="btn btn-sm btn-outline-secondary"
-                                @onclick="IncludeAllHeaders"
-                                disabled="@(_manualHeaders == null || !_manualHeaders.Any())"
-                                title="Reset all headers to flat list">
-                            <i class="bi bi-arrow-counterclockwise"></i>
-                        </button>
-
-                        <button class="btn btn-sm btn-outline-secondary"
-                                @onclick="DeselectAllHeaders"
-                                disabled="@(!_selectedManualItemIds.Any())"
-                                title="Clear selection (Esc)">
-                            <i class="bi bi-x-square"></i>
-                        </button>
-                    </div>
-                }
+                @* TODO: Add hierarchy selector here (Phase 2) *@
 
                 <div class="header-buttons">
-                    @if (_currentMode == HierarchyMode.Restricted && _selectedManualItemIds.Any())
-                    {
-                        <span class="selection-info">@_selectedManualItemIds.Count selected</span>
-                    }
-                    @* Change tracking status indicator *@
+                    @* Existing status and save button will stay here *@
                     <span class="change-status @(HasChanges ? "has-changes" : "no-changes")"
                           title="@(HasChanges ? "You have unsaved changes" : "No unsaved changes")">
                         <i class="bi @(HasChanges ? "bi-exclamation-circle" : "bi-check-circle")"></i>

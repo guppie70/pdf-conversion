@@ -207,6 +207,45 @@
     flex-shrink: 0; /* Prevent title from shrinking */
 }
 
+/* Mode Tabs (horizontal segmented control) */
+.mode-tabs {
+    display: flex;
+    gap: 0;
+    background-color: #2d2d2d; /* --panel-background */
+    border-radius: 4px;
+    padding: 2px;
+    margin-right: 12px;
+}
+
+.mode-tab {
+    padding: 4px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #cccccc; /* --foreground */
+    background-color: transparent;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.mode-tab:hover:not(.active) {
+    background-color: #3e3e3e; /* Slightly lighter on hover */
+    color: #ffffff;
+}
+
+.mode-tab.active {
+    background-color: #0078d4; /* --accent-blue */
+    color: #ffffff;
+    font-weight: 600;
+}
+
+.mode-tab:focus {
+    outline: 1px solid #0078d4;
+    outline-offset: -1px;
+}
+
 /* Center-aligned toolbar in panel header */
 .panel-header-toolbar {
     display: flex;
