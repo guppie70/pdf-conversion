@@ -362,6 +362,64 @@
     cursor: not-allowed;
 }
 
+/* Overflow menu */
+.overflow-menu {
+    padding-left: 8px;
+}
+
+.overflow-menu .btn-sm {
+    padding: 4px 8px;
+    height: 30px;
+    min-width: 36px;
+    font-size: 14px;
+    color: #cccccc;
+    border-color: #5a5a5a;
+    background-color: transparent;
+}
+
+.overflow-menu .btn-sm:hover:not(:disabled) {
+    background-color: #0078d4;
+    border-color: #0078d4;
+    color: #ffffff;
+}
+
+.overflow-menu .dropdown-menu {
+    background-color: #2d2d2d;
+    border: 1px solid #5a5a5a;
+    border-radius: 4px;
+    padding: 4px 0;
+    margin-top: 4px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+    min-width: 200px;
+}
+
+.overflow-menu .dropdown-item {
+    padding: 6px 16px;
+    font-size: 13px;
+    color: #cccccc;
+    background-color: transparent;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    transition: background-color 0.15s ease;
+}
+
+.overflow-menu .dropdown-item:hover:not(:disabled) {
+    background-color: #0078d4;
+    color: #ffffff;
+}
+
+.overflow-menu .dropdown-item:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.overflow-menu .dropdown-divider {
+    border-top: 1px solid #3e3e42;
+    margin: 4px 0;
+}
+
 /* Center-aligned toolbar in panel header */
 .panel-header-toolbar {
     display: flex;

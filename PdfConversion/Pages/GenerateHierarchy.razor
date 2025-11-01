@@ -126,6 +126,65 @@
                             <i class="bi bi-trash"></i>
                         </button>
                     </div>
+
+                    <div class="overflow-menu">
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
+                                    type="button"
+                                    id="overflowMenuButton"
+                                    data-bs-toggle="dropdown"
+                                    aria-expanded="false"
+                                    title="More options">
+                                <i class="bi bi-three-dots"></i>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="overflowMenuButton">
+                                <li>
+                                    <button class="dropdown-item"
+                                            @onclick="ShowRuleBasedModal"
+                                            disabled="@(string.IsNullOrEmpty(SelectedSourceXml))">
+                                        <i class="bi bi-gear me-2"></i> Generate with Rules
+                                    </button>
+                                </li>
+                                <li>
+                                    <button class="dropdown-item"
+                                            @onclick="ShowAiGenerationModal"
+                                            disabled="@(string.IsNullOrEmpty(SelectedSourceXml) || !_ollamaHealthy)">
+                                        <i class="bi bi-robot me-2"></i> Generate with AI
+                                    </button>
+                                </li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li>
+                                    <button class="dropdown-item"
+                                            @onclick="ExpandAllItems"
+                                            disabled="@(_manualHierarchyItems == null || !_manualHierarchyItems.Any())">
+                                        <i class="bi bi-arrows-expand me-2"></i> Expand All
+                                    </button>
+                                </li>
+                                <li>
+                                    <button class="dropdown-item"
+                                            @onclick="CollapseAllItems"
+                                            disabled="@(_manualHierarchyItems == null || !_manualHierarchyItems.Any())">
+                                        <i class="bi bi-arrows-collapse me-2"></i> Collapse All
+                                    </button>
+                                </li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li>
+                                    <button class="dropdown-item"
+                                            @onclick="IncludeAllHeaders"
+                                            disabled="@(_manualHeaders == null || !_manualHeaders.Any())">
+                                        <i class="bi bi-arrow-counterclockwise me-2"></i> Reset to Flat List
+                                    </button>
+                                </li>
+                                <li>
+                                    <button class="dropdown-item"
+                                            @onclick="DeselectAllHeaders"
+                                            disabled="@(!_selectedManualItemIds.Any())">
+                                        <i class="bi bi-x-square me-2"></i> Clear Selection
+                                    </button>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
                 }
 
                 <div class="header-buttons">
