@@ -278,6 +278,19 @@
                         OnSelectionChanged="@OnFilePathChangedFromComponent"
                         CssClass="form-select form-select-sm"
                         PlaceholderText="Select source XML..." />
+                    <button class="btn btn-sm btn-outline-secondary reload-btn"
+                            @onclick="OnReloadSourceXmlClickedAsync"
+                            disabled="@(string.IsNullOrEmpty(SelectedSourceXml) || IsLoadingDocument)"
+                            title="Reload headers from source XML">
+                        @if (IsLoadingDocument)
+                        {
+                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-arrow-clockwise"></i>
+                        }
+                    </button>
                 </div>
             </div>
             <div class="panel-content">
@@ -2048,10 +2061,15 @@
             {
                 _manualHierarchyItems = CurrentHierarchy.Root.SubItems.ToList();
                 AssignSequentialOrderToTree(_manualHierarchyItems);
+
+                // Populate _manualHeaders from the generated hierarchy for indent/outdent operations
+                _manualHeaders = FlattenHierarchyToHeaders(_manualHierarchyItems);
+                _selectedManualItemIds.Clear(); // Clear stale selections
             }
             else
             {
                 _manualHierarchyItems = new List<HierarchyItem>();
+                _manualHeaders = new List<DocumentHeader>();
             }
 
             // DON'T close modal - let user see the logs and stats
@@ -3380,7 +3398,8 @@
                     Logger.LogInformation("Restored hierarchy mode from localStorage: {Mode}", savedMode);
 
                     // If Manual mode was restored and we have source XML, load the headers
-                    if (savedMode == HierarchyMode.Restricted && !string.IsNullOrEmpty(SelectedSourceXml))
+                    // BUT only if no hierarchy was already loaded from saved selections
+                    if (savedMode == HierarchyMode.Restricted && !string.IsNullOrEmpty(SelectedSourceXml) && CurrentHierarchy == null && (_manualHierarchyItems == null || !_manualHierarchyItems.Any()))
                     {
                         await LoadManualModeHeadersAsync();
                     }
@@ -3399,5 +3418,78 @@
         {
             Logger.LogWarning(ex, "Failed to restore mode from localStorage");
         }
+    }
+
+    /// <summary>
+    /// Handles reload button click for source XML selector.
+    /// Shows confirmation dialog if there are unsaved changes.
+    /// </summary>
+    private async Task OnReloadSourceXmlClickedAsync()
+    {
+        if (HasChanges)
+        {
+            _pendingAction = async () => await ReloadSourceXmlWithoutCheckAsync();
+            _showReloadConfirmation = true;
+            StateHasChanged();
+            return;
+        }
+
+        await ReloadSourceXmlWithoutCheckAsync();
+    }
+
+    /// <summary>
+    /// Reloads headers from source XML without checking for unsaved changes.
+    /// Used after user confirms they want to discard changes.
+    /// </summary>
+    private async Task ReloadSourceXmlWithoutCheckAsync()
+    {
+        if (!string.IsNullOrEmpty(SelectedSourceXml))
+        {
+            // Reload headers from source XML
+            if (_currentMode == HierarchyMode.Restricted)
+            {
+                await LoadFlatHeaderListAsync();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Flattens a hierarchy tree into a flat list of DocumentHeader objects.
+    /// Used to enable indent/outdent operations after generation.
+    /// </summary>
+    private List<DocumentHeader> FlattenHierarchyToHeaders(List<HierarchyItem> items)
+    {
+        var headers = new List<DocumentHeader>();
+
+        void Flatten(List<HierarchyItem> currentItems, int indentLevel = 0)
+        {
+            foreach (var item in currentItems)
+            {
+                // Map HeaderType to Level string (h1, h2, etc.)
+                var headerLevel = item.HeaderType ?? $"h{Math.Min(indentLevel + 1, 6)}";
+
+                headers.Add(new DocumentHeader
+                {
+                    Id = item.Id,
+                    Title = item.LinkName,
+                    Level = headerLevel,
+                    OriginalOrder = item.SequentialOrder ?? headers.Count,
+                    IndentLevel = indentLevel,
+                    XPath = "",
+                    Context = "",
+                    IsUsed = true,
+                    IsExcluded = false,
+                    DataNumber = item.TocNumber
+                });
+
+                if (item.SubItems.Any())
+                {
+                    Flatten(item.SubItems, indentLevel + 1);
+                }
+            }
+        }
+
+        Flatten(items);
+        return headers;
     }
 }
