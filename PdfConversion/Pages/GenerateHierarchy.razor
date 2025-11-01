@@ -180,10 +180,23 @@
         </div>
 
         <div class="right-panel">
-            <AvailableHeadersPanel @ref="HeadersPanel"
-                                  NormalizedXmlPath="@NormalizedXmlPath"
-                                  HierarchyXmlPath="@HierarchyXmlPath"
-                                  OnHeadersChanged="HandleHeadersChanged" />
+            <div class="panel-header">
+                <h5 class="panel-title">Available Headers</h5>
+                <div class="source-selector-group">
+                    <ProjectFileSelector
+                        FileGroups="@ProjectFileGroups"
+                        SelectedValue="@GetSelectedFilePath()"
+                        OnSelectionChanged="@OnFilePathChangedFromComponent"
+                        CssClass="form-select form-select-sm"
+                        PlaceholderText="Select source XML..." />
+                </div>
+            </div>
+            <div class="panel-content">
+                <AvailableHeadersPanel @ref="HeadersPanel"
+                                      NormalizedXmlPath="@NormalizedXmlPath"
+                                      HierarchyXmlPath="@HierarchyXmlPath"
+                                      OnHeadersChanged="HandleHeadersChanged" />
+            </div>
         </div>
     </div>
 
