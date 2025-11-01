@@ -23,14 +23,14 @@
 <div class="generate-hierarchy-page">
     <div class="generation-mode-bar">
         <div class="mode-buttons">
-            <button class="btn btn-sm @(_currentMode == HierarchyMode.LoadExisting ? "btn-primary" : "btn-outline-secondary")"
-                    @onclick="() => ChangeMode(HierarchyMode.LoadExisting)"
+            <button class="btn btn-sm @(_currentMode == HierarchyMode.Free ? "btn-primary" : "btn-outline-secondary")"
+                    @onclick="() => ChangeModeAsync(HierarchyMode.Free)"
                     disabled="@(string.IsNullOrEmpty(SelectedProject))">
                 <i class="bi bi-folder-open"></i> Load Existing
             </button>
 
-            <button class="btn btn-sm @(_currentMode == HierarchyMode.Manual ? "btn-primary" : "btn-outline-secondary")"
-                    @onclick="() => ChangeMode(HierarchyMode.Manual)"
+            <button class="btn btn-sm @(_currentMode == HierarchyMode.Restricted ? "btn-primary" : "btn-outline-secondary")"
+                    @onclick="() => ChangeModeAsync(HierarchyMode.Restricted)"
                     disabled="@(string.IsNullOrEmpty(SelectedSourceXml))">
                 <i class="bi bi-hand-index"></i> Manual Mode
             </button>
@@ -134,7 +134,7 @@
         <div class="left-panel">
             <div class="panel-header">
                 <h5>
-                    @if (_currentMode == HierarchyMode.Manual)
+                    @if (_currentMode == HierarchyMode.Restricted)
                     {
                         <text>Manual Hierarchy Builder</text>
                     }
@@ -144,7 +144,7 @@
                     }
                 </h5>
 
-                @if (_currentMode == HierarchyMode.Manual)
+                @if (_currentMode == HierarchyMode.Restricted)
                 {
                     <div class="panel-header-toolbar">
                         <button class="btn btn-sm btn-outline-secondary"
@@ -199,7 +199,7 @@
                 }
 
                 <div class="header-buttons">
-                    @if (_currentMode == HierarchyMode.Manual && _selectedManualItemIds.Any())
+                    @if (_currentMode == HierarchyMode.Restricted && _selectedManualItemIds.Any())
                     {
                         <span class="selection-info">@_selectedManualItemIds.Count selected</span>
                     }
@@ -224,7 +224,7 @@
                 </div>
             </div>
             <div class="panel-content" tabindex="0" @onkeydown="HandleKeyDown" @onkeydown:preventDefault="false">
-                @if (_currentMode == HierarchyMode.Manual)
+                @if (_currentMode == HierarchyMode.Restricted)
                 {
                     <!-- Manual Mode: Tree View -->
                     @if (_manualHierarchyItems != null && _manualHierarchyItems.Any())
@@ -609,8 +609,12 @@
     private ElementReference _logScrollContainer;
 
     // Manual Mode fields
-    private enum HierarchyMode { LoadExisting, Manual }
-    private HierarchyMode _currentMode = HierarchyMode.LoadExisting;
+    private enum HierarchyMode
+    {
+        Restricted,  // Default mode - indent/outdent/remove, preserves order
+        Free        // Full drag-drop reordering
+    }
+    private HierarchyMode _currentMode = HierarchyMode.Restricted; // Default to Restricted
     private List<DocumentHeader>? _manualHeaders;
     private HashSet<int> _selectedHeaderOrders = new();
     private int? _lastClickedOrder = null;  // Anchor point for range selection
@@ -744,11 +748,11 @@
 
         try
         {
-            if (_currentMode == HierarchyMode.LoadExisting)
+            if (_currentMode == HierarchyMode.Free)
             {
                 await LoadExistingHierarchyAsync();
             }
-            else if (_currentMode == HierarchyMode.Manual)
+            else if (_currentMode == HierarchyMode.Restricted)
             {
 
                 // Load the saved hierarchy file
@@ -1116,7 +1120,7 @@
         try
         {
             // Normalize hierarchy before saving (ensure unique IDs, DataRefs, and proper paths)
-            if (_currentMode == HierarchyMode.Manual && CurrentHierarchy?.Root != null)
+            if (_currentMode == HierarchyMode.Restricted && CurrentHierarchy?.Root != null)
             {
                 Logger.LogInformation("Normalizing Manual Mode hierarchy before save...");
                 NormalizeHierarchyTree(CurrentHierarchy.Root);
@@ -1126,7 +1130,7 @@
             string filePath;
 
             // Manual mode hierarchies go to metadata folder with specific name
-            if (_currentMode == HierarchyMode.Manual)
+            if (_currentMode == HierarchyMode.Restricted)
             {
                 var parts = SelectedProject.Split('/');
                 if (parts.Length != 2)
@@ -1934,7 +1938,7 @@
             _showTestApiButton = false;
 
             // Switch to Manual mode to show the generated hierarchy in editor
-            _currentMode = HierarchyMode.Manual;
+            _currentMode = HierarchyMode.Restricted;
             // Don't call LoadManualModeHeadersAsync() - it would overwrite the generated hierarchy!
             // The generated hierarchy is already in CurrentHierarchy, ready for editing.
 
@@ -2010,19 +2014,15 @@
 
     // Manual Mode Methods
 
-    private async Task ChangeMode(HierarchyMode newMode)
+    private async Task ChangeModeAsync(HierarchyMode newMode)
     {
+        if (_currentMode == newMode) return;
+
+        // TODO: Check for unsaved changes (Phase 4)
+        // TODO: Clear state (Phase 4)
+        // TODO: Load appropriate content (Phase 4)
+
         _currentMode = newMode;
-        _lastClickedOrder = null;  // Reset anchor when changing modes
-
-        // Save the selected mode to localStorage
-        await SaveModeToLocalStorage(newMode);
-
-        if (newMode == HierarchyMode.Manual)
-        {
-            await LoadManualModeHeadersAsync();
-        }
-
         StateHasChanged();
     }
 
@@ -3015,7 +3015,7 @@
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
     {
-        if (_currentMode != HierarchyMode.Manual || !_selectedManualItemIds.Any())
+        if (_currentMode != HierarchyMode.Restricted || !_selectedManualItemIds.Any())
             return;
 
         // Tab = Indent
@@ -3061,7 +3061,7 @@
     /// </summary>
     private bool IsDataRefUniqueInCurrentTree(string dataRef, string excludeItemId)
     {
-        if (_currentMode == HierarchyMode.Manual)
+        if (_currentMode == HierarchyMode.Restricted)
         {
             // Check Manual Mode tree
             if (_manualHierarchyItems != null)
@@ -3177,7 +3177,7 @@
                     Logger.LogInformation("Restored hierarchy mode from localStorage: {Mode}", savedMode);
 
                     // If Manual mode was restored and we have source XML, load the headers
-                    if (savedMode == HierarchyMode.Manual && !string.IsNullOrEmpty(SelectedSourceXml))
+                    if (savedMode == HierarchyMode.Restricted && !string.IsNullOrEmpty(SelectedSourceXml))
                     {
                         await LoadManualModeHeadersAsync();
                     }
