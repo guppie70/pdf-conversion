@@ -996,6 +996,19 @@
                         else
                         {
                             Logger.LogWarning("[OnInitializedAsync] Hierarchy file not found: {File}", hierarchyFilename);
+                            // No hierarchy file found, load flat list in Restricted Mode
+                            if (_currentMode == HierarchyMode.Restricted)
+                            {
+                                await LoadFlatHeaderListAsync();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // No saved hierarchy selection, load flat list in Restricted Mode
+                        if (_currentMode == HierarchyMode.Restricted)
+                        {
+                            await LoadFlatHeaderListAsync();
                         }
                     }
                 }
