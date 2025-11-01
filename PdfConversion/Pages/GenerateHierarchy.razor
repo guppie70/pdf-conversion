@@ -295,6 +295,28 @@
                             OnClosed="CloseEditor" />
     }
 
+    @if (_showModeChangeConfirmation)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Unsaved Changes</h5>
+                        <button type="button" class="btn-close" @onclick="CancelModeChange" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>You have unsaved changes. Save before switching modes?</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CancelModeChange">Cancel</button>
+                        <button type="button" class="btn btn-outline-danger" @onclick="DiscardAndChangeMode">Discard</button>
+                        <button type="button" class="btn btn-primary" @onclick="SaveAndChangeMode">Save</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
     @if (_showAiModal)
     {
         <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
@@ -616,6 +638,8 @@
         Free        // Full drag-drop reordering
     }
     private HierarchyMode _currentMode = HierarchyMode.Restricted; // Default to Restricted
+    private bool _showModeChangeConfirmation = false;
+    private HierarchyMode _pendingMode = HierarchyMode.Restricted;
     private List<DocumentHeader>? _manualHeaders;
     private HashSet<int> _selectedHeaderOrders = new();
     private int? _lastClickedOrder = null;  // Anchor point for range selection
@@ -2023,6 +2047,34 @@
         // TODO: Clear state (Phase 4)
         // TODO: Load appropriate content (Phase 4)
 
+        _currentMode = newMode;
+        StateHasChanged();
+    }
+
+    private void CancelModeChange()
+    {
+        _showModeChangeConfirmation = false;
+        _pendingMode = _currentMode; // Reset
+        StateHasChanged();
+    }
+
+    private async Task DiscardAndChangeMode()
+    {
+        _showModeChangeConfirmation = false;
+        HasChanges = false;
+        await CompleteModeChangeAsync(_pendingMode);
+    }
+
+    private async Task SaveAndChangeMode()
+    {
+        _showModeChangeConfirmation = false;
+        await SaveHierarchyAsync();
+        await CompleteModeChangeAsync(_pendingMode);
+    }
+
+    private async Task CompleteModeChangeAsync(HierarchyMode newMode)
+    {
+        // Placeholder - will be implemented in Task 9
         _currentMode = newMode;
         StateHasChanged();
     }
