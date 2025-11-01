@@ -332,6 +332,36 @@
     padding: 16px;
 }
 
+/* Primary action buttons (Restricted Mode only) */
+.primary-actions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    padding-left: 12px;
+    border-left: 1px solid #3e3e42;
+}
+
+.primary-actions .btn-sm {
+    padding: 4px 8px;
+    height: 30px;
+    min-width: 36px;
+    font-size: 14px;
+    color: #cccccc;
+    border-color: #5a5a5a;
+    background-color: transparent;
+}
+
+.primary-actions .btn-sm:hover:not(:disabled) {
+    background-color: #0078d4;
+    border-color: #0078d4;
+    color: #ffffff;
+}
+
+.primary-actions .btn-sm:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
 /* Center-aligned toolbar in panel header */
 .panel-header-toolbar {
     display: flex;

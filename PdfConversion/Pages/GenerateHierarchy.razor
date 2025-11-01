@@ -102,6 +102,32 @@
                     </button>
                 </div>
 
+                @if (_currentMode == HierarchyMode.Restricted)
+                {
+                    <div class="primary-actions">
+                        <button class="btn btn-sm btn-outline-secondary"
+                                @onclick="OutdentSelectedHeaders"
+                                disabled="@(!CanOutdentCurrentSelection())"
+                                title="Outdent selected headers (Shift+Tab)">
+                            <i class="bi bi-arrow-left"></i>
+                        </button>
+
+                        <button class="btn btn-sm btn-outline-secondary"
+                                @onclick="IndentSelectedHeaders"
+                                disabled="@(!CanIndentCurrentSelection())"
+                                title="Indent selected headers (Tab)">
+                            <i class="bi bi-arrow-right"></i>
+                        </button>
+
+                        <button class="btn btn-sm btn-outline-secondary"
+                                @onclick="ExcludeSelectedHeaders"
+                                disabled="@(!_selectedManualItemIds.Any())"
+                                title="Remove selected headers (Delete)">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                }
+
                 <div class="header-buttons">
                     @* Existing status and save button will stay here *@
                     <span class="change-status @(HasChanges ? "has-changes" : "no-changes")"
