@@ -806,6 +806,12 @@
         if (!string.IsNullOrEmpty(newValue) && newValue != SelectedHierarchyXml)
         {
             SelectedHierarchyXml = newValue;
+
+            // Save to user selections (save just the filename for portability)
+            var filename = Path.GetFileName(SelectedHierarchyXml);
+            await UserSelectionService.UpdateSelectionAsync(hierarchyXml: filename);
+            Logger.LogInformation("Saved hierarchy XML selection: {File}", filename);
+
             await OnLoadHierarchyClickedAsync();
         }
     }
@@ -2065,11 +2071,17 @@
                 // Populate _manualHeaders from the generated hierarchy for indent/outdent operations
                 _manualHeaders = FlattenHierarchyToHeaders(_manualHierarchyItems);
                 _selectedManualItemIds.Clear(); // Clear stale selections
+
+                Logger.LogInformation("Rule-based generation complete: _manualHierarchyItems={HierarchyCount}, _manualHeaders={HeadersCount}",
+                    _manualHierarchyItems.Count, _manualHeaders.Count);
+                Logger.LogDebug("First few headers: {Headers}",
+                    string.Join(", ", _manualHeaders.Take(5).Select(h => $"{h.Id}:{h.Title}")));
             }
             else
             {
                 _manualHierarchyItems = new List<HierarchyItem>();
                 _manualHeaders = new List<DocumentHeader>();
+                Logger.LogWarning("Rule-based generation resulted in empty hierarchy");
             }
 
             // DON'T close modal - let user see the logs and stats
@@ -2483,6 +2495,14 @@
                 _lastSelectedManualItemId = item.Id;
             }
         }
+
+        // Log final selection state and button enablement
+        Logger.LogDebug("Selection updated: {Count} items selected, IDs={Ids}",
+            _selectedManualItemIds.Count,
+            string.Join(", ", _selectedManualItemIds));
+        Logger.LogDebug("Button states - CanIndent={Indent}, CanOutdent={Outdent}",
+            CanIndentCurrentSelection(),
+            CanOutdentCurrentSelection());
 
         StateHasChanged();
         await Task.CompletedTask;
@@ -2967,13 +2987,28 @@
     /// </summary>
     private bool CanIndentCurrentSelection()
     {
-        if (_manualHeaders == null || !_selectedManualItemIds.Any())
+        if (_manualHeaders == null)
         {
+            Logger.LogDebug("CanIndent: _manualHeaders is null");
             return false;
         }
 
+        if (!_selectedManualItemIds.Any())
+        {
+            Logger.LogDebug("CanIndent: No items selected");
+            return false;
+        }
+
+        Logger.LogDebug("CanIndent: _manualHeaders count={Count}, selected count={Selected}",
+            _manualHeaders.Count, _selectedManualItemIds.Count);
+
         var selectedOrders = GetOrdersFromTreeSelection(_selectedManualItemIds);
-        return ManualHierarchyBuilder.CanIndentItems(_manualHeaders, selectedOrders);
+        Logger.LogDebug("CanIndent: selectedOrders={Orders}", string.Join(", ", selectedOrders));
+
+        var canIndent = ManualHierarchyBuilder.CanIndentItems(_manualHeaders, selectedOrders);
+        Logger.LogDebug("CanIndent: result={Result}", canIndent);
+
+        return canIndent;
     }
 
     /// <summary>
@@ -2981,13 +3016,28 @@
     /// </summary>
     private bool CanOutdentCurrentSelection()
     {
-        if (_manualHeaders == null || !_selectedManualItemIds.Any())
+        if (_manualHeaders == null)
         {
+            Logger.LogDebug("CanOutdent: _manualHeaders is null");
             return false;
         }
 
+        if (!_selectedManualItemIds.Any())
+        {
+            Logger.LogDebug("CanOutdent: No items selected");
+            return false;
+        }
+
+        Logger.LogDebug("CanOutdent: _manualHeaders count={Count}, selected count={Selected}",
+            _manualHeaders.Count, _selectedManualItemIds.Count);
+
         var selectedOrders = GetOrdersFromTreeSelection(_selectedManualItemIds);
-        return ManualHierarchyBuilder.CanOutdentItems(_manualHeaders, selectedOrders);
+        Logger.LogDebug("CanOutdent: selectedOrders={Orders}", string.Join(", ", selectedOrders));
+
+        var canOutdent = ManualHierarchyBuilder.CanOutdentItems(_manualHeaders, selectedOrders);
+        Logger.LogDebug("CanOutdent: result={Result}", canOutdent);
+
+        return canOutdent;
     }
 
     private void IndentSelectedHeaders()
