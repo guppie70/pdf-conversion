@@ -79,7 +79,8 @@
 
                 <div class="hierarchy-selector-group">
                     <select class="form-select form-select-sm"
-                            @bind="SelectedHierarchyXml"
+                            value="@SelectedHierarchyXml"
+                            @onchange="OnHierarchySelectionChangedAsync"
                             disabled="@string.IsNullOrEmpty(SelectedSourceXml)">
                         <option value="">Select hierarchy...</option>
                         @foreach (var file in HierarchyXmlFiles)
@@ -226,7 +227,7 @@
                                                   OnItemSelectedWithModifiers="HandleManualItemSelectedWithModifiers"
                                                   OnItemEdited="HandleManualItemEdited"
                                                   OnEditRequest="HandleEditRequest"
-                                                  AllowDragDrop="true"
+                                                  AllowDragDrop="false"
                                                   SelectedItemIds="_selectedManualItemIds" />
                             }
                         </div>
@@ -311,6 +312,28 @@
                         <button type="button" class="btn btn-secondary" @onclick="CancelModeChange">Cancel</button>
                         <button type="button" class="btn btn-outline-danger" @onclick="DiscardAndChangeMode">Discard</button>
                         <button type="button" class="btn btn-primary" @onclick="SaveAndChangeMode">Save</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_showReloadConfirmation)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Unsaved Changes</h5>
+                        <button type="button" class="btn-close" @onclick="CancelReload" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>You have unsaved changes. Save before reloading?</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CancelReload">Cancel</button>
+                        <button type="button" class="btn btn-outline-danger" @onclick="DiscardAndReload">Discard</button>
+                        <button type="button" class="btn btn-primary" @onclick="SaveAndReload">Save</button>
                     </div>
                 </div>
             </div>
@@ -640,6 +663,8 @@
     private HierarchyMode _currentMode = HierarchyMode.Restricted; // Default to Restricted
     private bool _showModeChangeConfirmation = false;
     private HierarchyMode _pendingMode = HierarchyMode.Restricted;
+    private bool _showReloadConfirmation = false;
+    private Func<Task>? _pendingAction;
     private List<DocumentHeader>? _manualHeaders;
     private HashSet<int> _selectedHeaderOrders = new();
     private int? _lastClickedOrder = null;  // Anchor point for range selection
@@ -762,7 +787,30 @@
         }
     }
 
+    private async Task OnHierarchySelectionChangedAsync(ChangeEventArgs e)
+    {
+        var newValue = e.Value?.ToString();
+        if (!string.IsNullOrEmpty(newValue) && newValue != SelectedHierarchyXml)
+        {
+            SelectedHierarchyXml = newValue;
+            await OnLoadHierarchyClickedAsync();
+        }
+    }
+
     private async Task OnLoadHierarchyClickedAsync()
+    {
+        if (HasChanges)
+        {
+            _pendingAction = async () => await LoadHierarchyWithoutCheckAsync();
+            _showReloadConfirmation = true;
+            StateHasChanged();
+            return;
+        }
+
+        await LoadHierarchyWithoutCheckAsync();
+    }
+
+    private async Task LoadHierarchyWithoutCheckAsync()
     {
 
         if (string.IsNullOrEmpty(SelectedHierarchyXml))
@@ -1032,6 +1080,21 @@
             Logger.LogError(ex, "[OnInitializedAsync] Error during initialization");
             ToastNotification.ShowError($"Initialization error: {ex.Message}");
         }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JSRuntime.InvokeVoidAsync("setupBeforeUnload", DotNetObjectReference.Create(this));
+        }
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    [JSInvokable]
+    public bool ShouldWarnBeforeUnload()
+    {
+        return HasChanges;
     }
 
     private async Task OnSourceXmlChangedAsync()
@@ -2086,6 +2149,35 @@
         _showModeChangeConfirmation = false;
         await SaveHierarchyAsync();
         await CompleteModeChangeAsync(_pendingMode);
+    }
+
+    private void CancelReload()
+    {
+        _showReloadConfirmation = false;
+        _pendingAction = null;
+        StateHasChanged();
+    }
+
+    private async Task DiscardAndReload()
+    {
+        _showReloadConfirmation = false;
+        HasChanges = false;
+        if (_pendingAction != null)
+        {
+            await _pendingAction();
+        }
+        _pendingAction = null;
+    }
+
+    private async Task SaveAndReload()
+    {
+        _showReloadConfirmation = false;
+        await SaveHierarchyAsync();
+        if (_pendingAction != null)
+        {
+            await _pendingAction();
+        }
+        _pendingAction = null;
     }
 
     private async Task CompleteModeChangeAsync(HierarchyMode newMode)
