@@ -188,12 +188,15 @@
                 }
 
                 <div class="header-buttons">
-                    @* Existing status and save button will stay here *@
-                    <span class="change-status @(HasChanges ? "has-changes" : "no-changes")"
-                          title="@(HasChanges ? "You have unsaved changes" : "No unsaved changes")">
-                        <i class="bi @(HasChanges ? "bi-exclamation-circle" : "bi-check-circle")"></i>
-                        <span class="status-text">@(HasChanges ? "Unsaved changes" : "No unsaved changes")</span>
+                    @if (_currentMode == HierarchyMode.Restricted && _selectedManualItemIds.Any())
+                    {
+                        <span class="selection-counter">@_selectedManualItemIds.Count selected</span>
+                    }
+
+                    <span class="status-dot @(HasChanges ? "has-changes" : "")"
+                          title="@(HasChanges ? "Unsaved changes" : "No changes")">
                     </span>
+
                     <button class="btn btn-success btn-sm"
                             @onclick="SaveHierarchyAsync"
                             disabled="@(!HasChanges || string.IsNullOrEmpty(SelectedProject))"
