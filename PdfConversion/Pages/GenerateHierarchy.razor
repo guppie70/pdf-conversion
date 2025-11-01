@@ -22,46 +22,6 @@
 
 <div class="generate-hierarchy-page">
 
-    <div class="settings-panel">
-        <div>
-            <label>Source XML:</label>
-            <ProjectFileSelector
-                FileGroups="@ProjectFileGroups"
-                SelectedValue="@GetSelectedFilePath()"
-                OnSelectionChanged="@OnFilePathChangedFromComponent"
-                CssClass="form-select"
-                PlaceholderText="Select XML..." />
-        </div>
-
-        <div class="hierarchy-selector-wrapper">
-            <label>Hierarchy XML:</label>
-            <div class="hierarchy-selector-controls">
-                <select class="form-select"
-                        @bind="SelectedHierarchyXml"
-                        @bind:after="OnHierarchyXmlSelectionChanged"
-                        disabled="@string.IsNullOrEmpty(SelectedSourceXml)">
-                    <option value="">Select hierarchy...</option>
-                    @foreach (var file in HierarchyXmlFiles)
-                    {
-                        <option value="@file">@Path.GetFileName(file)</option>
-                    }
-                </select>
-                <button class="btn btn-primary btn-load-hierarchy"
-                        @onclick="OnLoadHierarchyClickedAsync"
-                        disabled="@(string.IsNullOrEmpty(SelectedHierarchyXml) || IsLoadingHierarchy)">
-                    @if (IsLoadingHierarchy)
-                    {
-                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
-                    }
-                    else
-                    {
-                        <i class="bi bi-folder-open me-1"></i>
-                    }
-                    Load
-                </button>
-            </div>
-        </div>
-    </div>
 
     @if (!string.IsNullOrEmpty(AlertMessage))
     {
@@ -117,7 +77,30 @@
                     </button>
                 </div>
 
-                @* TODO: Add hierarchy selector here (Phase 2) *@
+                <div class="hierarchy-selector-group">
+                    <select class="form-select form-select-sm"
+                            @bind="SelectedHierarchyXml"
+                            disabled="@string.IsNullOrEmpty(SelectedSourceXml)">
+                        <option value="">Select hierarchy...</option>
+                        @foreach (var file in HierarchyXmlFiles)
+                        {
+                            <option value="@file">@Path.GetFileName(file)</option>
+                        }
+                    </select>
+                    <button class="btn btn-sm btn-outline-secondary reload-btn"
+                            @onclick="OnLoadHierarchyClickedAsync"
+                            disabled="@(string.IsNullOrEmpty(SelectedHierarchyXml) || IsLoadingHierarchy)"
+                            title="Load selected hierarchy">
+                        @if (IsLoadingHierarchy)
+                        {
+                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-arrow-clockwise"></i>
+                        }
+                    </button>
+                </div>
 
                 <div class="header-buttons">
                     @* Existing status and save button will stay here *@

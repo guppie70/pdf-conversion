@@ -184,19 +184,18 @@
 
 .panel-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    padding: 0.75rem 1rem;
-    background: #2d2d30;
-    border-bottom: 1px solid #3e3e42;
+    gap: 12px;
+    padding: 12px 16px;
+    background-color: #252526; /* --panel-header-background */
+    border-bottom: 1px solid #3e3e42; /* --panel-border */
 }
 
-/* Three-zone layout when toolbar is present */
-.left-panel .panel-header {
+.panel-header .header-buttons {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    gap: 1rem;
+    gap: 8px;
+    margin-left: auto; /* Push to right */
 }
 
 .panel-header h5 {
@@ -244,6 +243,48 @@
 .mode-tab:focus {
     outline: 1px solid #0078d4;
     outline-offset: -1px;
+}
+
+/* Hierarchy selector group in header */
+.hierarchy-selector-group {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    flex: 0 1 auto;
+    min-width: 250px;
+    max-width: 400px;
+}
+
+.hierarchy-selector-group .form-select-sm {
+    font-size: 13px;
+    padding: 4px 8px;
+    height: 30px;
+    background-color: #3c3c3c; /* --input-background */
+    color: #cccccc; /* --foreground */
+    border: 1px solid #5a5a5a; /* --input-border */
+}
+
+.hierarchy-selector-group .reload-btn {
+    padding: 4px 8px;
+    height: 30px;
+    min-width: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: #cccccc;
+    border-color: #5a5a5a;
+}
+
+.hierarchy-selector-group .reload-btn:hover:not(:disabled) {
+    background-color: #0078d4;
+    border-color: #0078d4;
+    color: #ffffff;
+}
+
+.hierarchy-selector-group .reload-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
 }
 
 /* Center-aligned toolbar in panel header */
