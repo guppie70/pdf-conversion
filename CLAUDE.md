@@ -422,9 +422,30 @@ curl http://localhost:8085/transform-test | head -20
 3. **Section Extraction:** Split content using ⑤ In-Between XML accumulator
 4. **File Generation:** Write individual Section XML files
 
-### Hierarchy Generation Modes
+### Hierarchy Editor - Two Operating Modes
 
-**Three approaches for building hierarchy:**
+**The `/generate-hierarchy` page has two distinct modes:**
+
+#### 1. Restricted Mode (Default)
+- **Purpose:** Preserves document order (required for section generation)
+- **Operations:** Indent, outdent, remove items from hierarchy
+- **Generation:** Access to Rules-based and AI-based generation
+- **Keyboard:** Tab (indent), Shift+Tab (outdent), Delete (remove), Esc (clear)
+- **Initial State:** Loads flat header list automatically from selected source XML
+- **Best for:** Creating new hierarchies, editing while preserving order
+
+#### 2. Free Mode
+- **Purpose:** Full editing flexibility for pre-existing hierarchies
+- **Operations:** Drag-and-drop reordering, edit labels, delete items
+- **Initial State:** Empty - requires explicit hierarchy file selection
+- **Best for:** Fine-tuning existing hierarchy files
+
+**UI Layout:**
+- **Left Panel:** Hierarchy tree with mode tabs, hierarchy selector, action buttons
+- **Right Panel:** Available headers with source XML selector
+- **Mode Switching:** Confirms unsaved changes before switching, clears state on switch
+
+**Generation Methods (Restricted Mode only):**
 
 1. **Rule-Based** - Automatic hierarchy from header types (deterministic, 0.05s)
    - Service: `HierarchyGeneratorService.cs`
@@ -433,12 +454,6 @@ curl http://localhost:8085/transform-test | head -20
 2. **AI-Based** - LLM analyzes content and proposes structure (experimental)
    - Service: `OllamaService.cs`, `LlmPromptGenerator.cs`
    - Best for: Complex documents requiring semantic understanding
-
-3. **Manual Mode** - Build hierarchy from flat list via indent/outdent operations
-   - Service: `ManualHierarchyBuilder.cs`
-   - UI: Multi-select, keyboard shortcuts (Tab/Shift+Tab/Delete/Escape)
-   - Features: Expand/collapse, change tracking, validation
-   - Best for: Custom structures or rule-based refinement
 
 ### Development Workflow
 1. Edit C# files
