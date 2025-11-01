@@ -2043,12 +2043,15 @@
     {
         if (_currentMode == newMode) return;
 
-        // TODO: Check for unsaved changes (Phase 4)
-        // TODO: Clear state (Phase 4)
-        // TODO: Load appropriate content (Phase 4)
+        if (HasChanges)
+        {
+            _pendingMode = newMode;
+            _showModeChangeConfirmation = true;
+            StateHasChanged();
+            return;
+        }
 
-        _currentMode = newMode;
-        StateHasChanged();
+        await CompleteModeChangeAsync(newMode);
     }
 
     private void CancelModeChange()
@@ -2074,9 +2077,51 @@
 
     private async Task CompleteModeChangeAsync(HierarchyMode newMode)
     {
-        // Placeholder - will be implemented in Task 9
+        var oldMode = _currentMode;
         _currentMode = newMode;
+
+        // Clear hierarchy state
+        CurrentHierarchy = null;
+        _manualHierarchyItems = null;
+        _selectedManualItemIds.Clear();
+        HasChanges = false;
+
+        // Load appropriate content based on new mode
+        if (newMode == HierarchyMode.Restricted)
+        {
+            // Restricted Mode: Load flat header list if source XML selected
+            if (!string.IsNullOrEmpty(SelectedSourceXml))
+            {
+                await LoadFlatHeaderListAsync();
+            }
+        }
+        else // Free Mode
+        {
+            // Free Mode: Show empty state, require explicit hierarchy load
+            // User must select and load a hierarchy XML file
+        }
+
         StateHasChanged();
+    }
+
+    private async Task LoadFlatHeaderListAsync()
+    {
+        try
+        {
+            var headers = await HeaderExtractionService.ExtractHeadersAsync(SelectedSourceXml);
+            if (headers != null && headers.Any())
+            {
+                _manualHeaders = headers.ToList();
+                _manualHierarchyItems = ManualHierarchyBuilder.ConvertToHierarchy(_manualHeaders);
+                AssignSequentialOrderToTree(_manualHierarchyItems);
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load flat header list");
+            ShowAlert("danger", "Failed to load headers: " + ex.Message);
+        }
     }
 
     private async Task LoadManualModeHeadersAsync()
