@@ -187,9 +187,11 @@
     cursor: pointer;
 }
 
-/* File input button - force blue color with multiple selectors for browser compatibility */
-.upload-group .file-input::file-selector-button,
-.upload-group input[type="file"]::file-selector-button {
+/* File input button - use ::deep to penetrate shadow DOM and browser defaults */
+::deep .upload-group .file-input::file-selector-button,
+::deep .upload-group input[type="file"]::file-selector-button,
+.upload-group ::deep .file-input::file-selector-button,
+.upload-group ::deep input[type="file"]::file-selector-button {
     background-color: #0078D4 !important; /* --accent-blue */
     color: #ffffff !important;
     border: none !important;
@@ -202,13 +204,16 @@
     transition: background-color 0.15s ease;
 }
 
-.upload-group .file-input::file-selector-button:hover,
-.upload-group input[type="file"]::file-selector-button:hover {
+::deep .upload-group .file-input::file-selector-button:hover,
+::deep .upload-group input[type="file"]::file-selector-button:hover,
+.upload-group ::deep .file-input::file-selector-button:hover,
+.upload-group ::deep input[type="file"]::file-selector-button:hover {
     background-color: #005a9e !important; /* Darker blue on hover */
 }
 
 /* For WebKit browsers (Chrome, Safari, Edge) */
-.upload-group input[type="file"]::-webkit-file-upload-button {
+::deep .upload-group input[type="file"]::-webkit-file-upload-button,
+.upload-group ::deep input[type="file"]::-webkit-file-upload-button {
     background-color: #0078D4 !important;
     color: #ffffff !important;
     border: none !important;
@@ -221,14 +226,15 @@
     transition: background-color 0.15s ease;
 }
 
-.upload-group input[type="file"]::-webkit-file-upload-button:hover {
+::deep .upload-group input[type="file"]::-webkit-file-upload-button:hover,
+.upload-group ::deep input[type="file"]::-webkit-file-upload-button:hover {
     background-color: #005a9e !important;
 }
 
 /* Help text - lighter gray for better visibility */
 .help-text {
     font-size: 12px;
-    color: #a0a0a0; /* Lighter gray for better readability - was #8C8C8C */
+    color: #b0b0b0 !important; /* Even lighter gray for better readability - was #8C8C8C */
 }
 
 /* Upload progress */
