@@ -80,10 +80,10 @@
                                         var projectStatus = GetProjectStatus(project.Customer, project.ProjectId);
 
                                         <tr class="project-row status-@projectStatus.ToString().ToLower()">
-                                            <td class="project-id-cell">
+                                            <td class="project-id-cell col-project-id">
                                                 <code>@project.ProjectId</code>
                                             </td>
-                                            <td class="display-cell">
+                                            <td class="display-cell col-display">
                                                 @if (isEditing)
                                                 {
                                                     <input
@@ -106,7 +106,7 @@
                                                     </span>
                                                 }
                                             </td>
-                                            <td class="status-cell" @ondblclick="@(() => StartEditingStatus(project.Customer, project.ProjectId))">
+                                            <td class="status-cell col-status" @ondblclick="@(() => StartEditingStatus(project.Customer, project.ProjectId))">
                                                 @if (isEditingStatus)
                                                 {
                                                     <select class="status-select"
@@ -126,7 +126,7 @@
                                                     <span class="status-text">@GetStatusDisplayText(projectStatus)</span>
                                                 }
                                             </td>
-                                            <td class="actions-cell">
+                                            <td class="actions-cell col-actions">
                                                 <button class="btn-delete"
                                                         @onclick="@(() => ShowDeleteConfirmation(project.Customer, project.ProjectId, project.DisplayString))"
                                                         title="Delete project">
