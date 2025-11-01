@@ -43,22 +43,26 @@
 .toast-success {
     background-color: #d1e7dd;
     border-left: 4px solid #198754;
+    color: #0a3622; /* Dark green for high contrast */
 }
 
 .toast-success .toast-header {
     background-color: #d1e7dd;
     border-bottom: 1px solid #badbcc;
+    color: #0a3622;
 }
 
 .toast-error {
     background-color: #f8d7da;
     border-left: 4px solid #dc3545;
     max-width: 700px; /* Extra wide for detailed error messages */
+    color: #58151c; /* Dark red for high contrast on pink background */
 }
 
 .toast-error .toast-header {
     background-color: #f8d7da;
     border-bottom: 1px solid #f5c2c7;
+    color: #58151c; /* Dark red for header */
 }
 
 /* Error toast body formatting */
@@ -68,26 +72,31 @@
     white-space: pre-wrap;
     word-break: break-word;
     line-height: 1.5;
+    color: #58151c; /* Ensure monospace error text is dark */
 }
 
 .toast-warning {
     background-color: #fff3cd;
     border-left: 4px solid #ffc107;
+    color: #664d03; /* Dark brown for high contrast on yellow */
 }
 
 .toast-warning .toast-header {
     background-color: #fff3cd;
     border-bottom: 1px solid #ffecb5;
+    color: #664d03;
 }
 
 .toast-info {
     background-color: #cfe2ff;
     border-left: 4px solid #0d6efd;
+    color: #052c65; /* Dark blue for high contrast */
 }
 
 .toast-info .toast-header {
     background-color: #cfe2ff;
     border-bottom: 1px solid #b6d4fe;
+    color: #052c65;
 }
 
 .toast-header {

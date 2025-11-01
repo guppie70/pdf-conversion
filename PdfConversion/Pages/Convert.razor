@@ -5,6 +5,7 @@
 @using PdfConversion.Services
 @using PdfConversion.Models
 @using PdfConversion.Components
+@using PdfConversion.Utils
 @inject IProjectManagementService ProjectService
 @inject IConversionService ConversionService
 @inject IRoundTripValidationService ValidationService
@@ -12,6 +13,7 @@
 @inject ILogger<Pages.Convert> Logger
 @inject IJSRuntime JSRuntime
 @inject ProjectMetadataService MetadataService
+@inject IFileGroupBuilderService FileGroupBuilder
 @implements IDisposable
 
 <PageTitle>Convert: PDF to Taxxor Sections</PageTitle>
@@ -29,46 +31,20 @@
         </div>
         <div class="panel-body">
             <div class="row g-3">
-                <!-- Project Selection -->
-                <div class="col-md-4">
-                    <label for="projectSelect" class="form-label">Project</label>
-                    <select id="projectSelect"
-                            class="form-select"
-                            @onchange="OnProjectChanged"
-                            value="@_config.ProjectId"
-                            disabled="@IsProcessing">
-                        <option value="">-- Select Project --</option>
-                        @if (Projects != null)
-                        {
-                            @foreach (var project in Projects)
-                            {
-                                <option value="@project.ProjectId">@project.Name</option>
-                            }
-                        }
-                    </select>
-                </div>
-
-                <!-- Source File Selection -->
-                <div class="col-md-4">
+                <!-- Combined Project & Source File Selection -->
+                <div class="col-md-6">
                     <label for="sourceFileSelect" class="form-label">Source File</label>
-                    <select id="sourceFileSelect"
-                            class="form-select"
-                            @onchange="OnSourceFileChanged"
-                            value="@_config.SourceFile"
-                            disabled="@(!IsProjectSelected || IsProcessing)">
-                        <option value="">-- Select Source File --</option>
-                        @if (SourceFiles != null)
-                        {
-                            @foreach (var file in SourceFiles)
-                            {
-                                <option value="@file">@file</option>
-                            }
-                        }
-                    </select>
+                    <ProjectFileSelector
+                        FileGroups="@ProjectFileGroups"
+                        SelectedValue="@GetSelectedFilePath()"
+                        OnSelectionChanged="@OnFilePathChangedFromComponent"
+                        CssClass="form-select"
+                        PlaceholderText="Select source file..."
+                        IsDisabled="@IsProcessing" />
                 </div>
 
                 <!-- Hierarchy File Selection -->
-                <div class="col-md-4">
+                <div class="col-md-6">
                     <label for="hierarchyFileSelect" class="form-label">Hierarchy File</label>
                     <select id="hierarchyFileSelect"
                             class="form-select"
@@ -110,10 +86,6 @@
                     <i class="bi bi-info-circle"></i>
                     <strong>Required Fields:</strong>
                     <ul class="mb-0 mt-1">
-                        @if (string.IsNullOrEmpty(_config.ProjectId))
-                        {
-                            <li>Please select a <strong>Project</strong></li>
-                        }
                         @if (string.IsNullOrEmpty(_config.SourceFile))
                         {
                             <li>Please select a <strong>Source File</strong></li>
@@ -266,6 +238,21 @@
     private bool IsProcessing = false;
     private bool ProcessingComplete = false;
 
+    // ProjectFileSelector helper properties
+    private List<ProjectFileGroup> ProjectFileGroups { get; set; } = new();
+
+    private string GetSelectedFilePath()
+    {
+        if (string.IsNullOrEmpty(_config.ProjectId) || string.IsNullOrEmpty(_config.SourceFile))
+            return string.Empty;
+
+        var parts = _config.ProjectId.Split('/', 2);
+        if (parts.Length != 2) return string.Empty;
+
+        // Return absolute path to match dropdown values from FileGroupBuilder
+        return $"/app/data/input/{parts[0]}/projects/{parts[1]}/{_config.SourceFile}";
+    }
+
     // Progress tracking
     private int CurrentItemIndex = 0;
     private int TotalItems = 0;
@@ -316,15 +303,44 @@
 
                 if (!string.IsNullOrEmpty(selection.LastSelectedProject))
                 {
-                    // Convert short project ID (e.g., "ar24-3") to full path format (e.g., "optiver/ar24-3")
-                    // by looking up the matching project in the Projects list
-                    var matchingProject = Projects?.FirstOrDefault(p =>
-                        p.ProjectId.EndsWith("/" + selection.LastSelectedProject, StringComparison.OrdinalIgnoreCase) ||
-                        p.ProjectId.Equals(selection.LastSelectedProject, StringComparison.OrdinalIgnoreCase));
+                    // Support both formats:
+                    // - Full format: "optiver/ar24-3" (preferred, used by unified dropdown)
+                    // - Short format: "ar24-3" (legacy, needs lookup)
 
-                    if (matchingProject != null)
+                    string? resolvedProjectId = null;
+
+                    if (selection.LastSelectedProject.Contains('/'))
                     {
-                        savedProjectId = matchingProject.ProjectId;
+                        // Already in full format - use directly
+                        resolvedProjectId = selection.LastSelectedProject;
+                        Logger.LogInformation("Restored project selection in full format: {Project}", resolvedProjectId);
+                    }
+                    else
+                    {
+                        // Short format - find matching project in Projects list
+                        Logger.LogWarning("⚠️ Legacy ProjectId format detected in user-selections.json: '{ProjectId}' (expected 'customer/project-id' format)",
+                            selection.LastSelectedProject);
+
+                        var matchingProject = Projects?.FirstOrDefault(p =>
+                            p.ProjectId.EndsWith("/" + selection.LastSelectedProject, StringComparison.OrdinalIgnoreCase));
+
+                        resolvedProjectId = matchingProject?.ProjectId;
+
+                        if (resolvedProjectId != null)
+                        {
+                            Logger.LogInformation("Resolved legacy ProjectId '{Short}' to full format: {Full}",
+                                selection.LastSelectedProject, resolvedProjectId);
+                        }
+                        else
+                        {
+                            Logger.LogWarning("Could not resolve legacy ProjectId '{Short}' to any available project",
+                                selection.LastSelectedProject);
+                        }
+                    }
+
+                    if (resolvedProjectId != null)
+                    {
+                        savedProjectId = resolvedProjectId;
                         savedSourceFile = selection.LastSelectedSourceXml;
                         savedHierarchyFile = selection.LastSelectedHierarchyXml;
                         Logger.LogInformation("Restored selections from UserSelectionService: Project={Project}, Source={Source}, Hierarchy={Hierarchy}",
@@ -334,42 +350,54 @@
             }
             catch (Exception ex)
             {
-                Logger.LogWarning(ex, "Error restoring selections from UserSelectionService, falling back to localStorage");
-            }
-
-            // Fallback to localStorage if UserSelectionService didn't provide values
-            if (string.IsNullOrEmpty(savedProjectId))
-            {
-                savedProjectId = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "convert.projectId");
-                savedSourceFile = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "convert.sourceFile");
-                savedHierarchyFile = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "convert.hierarchyFile");
-
-                if (!string.IsNullOrEmpty(savedProjectId))
-                {
-                    Logger.LogInformation("Restored selections from localStorage: Project={Project}, Source={Source}, Hierarchy={Hierarchy}",
-                        savedProjectId, savedSourceFile, savedHierarchyFile);
-                }
+                Logger.LogWarning(ex, "Error restoring selections from UserSelectionService");
             }
 
             // Apply the restored selections
-            if (!string.IsNullOrEmpty(savedProjectId) && Projects?.Any(p => p.ProjectId == savedProjectId) == true)
+            if (!string.IsNullOrEmpty(savedProjectId))
             {
-                _config.ProjectId = savedProjectId;
-                await LoadProjectFilesAsync(savedProjectId);
+                // Check if project exists in loaded projects
+                // Note: Projects list contains Project objects where the full path is "{Organization}/{ProjectId}"
+                var projectExists = Projects?.Any(p => $"{p.Organization}/{p.ProjectId}" == savedProjectId) == true;
 
-                // Restore source file selection
-                if (!string.IsNullOrEmpty(savedSourceFile) && SourceFiles?.Contains(savedSourceFile) == true)
+                if (projectExists)
                 {
-                    _config.SourceFile = savedSourceFile;
-                }
+                    Logger.LogInformation("Applying restored selections: Project={Project}, Source={Source}, Hierarchy={Hierarchy}",
+                        savedProjectId, savedSourceFile, savedHierarchyFile);
 
-                // Restore hierarchy file selection
-                if (!string.IsNullOrEmpty(savedHierarchyFile) && HierarchyFiles?.Contains(savedHierarchyFile) == true)
+                    _config.ProjectId = savedProjectId;
+                    await LoadProjectFilesAsync(savedProjectId);
+
+                    // Restore source file selection
+                    if (!string.IsNullOrEmpty(savedSourceFile) && SourceFiles?.Contains(savedSourceFile) == true)
+                    {
+                        _config.SourceFile = savedSourceFile;
+                        Logger.LogInformation("Restored source file: {File}", savedSourceFile);
+                    }
+                    else if (!string.IsNullOrEmpty(savedSourceFile))
+                    {
+                        Logger.LogWarning("Source file '{File}' not found in project files", savedSourceFile);
+                    }
+
+                    // Restore hierarchy file selection
+                    if (!string.IsNullOrEmpty(savedHierarchyFile) && HierarchyFiles?.Contains(savedHierarchyFile) == true)
+                    {
+                        _config.HierarchyFile = savedHierarchyFile;
+                        Logger.LogInformation("Restored hierarchy file: {File}", savedHierarchyFile);
+                    }
+                    else if (!string.IsNullOrEmpty(savedHierarchyFile))
+                    {
+                        Logger.LogWarning("Hierarchy file '{File}' not found in project files", savedHierarchyFile);
+                    }
+
+                    StateHasChanged();
+                }
+                else
                 {
-                    _config.HierarchyFile = savedHierarchyFile;
+                    Logger.LogWarning("Project '{Project}' not found in loaded projects. Available projects: {Available}",
+                        savedProjectId,
+                        string.Join(", ", Projects?.Select(p => $"{p.Organization}/{p.ProjectId}") ?? Array.Empty<string>()));
                 }
-
-                StateHasChanged();
             }
         }
         catch (Exception ex)
@@ -385,18 +413,36 @@
         SourceFiles = allFiles.Where(f => f.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)).ToList();
 
         // Load hierarchy files (XML files in metadata subfolder)
-        var metadataPath = Path.Combine("/app/data/input/optiver/projects", projectId, "metadata");
-        if (Directory.Exists(metadataPath))
+        // projectId is in format "organization/project-id" (e.g., "taxxor/ar25-1")
+        // Parse to extract organization and project-id
+        var parts = projectId.Split('/', 2);
+        if (parts.Length == 2)
         {
-            HierarchyFiles = Directory.GetFiles(metadataPath, "*.xml")
-                .Select(Path.GetFileName)
-                .Where(f => !string.IsNullOrEmpty(f))
-                .Cast<string>()
-                .ToList();
+            var organization = parts[0];
+            var projectIdShort = parts[1];
+            var metadataPath = Path.Combine("/app/data/input", organization, "projects", projectIdShort, "metadata");
+
+            if (Directory.Exists(metadataPath))
+            {
+                HierarchyFiles = Directory.GetFiles(metadataPath, "*.xml")
+                    .Select(Path.GetFileName)
+                    .Where(f => !string.IsNullOrEmpty(f))
+                    .Cast<string>()
+                    .ToList();
+
+                Logger.LogInformation("Loaded {HierarchyCount} hierarchy files from {Path}",
+                    HierarchyFiles.Count, metadataPath);
+            }
+            else
+            {
+                HierarchyFiles = new List<string>();
+                Logger.LogWarning("Metadata directory not found: {Path}", metadataPath);
+            }
         }
         else
         {
             HierarchyFiles = new List<string>();
+            Logger.LogWarning("Invalid projectId format: {ProjectId} (expected 'organization/project-id')", projectId);
         }
 
         Logger.LogInformation("Loaded {SourceCount} source files and {HierarchyCount} hierarchy files for project {ProjectId}",
@@ -435,6 +481,12 @@
                 }
             }
 
+            // Use the service to build file groups (replaces manual file loading)
+            ProjectFileGroups = await FileGroupBuilder.BuildXmlFileGroupsAsync(
+                includeInputFiles: true,
+                includeOutputFiles: false,  // Convert only needs input files
+                onlyActiveProjects: true);
+
             Logger.LogInformation("Loaded {Count} active projects", Projects.Count);
         }
         catch (Exception ex)
@@ -458,28 +510,17 @@
             {
                 await LoadProjectFilesAsync(_config.ProjectId);
 
-                // Save to localStorage (existing)
-                await JSRuntime.InvokeVoidAsync("localStorage.setItem", "convert.projectId", _config.ProjectId);
-                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "convert.sourceFile");
-                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "convert.hierarchyFile");
-
-                // Save to UserSelectionService (new)
-                // Extract just the project ID from full path (e.g., "optiver/ar24-3" → "ar24-3")
-                var projectId = _config.ProjectId.Contains('/')
-                    ? _config.ProjectId.Split('/').Last()
-                    : _config.ProjectId;
-                await UserSelectionService.UpdateSelectionAsync(projectId: projectId, sourceXml: string.Empty, hierarchyXml: string.Empty);
+                // Save to UserSelectionService with FULL path format (e.g., "optiver/ar24-3")
+                await UserSelectionService.UpdateSelectionAsync(
+                    projectId: _config.ProjectId,  // Keep full path, don't strip!
+                    sourceXml: string.Empty,
+                    hierarchyXml: string.Empty);
 
                 AddLogEntry($"Project selected: {_config.ProjectId}");
             }
             else
             {
-                // Clear localStorage (existing)
-                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "convert.projectId");
-                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "convert.sourceFile");
-                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "convert.hierarchyFile");
-
-                // Clear UserSelectionService (new)
+                // Clear UserSelectionService
                 await UserSelectionService.UpdateSelectionAsync(projectId: string.Empty, sourceXml: string.Empty, hierarchyXml: string.Empty);
             }
 
@@ -497,23 +538,63 @@
         _config.SourceFile = e.Value?.ToString();
         if (!string.IsNullOrEmpty(_config.SourceFile))
         {
-            // Save to localStorage (existing)
-            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "convert.sourceFile", _config.SourceFile);
-
-            // Save to UserSelectionService (new)
+            // Save to UserSelectionService
             await UserSelectionService.UpdateSelectionAsync(sourceXml: _config.SourceFile);
 
             AddLogEntry($"Source file selected: {_config.SourceFile}");
         }
         else
         {
-            // Clear localStorage (existing)
-            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "convert.sourceFile");
-
-            // Clear UserSelectionService (new)
+            // Clear UserSelectionService
             await UserSelectionService.UpdateSelectionAsync(sourceXml: string.Empty);
         }
         StateHasChanged();
+    }
+
+    private async Task OnFilePathChangedFromComponent(string filePath)
+    {
+        if (!string.IsNullOrEmpty(filePath))
+        {
+            try
+            {
+                // Parse absolute path: "/app/data/input/customer/projects/project-id/filename.xml"
+                var match = System.Text.RegularExpressions.Regex.Match(
+                    filePath,
+                    @"/app/data/(input|output)/([^/]+)/projects/([^/]+)/(.+)$"
+                );
+
+                if (!match.Success)
+                {
+                    Logger.LogWarning("Failed to parse file path: {Path}", filePath);
+                    return;
+                }
+
+                var organization = match.Groups[2].Value;  // customer
+                var projectId = match.Groups[3].Value;     // project-id
+                var fileName = match.Groups[4].Value;       // filename.xml
+
+                _config.ProjectId = $"{organization}/{projectId}";
+                _config.SourceFile = fileName;
+                _config.HierarchyFile = null;  // Reset hierarchy selection
+                HierarchyFiles = null;
+
+                // Load hierarchy files for the selected project
+                await LoadProjectFilesAsync(_config.ProjectId);
+
+                // Save to UserSelectionService with FULL path format (e.g., "optiver/ar24-3")
+                await UserSelectionService.UpdateSelectionAsync(
+                    projectId: _config.ProjectId,  // Use full path, not just projectId
+                    sourceXml: fileName);
+
+                AddLogEntry($"Source file selected: {fileName}");
+                StateHasChanged();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error handling file path change");
+                AddLogEntry($"Error selecting file: {ex.Message}");
+            }
+        }
     }
 
     private async Task OnHierarchyFileChanged(ChangeEventArgs e)
@@ -521,20 +602,14 @@
         _config.HierarchyFile = e.Value?.ToString();
         if (!string.IsNullOrEmpty(_config.HierarchyFile))
         {
-            // Save to localStorage (existing)
-            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "convert.hierarchyFile", _config.HierarchyFile);
-
-            // Save to UserSelectionService (new)
+            // Save to UserSelectionService
             await UserSelectionService.UpdateSelectionAsync(hierarchyXml: _config.HierarchyFile);
 
             AddLogEntry($"Hierarchy file selected: {_config.HierarchyFile}");
         }
         else
         {
-            // Clear localStorage (existing)
-            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "convert.hierarchyFile");
-
-            // Clear UserSelectionService (new)
+            // Clear UserSelectionService
             await UserSelectionService.UpdateSelectionAsync(hierarchyXml: string.Empty);
         }
         StateHasChanged();
@@ -610,10 +685,133 @@
         }
         finally
         {
+            // Save conversion log to _work directory for debugging
+            await SaveConversionLogToWorkDirectoryAsync();
+
             // Clean up cancellation token source
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = null;
         }
+    }
+
+    private async Task SaveConversionLogToWorkDirectoryAsync()
+    {
+        try
+        {
+            var workPath = "/app/data/_work";
+            if (!Directory.Exists(workPath))
+            {
+                Directory.CreateDirectory(workPath);
+            }
+
+            // Basic log format (timestamped messages)
+            var basicLogPath = Path.Combine(workPath, "_conversion.log");
+            var basicLogContent = string.Join("\n", LogEntries.Select(e => $"[{e.Time:HH:mm:ss}] {e.Message}"));
+            await File.WriteAllTextAsync(basicLogPath, basicLogContent);
+
+            // Extended LLM-friendly log format with context
+            var extendedLogPath = Path.Combine(workPath, "_conversion-extended.log");
+            var extendedLogContent = GenerateExtendedLogContent();
+            await File.WriteAllTextAsync(extendedLogPath, extendedLogContent);
+
+            Logger.LogInformation("Saved conversion logs to {BasicPath} and {ExtendedPath}", basicLogPath, extendedLogPath);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to save conversion log to _work directory");
+            // Non-critical, don't fail conversion
+        }
+    }
+
+    private string GenerateExtendedLogContent()
+    {
+        var sb = new System.Text.StringBuilder();
+
+        sb.AppendLine("=".PadRight(80, '='));
+        sb.AppendLine("EXTENDED CONVERSION LOG FOR LLM ANALYSIS");
+        sb.AppendLine("=".PadRight(80, '='));
+        sb.AppendLine();
+
+        // Configuration context
+        sb.AppendLine("## CONFIGURATION");
+        sb.AppendLine($"Project ID: {_config.ProjectId ?? "N/A"}");
+        sb.AppendLine($"Source File: {_config.SourceFile ?? "N/A"}");
+        sb.AppendLine($"Hierarchy File: {_config.HierarchyFile ?? "N/A"}");
+        sb.AppendLine($"Timestamp: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        sb.AppendLine();
+
+        // Conversion log with timestamps
+        sb.AppendLine("## CONVERSION LOG");
+        sb.AppendLine();
+        foreach (var entry in LogEntries)
+        {
+            sb.AppendLine($"[{entry.Time:HH:mm:ss}] {entry.Message}");
+        }
+        sb.AppendLine();
+
+        // Statistics extraction from log
+        sb.AppendLine("## STATISTICS");
+        var successLines = LogEntries.Where(e => e.Message.Contains("✓")).Count();
+        var errorLines = LogEntries.Where(e => e.Message.Contains("✗")).Count();
+        var warningLines = LogEntries.Where(e => e.Message.Contains("⚠")).Count();
+        var skippedLines = LogEntries.Where(e => e.Message.Contains("Skipping")).Count();
+
+        sb.AppendLine($"Successful operations: {successLines}");
+        sb.AppendLine($"Failed operations: {errorLines}");
+        sb.AppendLine($"Warnings: {warningLines}");
+        sb.AppendLine($"Skipped sections: {skippedLines}");
+        sb.AppendLine();
+
+        // Extract errors and warnings for quick reference
+        var errors = LogEntries.Where(e => e.Message.Contains("✗") || e.Message.Contains("Error")).ToList();
+        if (errors.Any())
+        {
+            sb.AppendLine("## ERRORS");
+            foreach (var error in errors)
+            {
+                sb.AppendLine($"[{error.Time:HH:mm:ss}] {error.Message}");
+            }
+            sb.AppendLine();
+        }
+
+        var warnings = LogEntries.Where(e => e.Message.Contains("⚠") || e.Message.Contains("Warning")).ToList();
+        if (warnings.Any())
+        {
+            sb.AppendLine("## WARNINGS");
+            foreach (var warning in warnings)
+            {
+                sb.AppendLine($"[{warning.Time:HH:mm:ss}] {warning.Message}");
+            }
+            sb.AppendLine();
+        }
+
+        // Duplicate selection events (useful for debugging matching issues)
+        var duplicates = LogEntries.Where(e => e.Message.Contains("Duplicate") || e.Message.Contains("duplicate")).ToList();
+        if (duplicates.Any())
+        {
+            sb.AppendLine("## DUPLICATE HEADER HANDLING");
+            foreach (var dup in duplicates)
+            {
+                sb.AppendLine($"[{dup.Time:HH:mm:ss}] {dup.Message}");
+            }
+            sb.AppendLine();
+        }
+
+        // Analysis prompt for LLM
+        sb.AppendLine("## LLM ANALYSIS PROMPT");
+        sb.AppendLine("Please analyze the conversion log above and identify:");
+        sb.AppendLine("1. Any patterns in the errors or warnings");
+        sb.AppendLine("2. Potential root causes for failures");
+        sb.AppendLine("3. Sections that were skipped and why");
+        sb.AppendLine("4. Header matching issues (duplicates, unmatched)");
+        sb.AppendLine("5. Suggested fixes or improvements to the transformation/hierarchy");
+        sb.AppendLine();
+
+        sb.AppendLine("=".PadRight(80, '='));
+        sb.AppendLine("END OF EXTENDED LOG");
+        sb.AppendLine("=".PadRight(80, '='));
+
+        return sb.ToString();
     }
 
     private Task StopConversion()
@@ -714,7 +912,7 @@
         {
             Logger.LogInformation("Starting round-trip validation for project {ProjectId}", _config.ProjectId);
 
-            ValidationResult = await ValidationService.ValidateRoundTripAsync(_config.ProjectId);
+            ValidationResult = await ValidationService.ValidateRoundTripAsync(_config.ProjectId, _config.SourceFile!, _config.HierarchyFile);
 
             Logger.LogInformation("Round-trip validation completed: {Result}", ValidationResult.ToString());
         }

@@ -1,0 +1,14 @@
+# Ensure shell scripts always use LF line endings (Unix style)
+*.sh text eol=lf
+
+# Docker files
+Dockerfile text eol=lf
+docker-compose.yml text eol=lf
+
+# Python files
+*.py text eol=lf
+
+# YAML/JSON files
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf

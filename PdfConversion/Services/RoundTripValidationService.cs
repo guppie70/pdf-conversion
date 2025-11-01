@@ -1,4 +1,5 @@
 using PdfConversion.Models;
+using PdfConversion.Utils;
 
 namespace PdfConversion.Services;
 
@@ -10,9 +11,10 @@ public interface IRoundTripValidationService
     /// <summary>
     /// Validates that sections can be reconstructed back to the original normalized XML
     /// </summary>
-    /// <param name="projectId">The project identifier</param>
+    /// <param name="projectId">The project identifier (format: "customer/projectId")</param>
+    /// <param name="hierarchyFile">The hierarchy XML filename</param>
     /// <returns>Validation result with diff information</returns>
-    Task<RoundTripValidationResult> ValidateRoundTripAsync(string projectId);
+    Task<RoundTripValidationResult> ValidateRoundTripAsync(string projectId, string sourceFile, string hierarchyFile);
 }
 
 /// <summary>
@@ -40,7 +42,7 @@ public class RoundTripValidationService : IRoundTripValidationService
         _projectService = projectService;
     }
 
-    public async Task<RoundTripValidationResult> ValidateRoundTripAsync(string projectId)
+    public async Task<RoundTripValidationResult> ValidateRoundTripAsync(string projectId, string sourceFile, string hierarchyFile)
     {
         var startTime = DateTime.UtcNow;
         var result = new RoundTripValidationResult();
@@ -49,12 +51,24 @@ public class RoundTripValidationService : IRoundTripValidationService
         {
             _logger.LogInformation("Starting round-trip validation for project {ProjectId}", projectId);
 
+            // Extract customer and project from projectId format "customer/projectId"
+            var projectParts = projectId.Split('/', 2);
+            if (projectParts.Length != 2)
+            {
+                result.Success = false;
+                result.ErrorMessage = $"Invalid projectId format: {projectId}. Expected 'customer/projectId'";
+                _logger.LogWarning("Validation failed: {Error}", result.ErrorMessage);
+                return result;
+            }
+            var customer = projectParts[0];
+            var project = projectParts[1];
+
             // 1. Define file paths
-            var hierarchyXmlPath = Path.Combine("/app/data/input/optiver/projects", projectId, "metadata", "hierarchy-ar-pdf-en.xml");
-            var sectionsDirectory = Path.Combine("/app/data/output/optiver/projects", projectId, "data");
+            var hierarchyXmlPath = Path.Combine("/app/data/input", customer, "projects", project, "metadata", hierarchyFile);
+            var sectionsDirectory = Path.Combine("/app/data/output", customer, "projects", project, "data");
 
             // Debug output directory
-            var debugOutputDirectory = Path.Combine("/app/data/output/optiver/projects", projectId, "debug");
+            var debugOutputDirectory = Path.Combine("/app/data/output", customer, "projects", project, "debug");
             Directory.CreateDirectory(debugOutputDirectory);
             _logger.LogInformation("Debug files will be saved to: {DebugDirectory}", debugOutputDirectory);
 
@@ -75,52 +89,17 @@ public class RoundTripValidationService : IRoundTripValidationService
                 return result;
             }
 
-            // 3. Find and load the source XML file for fresh transformation
-            _logger.LogInformation("Looking for source XML file for fresh transformation");
+            // 3. Validate source file exists
+            _logger.LogInformation("Using source file: {SourceFile}", sourceFile);
 
-            // Get list of XML files in the project input directory
-            var projectFiles = await _projectService.GetProjectFilesAsync(projectId);
-
-            // Find the most likely source file (the largest XML file that's not hierarchy/metadata)
-            // Sort by file size to get the main document (not sample files)
-            var candidateFiles = projectFiles
-                .Where(f => f.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)
-                    && !f.Contains("hierarchy", StringComparison.OrdinalIgnoreCase)
-                    && !f.Contains("metadata", StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
-            string? sourceFile = null;
-            long largestSize = 0;
-
-            foreach (var file in candidateFiles)
-            {
-                try
-                {
-                    var content = await _projectService.ReadInputFileAsync(projectId, file);
-                    if (content.Length > largestSize)
-                    {
-                        largestSize = content.Length;
-                        sourceFile = file;
-                    }
-                }
-                catch
-                {
-                    // Skip files that can't be read
-                }
-            }
-
-            _logger.LogInformation("Found {Count} candidate XML files, selected {File} with size {Size} characters",
-                candidateFiles.Count, sourceFile, largestSize);
-
-            if (string.IsNullOrEmpty(sourceFile))
+            var sourceFilePath = Path.Combine("/app/data/input", customer, "projects", project, sourceFile);
+            if (!File.Exists(sourceFilePath))
             {
                 result.Success = false;
-                result.ErrorMessage = "No source XML file found in project input directory";
+                result.ErrorMessage = $"Source XML file not found at: {sourceFilePath}";
                 _logger.LogWarning("Validation failed: {Error}", result.ErrorMessage);
                 return result;
             }
-
-            _logger.LogInformation("Using source file: {SourceFile}", sourceFile);
 
             // 4. Perform fresh XSLT transformation
             _logger.LogInformation("Performing fresh XSLT transformation on source XML");
@@ -129,8 +108,11 @@ public class RoundTripValidationService : IRoundTripValidationService
             var sourceXmlContent = await _projectService.ReadInputFileAsync(projectId, sourceFile);
             _logger.LogInformation("Source XML size: {Size} characters", sourceXmlContent.Length);
 
-            // Read XSLT file
-            var xsltPath = "/app/xslt/transformation.xslt";
+            // Auto-detect XSLT based on source filename
+            var xsltPath = XsltPathResolver.GetTransformationPath(sourceFile);
+
+            _logger.LogInformation("Using XSLT file: {XsltPath} (detected from source: {SourceFile})", xsltPath, sourceFile);
+
             if (!File.Exists(xsltPath))
             {
                 result.Success = false;
@@ -159,11 +141,11 @@ public class RoundTripValidationService : IRoundTripValidationService
                 transformOptions.NormalizeHeaders,
                 string.Join(", ", transformOptions.Parameters.Select(p => $"{p.Key}={p.Value}")));
 
-            // Perform transformation
+            // Perform transformation (pass xsltPath so includes can be resolved)
             _logger.LogInformation("Starting XSLT transformation - Source size: {Size} chars, XSLT size: {XsltSize} chars",
                 sourceXmlContent.Length, xsltContent.Length);
 
-            var transformResult = await _xsltService.TransformAsync(sourceXmlContent, xsltContent, transformOptions);
+            var transformResult = await _xsltService.TransformAsync(sourceXmlContent, xsltContent, transformOptions, xsltPath);
 
             _logger.LogInformation("XSLT transformation result - Success: {Success}, Output size: {Size} chars, Error: {Error}",
                 transformResult.IsSuccess,
@@ -205,6 +187,24 @@ public class RoundTripValidationService : IRoundTripValidationService
             var reconstructedPath = Path.Combine(debugOutputDirectory, "2-reconstructed-from-sections.xml");
             await File.WriteAllTextAsync(reconstructedPath, reconstructedXml);
             _logger.LogInformation("Saved reconstructed document to: {Path}", reconstructedPath);
+
+            // Also write to _work directory for development context
+            try
+            {
+                var workPath = "/app/data/_work";
+                if (!Directory.Exists(workPath))
+                {
+                    Directory.CreateDirectory(workPath);
+                }
+                var contextRoundtripPath = Path.Combine(workPath, "_roundtrip.xml");
+                await File.WriteAllTextAsync(contextRoundtripPath, reconstructedXml);
+                _logger.LogInformation("Saved context roundtrip XML to {Path}", contextRoundtripPath);
+            }
+            catch (Exception workEx)
+            {
+                _logger.LogWarning(workEx, "Failed to save context roundtrip XML to _work folder");
+                // Non-critical, continue
+            }
 
             // 6. Generate diff
             _logger.LogInformation("Generating diff between freshly transformed and reconstructed XML");

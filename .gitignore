@@ -4,6 +4,11 @@
 # Exclude Playwright MCP screenshots and data
 .playwright-mcp/
 
+# Environment variables (API keys, secrets)
+.env
+.env.local
+.env.*.local
+
 # Exclude git worktrees
 .worktrees/
 
@@ -142,3 +147,15 @@ csx/
 *.nuget.targets
 
 *.xml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+.pytest_cache/

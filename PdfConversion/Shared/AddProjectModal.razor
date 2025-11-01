@@ -1,0 +1,201 @@
+@namespace PdfConversion.Shared
+@using PdfConversion.Services
+@using PdfConversion.Models
+@inject IProjectCreationService ProjectCreationService
+@inject ILogger<AddProjectModal> Logger
+
+@if (IsVisible)
+{
+    <div class="modal-backdrop" @onclick="HandleBackdropClick"></div>
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add New Project</h5>
+                <button type="button" class="btn-close" @onclick="Cancel" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                @if (!string.IsNullOrEmpty(ErrorMessage))
+                {
+                    <div class="alert alert-danger">
+                        <i class="oi oi-warning"></i> @ErrorMessage
+                    </div>
+                }
+
+                <div class="form-group">
+                    <label for="customerSelect">Customer *</label>
+                    <select id="customerSelect"
+                            class="form-control"
+                            @bind="SelectedCustomer"
+                            required>
+                        <option value="">-- Select Customer --</option>
+                        @foreach (var customer in ExistingCustomers)
+                        {
+                            <option value="@customer">@customer</option>
+                        }
+                        <option value="__CREATE_NEW__">➕ Create New Customer</option>
+                    </select>
+                </div>
+
+                @if (IsCreatingNewCustomer)
+                {
+                    <div class="form-group">
+                        <label for="newCustomerInput">New Customer Name *</label>
+                        <input type="text"
+                               id="newCustomerInput"
+                               class="form-control"
+                               placeholder="Enter customer name (e.g., acme)"
+                               @bind="NewCustomerName"
+                               @bind:event="oninput"
+                               required />
+                        <small class="form-text">Enter a unique customer identifier (lowercase, hyphens allowed)</small>
+                    </div>
+                }
+
+                <div class="form-group">
+                    <label for="projectIdInput">Project ID *</label>
+                    <input type="text"
+                           id="projectIdInput"
+                           class="form-control"
+                           placeholder="e.g., ar25-1"
+                           @bind="ProjectId"
+                           @bind:event="oninput"
+                           required />
+                    <small class="form-text">Lowercase letters, numbers, and hyphens only</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="projectLabelInput">Project Label *</label>
+                    <input type="text"
+                           id="projectLabelInput"
+                           class="form-control"
+                           placeholder="e.g., Annual Report 2025"
+                           @bind="ProjectLabel"
+                           @bind:event="oninput"
+                           required />
+                    <small class="form-text">Human-readable display name</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" @onclick="Cancel" disabled="@IsCreating">Cancel</button>
+                <button type="button" class="btn btn-primary" @onclick="CreateProject" disabled="@(!CanCreate || IsCreating)">
+                    @if (IsCreating)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                        <span>Creating...</span>
+                    }
+                    else
+                    {
+                        <span>Create Project</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public bool IsVisible { get; set; }
+
+    [Parameter]
+    public EventCallback OnProjectCreated { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    private List<string> ExistingCustomers { get; set; } = new();
+    private string SelectedCustomer { get; set; } = string.Empty;
+    private string NewCustomerName { get; set; } = string.Empty;
+    private string ProjectId { get; set; } = string.Empty;
+    private string ProjectLabel { get; set; } = string.Empty;
+    private bool IsCreating { get; set; } = false;
+    private string? ErrorMessage { get; set; }
+
+    private bool IsCreatingNewCustomer => SelectedCustomer == "__CREATE_NEW__";
+
+    private bool CanCreate =>
+        (!string.IsNullOrWhiteSpace(SelectedCustomer) && SelectedCustomer != "__CREATE_NEW__" ||
+         IsCreatingNewCustomer && !string.IsNullOrWhiteSpace(NewCustomerName)) &&
+        !string.IsNullOrWhiteSpace(ProjectId) &&
+        !string.IsNullOrWhiteSpace(ProjectLabel);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsVisible)
+        {
+            // Load existing customers when modal becomes visible
+            ExistingCustomers = await ProjectCreationService.GetExistingCustomersAsync();
+        }
+    }
+
+    private async Task CreateProject()
+    {
+        try
+        {
+            IsCreating = true;
+            ErrorMessage = null;
+
+            // Determine the customer name to use
+            var customer = IsCreatingNewCustomer ? NewCustomerName.Trim() : SelectedCustomer.Trim();
+
+            // Validate customer name
+            if (string.IsNullOrWhiteSpace(customer))
+            {
+                ErrorMessage = "Customer name is required";
+                IsCreating = false;
+                StateHasChanged();
+                return;
+            }
+
+            Logger.LogInformation("Creating project: {Customer}/{ProjectId}", customer, ProjectId);
+
+            var result = await ProjectCreationService.CreateProjectAsync(customer, ProjectId, ProjectLabel);
+
+            if (result.Success)
+            {
+                Logger.LogInformation("Project created successfully: {Customer}/{ProjectId}", customer, ProjectId);
+
+                // Reset form
+                SelectedCustomer = string.Empty;
+                NewCustomerName = string.Empty;
+                ProjectId = string.Empty;
+                ProjectLabel = string.Empty;
+
+                // Notify parent
+                await OnProjectCreated.InvokeAsync();
+            }
+            else
+            {
+                ErrorMessage = result.ErrorMessage ?? "Failed to create project";
+                Logger.LogError("Project creation failed: {Error}", ErrorMessage);
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Error: {ex.Message}";
+            Logger.LogError(ex, "Exception during project creation");
+        }
+        finally
+        {
+            IsCreating = false;
+            StateHasChanged();
+        }
+    }
+
+    private void Cancel()
+    {
+        // Reset form
+        SelectedCustomer = string.Empty;
+        NewCustomerName = string.Empty;
+        ProjectId = string.Empty;
+        ProjectLabel = string.Empty;
+        ErrorMessage = null;
+
+        OnCancel.InvokeAsync();
+    }
+
+    private void HandleBackdropClick()
+    {
+        Cancel();
+    }
+}

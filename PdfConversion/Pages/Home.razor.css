@@ -11,9 +11,110 @@
 
 /* Header Section */
 .home-header {
-    margin-bottom: 2rem;
+    margin-bottom: 1.5rem;
     padding-bottom: 1rem;
     border-bottom: 2px solid #3e3e42;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.home-header .header-left {
+    flex: 1;
+}
+
+.home-header .header-right {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+/* Round Add Project Button - VS Code Dark Modern */
+.btn-add-project {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background-color: #0078D4; /* --button-bg */
+    border: 1px solid #FFFFFF12; /* --button-border */
+    color: #FFFFFF; /* --button-fg */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-size: 24px;
+    font-weight: 300;
+    line-height: 1;
+    padding: 0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.btn-add-project:hover {
+    background-color: #026EC1; /* --button-hover-bg */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    transform: translateY(-1px);
+}
+
+.btn-add-project:active {
+    background-color: #005A9E;
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.btn-add-project:focus-visible {
+    outline: 2px solid #0078D4;
+    outline-offset: 2px;
+}
+
+/* Sort Controls Card - matching System Status Card styling */
+.sort-controls-card {
+    background-color: #252526;
+    border: 1px solid #3e3e42;
+    border-radius: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.sort-controls-card .card-header {
+    background-color: #2d2d30;
+    border-bottom: 2px solid #3e3e42;
+    padding: 1rem 1.25rem;
+    border-top-left-radius: 0.5rem;
+    border-top-right-radius: 0.5rem;
+}
+
+.sort-controls-card .card-header h5 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #ffffff;
+    margin: 0;
+}
+
+.sort-controls-card .card-body {
+    padding: 1.25rem;
+}
+
+.sort-select {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9rem;
+    color: #cccccc;
+    background-color: #313131;
+    border: 1px solid #3c3c3c;
+    border-radius: 0.25rem;
+    outline: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.sort-select:hover {
+    background-color: #3c3c3c;
+    border-color: #858585;
+}
+
+.sort-select:focus {
+    border-color: #0078d4;
+    box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.25);
 }
 
 /* Two-column layout */
@@ -177,7 +278,7 @@
 }
 
 .projects-table th {
-    padding: 0.875rem 1.25rem;
+    padding: 0.5rem 1rem;
     text-align: left;
     font-size: 0.85rem;
     font-weight: 600;
@@ -201,23 +302,28 @@
 }
 
 .projects-table td {
-    padding: 1rem 1.25rem;
+    padding: 0.5rem 1rem;
     vertical-align: middle;
 }
 
 /* Column Widths */
 .col-project-id {
-    width: 20%; /* Reduced width for short project IDs (e.g., ar24-3) */
+    width: 18%; /* Reduced width for short project IDs (e.g., ar24-3) */
 }
 
 .col-display {
-    width: 60%;
+    width: 52%;
     min-width: 300px;
 }
 
 .col-status {
-    width: 20%;
+    width: 18%;
     min-width: 150px;
+}
+
+.col-actions {
+    width: 12%;
+    min-width: 80px;
 }
 
 /* Project ID Cell */
@@ -235,7 +341,7 @@
 
 /* Display Cell - Double-click to edit */
 .display-cell {
-    padding: 0.75rem 1.25rem;
+    padding: 0.5rem 1rem;
 }
 
 /* Editable Label (default state) */
@@ -386,14 +492,118 @@
     color: #cccccc;
 }
 
-.system-status-card .card-body p {
-    font-size: 0.9rem;
-    line-height: 1.6;
+.system-status-card .card-body hr {
+    margin: 1rem 0;
+    border-color: #3e3e42;
+    opacity: 1;
 }
 
-.system-status-card .card-body strong {
-    color: #ffffff;
+/* Ollama Card - matching System Status Card styling */
+.ollama-card {
+    background-color: #252526;
+    border: 1px solid #3e3e42;
+    border-radius: 0.5rem;
+}
+
+.ollama-card .card-header {
+    background-color: #2d2d30;
+    border-bottom: 2px solid #3e3e42;
+    padding: 1rem 1.25rem;
+    border-top-left-radius: 0.5rem;
+    border-top-right-radius: 0.5rem;
+}
+
+.ollama-card .card-header h5 {
+    font-size: 1rem;
     font-weight: 600;
+    color: #ffffff;
+    margin: 0;
+}
+
+.ollama-card .card-body {
+    padding: 1.25rem;
+    color: #cccccc;
+}
+
+.ollama-card .card-body hr {
+    margin: 1rem 0;
+    border-color: #3e3e42;
+    opacity: 1;
+}
+
+.ollama-card .badge {
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.35rem 0.65rem;
+    border-radius: 0.25rem;
+}
+
+.ollama-details {
+    font-size: 0.9rem;
+}
+
+.ollama-details code {
+    background-color: #2d2d30;
+    color: #ce9178;
+    padding: 0.2rem 0.5rem;
+    border-radius: 0.25rem;
+    border: 1px solid #3e3e42;
+    font-size: 0.85rem;
+}
+
+.ollama-details .alert {
+    background-color: #5a1e1e;
+    border: 1px solid #8b3a3a;
+    color: #f08080;
+    border-radius: 0.5rem;
+    padding: 1rem 1.25rem;
+}
+
+.ollama-details .alert.alert-warning {
+    background-color: #3a3620;
+    border: 1px solid #6a5f2b;
+    color: #ffb866;
+}
+
+.ollama-details .alert code {
+    background-color: rgba(0, 0, 0, 0.2);
+    color: inherit;
+}
+
+/* Status table styling */
+.status-table {
+    background: transparent !important;
+}
+
+.status-table td {
+    border: none !important;
+    padding: 0.5rem 0.75rem !important;
+    background: transparent !important;
+    color: #ffffff !important;
+}
+
+.status-table .service-name {
+    font-weight: 600 !important;
+    width: auto;
+    font-size: 0.9rem;
+    color: #ffffff !important;
+}
+
+.status-table .info-label {
+    font-weight: 600 !important;
+    width: auto;
+    font-size: 0.9rem;
+    color: #cccccc !important;
+}
+
+.status-table .text-end {
+    text-align: right;
+    width: 150px;
+}
+
+.status-table .env-value {
+    color: #cccccc !important;
+    font-size: 0.9rem;
 }
 
 .system-status-card .badge {
@@ -401,6 +611,27 @@
     font-weight: 600;
     padding: 0.35rem 0.65rem;
     border-radius: 0.25rem;
+}
+
+/* Models table styling */
+.models-table {
+    background: transparent !important;
+}
+
+.models-table td {
+    border: none !important;
+    padding: 0.25rem 0.5rem !important;
+    background: transparent !important;
+    vertical-align: middle;
+}
+
+.models-table td.text-muted {
+    color: #858585 !important;
+    font-size: 0.875rem;
+}
+
+.models-table .badge {
+    font-size: 0.875rem;
 }
 
 /* Toast Notifications */
@@ -596,4 +827,223 @@
     background-color: #2d2d30;
     outline: 2px solid #0d6efd;
     outline-offset: -2px;
+}
+
+/* Actions Cell */
+.actions-cell {
+    text-align: center;
+    padding: 0.5rem 0.75rem;
+}
+
+/* Action Buttons Container */
+.actions-cell {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+/* Files Button - VS Code Dark Modern */
+.btn-files {
+    background: transparent;
+    border: none;
+    color: #0078D4; /* --accent-blue */
+    font-size: 16px;
+    cursor: pointer;
+    padding: 6px 10px;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.7;
+}
+
+.btn-files:hover {
+    background: rgba(0, 120, 212, 0.1); /* Light blue background on hover */
+    opacity: 1;
+}
+
+.btn-files:active {
+    background: rgba(0, 120, 212, 0.2);
+    transform: scale(0.95);
+}
+
+.btn-files:focus-visible {
+    outline: 2px solid #0078D4; /* --accent-blue */
+    outline-offset: 2px;
+}
+
+.btn-files i {
+    pointer-events: none;
+}
+
+/* Delete Button - VS Code Dark Modern */
+.btn-delete {
+    background: transparent;
+    border: none;
+    color: #F85149; /* --error-red */
+    font-size: 18px;
+    cursor: pointer;
+    padding: 6px 10px;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.7;
+}
+
+.btn-delete:hover {
+    background: rgba(248, 81, 73, 0.1); /* Light red background on hover */
+    opacity: 1;
+}
+
+.btn-delete:active {
+    background: rgba(248, 81, 73, 0.2);
+    transform: scale(0.95);
+}
+
+.btn-delete:focus-visible {
+    outline: 2px solid #0078D4; /* --accent-blue */
+    outline-offset: 2px;
+}
+
+/* Bootstrap Icons styling */
+.btn-delete i {
+    pointer-events: none;
+}
+
+/* Tools Card - VS Code Dark Modern */
+.tools-card {
+    background-color: #252526;
+    border: 1px solid #3e3e42;
+    border-radius: 0.5rem;
+}
+
+.tools-card .card-header {
+    background-color: #2d2d30;
+    border-bottom: 2px solid #3e3e42;
+    padding: 1rem 1.25rem;
+    border-top-left-radius: 0.5rem;
+    border-top-right-radius: 0.5rem;
+}
+
+.tools-card .card-header h5 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #ffffff;
+    margin: 0;
+}
+
+.tools-card .card-body {
+    padding: 1.25rem;
+    color: #cccccc;
+}
+
+.tools-card .btn-primary {
+    background-color: #0078d4;
+    border: 1px solid #0078d4;
+    color: #ffffff;
+    font-weight: 500;
+    padding: 0.6rem 1rem;
+    transition: all 0.15s ease;
+}
+
+.tools-card .btn-primary:hover:not(:disabled) {
+    background-color: #026ec1;
+    border-color: #026ec1;
+}
+
+.tools-card .btn-primary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Re-indexing Log Panel */
+.reindexing-log-panel {
+    background-color: #1e1e1e;
+    border: 1px solid #3e3e42;
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+
+.log-header {
+    background-color: #2d2d30;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid #3e3e42;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #cccccc;
+}
+
+.btn-clear-log {
+    background: transparent;
+    border: none;
+    color: #858585;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 3px;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-clear-log:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #cccccc;
+}
+
+.log-content {
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 0.75rem;
+    font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.log-entry {
+    padding: 0.25rem 0;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+}
+
+.log-info {
+    color: #cccccc;
+}
+
+.log-success {
+    color: #4ec9b0;
+}
+
+.log-warning {
+    color: #ffb866;
+}
+
+.log-error {
+    color: #f85149;
+    font-weight: 500;
+}
+
+/* Custom scrollbar for log content - VS Code style */
+.log-content::-webkit-scrollbar {
+    width: 10px;
+}
+
+.log-content::-webkit-scrollbar-track {
+    background: #1e1e1e;
+}
+
+.log-content::-webkit-scrollbar-thumb {
+    background: #424242;
+    border-radius: 5px;
+}
+
+.log-content::-webkit-scrollbar-thumb:hover {
+    background: #4e4e4e;
 }

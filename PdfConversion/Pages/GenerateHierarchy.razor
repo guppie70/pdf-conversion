@@ -1,0 +1,3200 @@
+@page "/generate-hierarchy"
+@using PdfConversion.Models
+@using PdfConversion.Services
+@using PdfConversion.Shared
+@using PdfConversion.Utils
+@using Microsoft.AspNetCore.Components.Web
+@inject IHierarchyService HierarchyService
+@inject IProjectLabelService ProjectLabelService
+@inject IUserSelectionService UserSelectionService
+@inject IHeaderExtractionService HeaderExtractionService
+@inject IXsltTransformationService XsltTransformationService
+@inject IHierarchyGeneratorService HierarchyGenerator
+@inject IOllamaService OllamaService
+@inject IHierarchyRequestLogger HierarchyRequestLogger
+@inject IManualHierarchyBuilder ManualHierarchyBuilder
+@inject IFileGroupBuilderService FileGroupBuilder
+@inject IJSRuntime JSRuntime
+@inject ILogger<GenerateHierarchy> Logger
+@inject HttpClient HttpClient
+
+<PageTitle>Generate Hierarchy</PageTitle>
+
+<div class="generate-hierarchy-page">
+    <div class="generation-mode-bar">
+        <div class="mode-buttons">
+            <button class="btn btn-sm @(_currentMode == HierarchyMode.LoadExisting ? "btn-primary" : "btn-outline-secondary")"
+                    @onclick="() => ChangeMode(HierarchyMode.LoadExisting)"
+                    disabled="@(string.IsNullOrEmpty(SelectedProject))">
+                <i class="bi bi-folder-open"></i> Load Existing
+            </button>
+
+            <button class="btn btn-sm @(_currentMode == HierarchyMode.Manual ? "btn-primary" : "btn-outline-secondary")"
+                    @onclick="() => ChangeMode(HierarchyMode.Manual)"
+                    disabled="@(string.IsNullOrEmpty(SelectedSourceXml))">
+                <i class="bi bi-hand-index"></i> Manual Mode
+            </button>
+
+            <button class="btn btn-sm btn-outline-secondary"
+                    @onclick="ShowRuleBasedModal"
+                    disabled="@(string.IsNullOrEmpty(SelectedSourceXml))">
+                <i class="bi bi-gear"></i> Generate with Rules
+            </button>
+
+            <button class="btn btn-sm btn-outline-secondary"
+                    @onclick="ShowAiGenerationModal"
+                    disabled="@(string.IsNullOrEmpty(SelectedSourceXml) || !_ollamaHealthy)">
+                <i class="bi bi-robot"></i> Generate with AI
+            </button>
+        </div>
+    </div>
+
+    <div class="settings-panel">
+        <div>
+            <label>Source XML:</label>
+            <ProjectFileSelector
+                FileGroups="@ProjectFileGroups"
+                SelectedValue="@GetSelectedFilePath()"
+                OnSelectionChanged="@OnFilePathChangedFromComponent"
+                CssClass="form-select"
+                PlaceholderText="Select XML..." />
+        </div>
+
+        <div class="hierarchy-selector-wrapper">
+            <label>Hierarchy XML:</label>
+            <div class="hierarchy-selector-controls">
+                <select class="form-select"
+                        @bind="SelectedHierarchyXml"
+                        @bind:after="OnHierarchyXmlSelectionChanged"
+                        disabled="@string.IsNullOrEmpty(SelectedSourceXml)">
+                    <option value="">Select hierarchy...</option>
+                    @foreach (var file in HierarchyXmlFiles)
+                    {
+                        <option value="@file">@Path.GetFileName(file)</option>
+                    }
+                </select>
+                <button class="btn btn-primary btn-load-hierarchy"
+                        @onclick="OnLoadHierarchyClickedAsync"
+                        disabled="@(string.IsNullOrEmpty(SelectedHierarchyXml) || IsLoadingHierarchy)">
+                    @if (IsLoadingHierarchy)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-folder-open me-1"></i>
+                    }
+                    Load
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(AlertMessage))
+    {
+        <div class="alert alert-@AlertType alert-dismissible fade show mt-2" role="alert">
+            @AlertMessage
+            <button type="button" class="btn-close" @onclick="() => AlertMessage = null" aria-label="Close"></button>
+        </div>
+    }
+
+    @if (_validationResult != null && !_validationResult.IsValid)
+    {
+        <div class="alert alert-warning mt-2">
+            <div class="d-flex align-items-start">
+                <i class="bi bi-exclamation-triangle-fill me-2 mt-1" style="font-size: 1.2em;"></i>
+                <div class="flex-grow-1">
+                    <h6 class="mb-2">⚠️ Hierarchy Contains Hallucinations</h6>
+                    <p class="mb-2">@_validationResult.Summary</p>
+                    <details>
+                        <summary class="text-decoration-underline" style="cursor: pointer;">
+                            Show hallucinated items (@_validationResult.HallucinatedItems.Count)
+                        </summary>
+                        <ul class="mt-2 mb-0">
+                            @foreach (var item in _validationResult.HallucinatedItems.Take(20))
+                            {
+                                <li><code>@item</code></li>
+                            }
+                            @if (_validationResult.HallucinatedItems.Count > 20)
+                            {
+                                <li class="text-muted">... and @(_validationResult.HallucinatedItems.Count - 20) more</li>
+                            }
+                        </ul>
+                    </details>
+                    <p class="mb-0 mt-2 small">
+                        <strong>What this means:</strong> These section names don't exist in your source document.
+                        You can manually remove them below or regenerate with different settings.
+                    </p>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="hierarchy-workspace">
+        <div class="left-panel">
+            <div class="panel-header">
+                <h5>
+                    @if (_currentMode == HierarchyMode.Manual)
+                    {
+                        <text>Manual Hierarchy Builder</text>
+                    }
+                    else
+                    {
+                        <text>Hierarchy Tree</text>
+                    }
+                </h5>
+
+                @if (_currentMode == HierarchyMode.Manual)
+                {
+                    <div class="panel-header-toolbar">
+                        <button class="btn btn-sm btn-outline-secondary"
+                                @onclick="OutdentSelectedHeaders"
+                                disabled="@(!CanOutdentCurrentSelection())"
+                                title="Outdent selected headers (Shift+Tab)">
+                            <i class="bi bi-arrow-left"></i>
+                        </button>
+
+                        <button class="btn btn-sm btn-outline-secondary"
+                                @onclick="IndentSelectedHeaders"
+                                disabled="@(!CanIndentCurrentSelection())"
+                                title="Indent selected headers (Tab)">
+                            <i class="bi bi-arrow-right"></i>
+                        </button>
+
+                        <button class="btn btn-sm btn-outline-secondary"
+                                @onclick="ExcludeSelectedHeaders"
+                                disabled="@(!_selectedManualItemIds.Any())"
+                                title="Delete selected headers (Delete)">
+                            <i class="bi bi-trash"></i>
+                        </button>
+
+                        <button class="btn btn-sm btn-outline-secondary"
+                                @onclick="ExpandAllItems"
+                                disabled="@(_manualHierarchyItems == null || !_manualHierarchyItems.Any())"
+                                title="Expand all items">
+                            <i class="bi bi-arrows-expand"></i>
+                        </button>
+
+                        <button class="btn btn-sm btn-outline-secondary"
+                                @onclick="CollapseAllItems"
+                                disabled="@(_manualHierarchyItems == null || !_manualHierarchyItems.Any())"
+                                title="Collapse all items">
+                            <i class="bi bi-arrows-collapse"></i>
+                        </button>
+
+                        <button class="btn btn-sm btn-outline-secondary"
+                                @onclick="IncludeAllHeaders"
+                                disabled="@(_manualHeaders == null || !_manualHeaders.Any())"
+                                title="Reset all headers to flat list">
+                            <i class="bi bi-arrow-counterclockwise"></i>
+                        </button>
+
+                        <button class="btn btn-sm btn-outline-secondary"
+                                @onclick="DeselectAllHeaders"
+                                disabled="@(!_selectedManualItemIds.Any())"
+                                title="Clear selection (Esc)">
+                            <i class="bi bi-x-square"></i>
+                        </button>
+                    </div>
+                }
+
+                <div class="header-buttons">
+                    @if (_currentMode == HierarchyMode.Manual && _selectedManualItemIds.Any())
+                    {
+                        <span class="selection-info">@_selectedManualItemIds.Count selected</span>
+                    }
+                    @* Change tracking status indicator *@
+                    <span class="change-status @(HasChanges ? "has-changes" : "no-changes")"
+                          title="@(HasChanges ? "You have unsaved changes" : "No unsaved changes")">
+                        <i class="bi @(HasChanges ? "bi-exclamation-circle" : "bi-check-circle")"></i>
+                        <span class="status-text">@(HasChanges ? "Unsaved changes" : "No unsaved changes")</span>
+                    </span>
+                    <button class="btn btn-success btn-sm"
+                            @onclick="SaveHierarchyAsync"
+                            disabled="@(!HasChanges || string.IsNullOrEmpty(SelectedProject))"
+                            title="Save hierarchy">
+                        <i class="bi bi-save"></i> Save
+                    </button>
+                    @if (_showTestApiButton)
+                    {
+                        <button class="btn-test-api" @onclick="OpenTestApi">
+                            <i class="bi bi-link-45deg"></i> Test API
+                        </button>
+                    }
+                </div>
+            </div>
+            <div class="panel-content" tabindex="0" @onkeydown="HandleKeyDown" @onkeydown:preventDefault="false">
+                @if (_currentMode == HierarchyMode.Manual)
+                {
+                    <!-- Manual Mode: Tree View -->
+                    @if (_manualHierarchyItems != null && _manualHierarchyItems.Any())
+                    {
+                        <div class="manual-tree-container">
+                            @foreach (var rootItem in _manualHierarchyItems)
+                            {
+                                <HierarchyTreeItem Item="rootItem"
+                                                  Level="0"
+                                                  RootItem="rootItem"
+                                                  OnItemSelectedWithModifiers="HandleManualItemSelectedWithModifiers"
+                                                  OnItemEdited="HandleManualItemEdited"
+                                                  OnEditRequest="HandleEditRequest"
+                                                  AllowDragDrop="true"
+                                                  SelectedItemIds="_selectedManualItemIds" />
+                            }
+                        </div>
+                    }
+                    else if (string.IsNullOrEmpty(SelectedSourceXml))
+                    {
+                        <div class="text-center p-5 text-muted">
+                            <i class="bi bi-file-earmark-text" style="font-size: 3rem;"></i>
+                            <p class="mt-3">Select a source XML file to load headers</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-center p-5 text-muted">
+                            <i class="bi bi-hourglass-split" style="font-size: 3rem;"></i>
+                            <p class="mt-3">Loading headers...</p>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <!-- Standard Mode: Tree View -->
+                    @if (CurrentHierarchy != null)
+                    {
+                        <HierarchyTreeView RootItem="CurrentHierarchy.Root"
+                                         OnItemSelected="HandleItemSelected"
+                                         OnItemEdited="HandleItemEdited"
+                                         OnEditRequest="HandleEditRequest" />
+                    }
+                    else
+                    {
+                        <div class="text-center p-5 text-muted">
+                            <i class="bi bi-file-earmark-text" style="font-size: 3rem;"></i>
+                            <p class="mt-3">Load a hierarchy file to get started</p>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        <div class="right-panel">
+            <AvailableHeadersPanel @ref="HeadersPanel"
+                                  NormalizedXmlPath="@NormalizedXmlPath"
+                                  HierarchyXmlPath="@HierarchyXmlPath"
+                                  OnHeadersChanged="HandleHeadersChanged" />
+        </div>
+    </div>
+
+    @if (ShowEditor && EditingItem != null)
+    {
+        <HierarchyItemEditor SelectedItem="EditingItem"
+                            OnItemUpdated="HandleItemUpdated"
+                            OnClosed="CloseEditor" />
+    }
+
+    @if (_showAiModal)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">AI Hierarchy Generation</h5>
+                        <button type="button" class="btn-close" @onclick="CloseAiModal" disabled="@_isGeneratingAi"></button>
+                    </div>
+                    <div class="modal-body">
+                        @if (_aiError != null)
+                        {
+                            <div class="alert alert-danger alert-dismissible">
+                                @_aiError
+                                <button type="button" class="btn-close" @onclick="() => _aiError = null"></button>
+                            </div>
+                        }
+
+                        <!-- XSLT Selection -->
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">XSLT Transformation</label>
+                            <select class="form-select" @bind="_selectedAiXslt">
+                                <option value="">-- Select XSLT File --</option>
+                                @foreach (var file in _availableXsltFiles)
+                                {
+                                    <option value="@file">@file.Replace("/app/xslt/", "")</option>
+                                }
+                            </select>
+                            @if (!string.IsNullOrEmpty(_selectedAiXslt))
+                            {
+                                <small class="text-muted d-block mt-1">
+                                    @_selectedAiXslt.Replace("/app/xslt/", "") selected
+                                </small>
+                            }
+                        </div>
+
+                        <!-- Example Hierarchies Selection -->
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">
+                                Training Examples
+                                <small class="text-muted">(select 2-3 for best results)</small>
+                            </label>
+                            <input type="text"
+                                   class="form-control form-control-sm mb-2"
+                                   placeholder="Search examples (e.g., 'optiver', 'philips')..."
+                                   @bind="_hierarchySearchFilter"
+                                   @bind:event="oninput" />
+
+                            <div class="example-list" style="max-height: 200px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; padding: 10px;">
+                                @{
+                                    var filteredExamples = string.IsNullOrWhiteSpace(_hierarchySearchFilter)
+                                        ? _exampleHierarchies
+                                        : _exampleHierarchies.Where(e =>
+                                            e.DisplayName.Contains(_hierarchySearchFilter, StringComparison.OrdinalIgnoreCase)
+                                        ).ToList();
+                                }
+                                @foreach (var example in filteredExamples)
+                                {
+                                    <div class="form-check">
+                                        <input class="form-check-input"
+                                               type="checkbox"
+                                               id="@example.Path"
+                                               checked="@example.IsSelected"
+                                               @onchange="@(async () => await ToggleExample(example))" />
+                                        <label class="form-check-label small" for="@example.Path">
+                                            @example.DisplayName
+                                        </label>
+                                    </div>
+                                }
+                            </div>
+                            <small class="text-muted d-block mt-1">
+                                @_exampleHierarchies.Count(e => e.IsSelected) selected
+                                @if (!string.IsNullOrWhiteSpace(_hierarchySearchFilter))
+                                {
+                                    <text> (showing @filteredExamples.Count() of @_exampleHierarchies.Count)</text>
+                                }
+                            </small>
+                        </div>
+
+                        <!-- Model Selection -->
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">AI Model</label>
+                            <select class="form-select" @bind="_selectedAiModel">
+                                @foreach (var model in _availableAiModels)
+                                {
+                                    <option value="@model.Name">
+                                        @model.Name
+                                        @if (model.Details != null)
+                                        {
+                                            <text> (@model.Details.ParameterSize)</text>
+                                        }
+                                    </option>
+                                }
+                            </select>
+                        </div>
+
+                        <!-- Temperature -->
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">
+                                Temperature: @_aiTemperature.ToString("F1")
+                            </label>
+                            <input type="range"
+                                   class="form-range"
+                                   min="0.0"
+                                   max="1.0"
+                                   step="0.1"
+                                   @bind="_aiTemperature" />
+                            <small class="text-muted d-block">
+                                Lower = more consistent, Higher = more creative
+                            </small>
+                        </div>
+
+                        @if (_isGeneratingAi)
+                        {
+                            <div class="text-center py-4">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Generating...</span>
+                                </div>
+                                <p class="mt-2 text-muted">Generating hierarchy... This may take 30-60 seconds.</p>
+                            </div>
+                        }
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CloseAiModal" disabled="@_isGeneratingAi">
+                            Cancel
+                        </button>
+                        <button type="button"
+                                class="btn btn-primary"
+                                @onclick="GenerateWithAi"
+                                disabled="@(_isGeneratingAi || _exampleHierarchies.Count(e => e.IsSelected) == 0 || string.IsNullOrEmpty(_selectedAiXslt))">
+                            <i class="bi bi-robot"></i> Generate
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_showRuleBasedModal)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+            <div class="modal-dialog modal-dialog-scrollable modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Rule-Based Hierarchy Generation</h5>
+                        <button type="button" class="btn-close" @onclick="CloseRuleBasedModal" disabled="@_isGeneratingRuleBased"></button>
+                    </div>
+                    <div class="modal-body">
+                        @if (_ruleBasedError != null)
+                        {
+                            <div class="alert alert-danger alert-dismissible">
+                                @_ruleBasedError
+                                <button type="button" class="btn-close" @onclick="() => _ruleBasedError = null"></button>
+                            </div>
+                        }
+
+                        @if (!_isGeneratingRuleBased && _genericLogs.Count == 0)
+                        {
+                            <!-- Project selection UI - only show before generation starts -->
+                            <div class="mb-3">
+                                <h6 class="fw-bold">About Rule-Based Generation</h6>
+                                <p class="text-muted mb-2">
+                                    Rule-based generation uses deterministic algorithms to build a hierarchy from your document headers.
+                                    It's fast (instant), consistent, and doesn't require AI models.
+                                </p>
+                                <ul class="small text-muted mb-0">
+                                    <li>Analyzes heading structure (h1, h2, h3, etc.)</li>
+                                    <li>Creates hierarchical relationships based on heading levels</li>
+                                    <li>Generates standardized IDs and data-refs</li>
+                                    <li>No training examples needed</li>
+                                </ul>
+                            </div>
+
+                            <!-- XSLT Selection -->
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">XSLT Transformation</label>
+                                <select class="form-select" @bind="_selectedRuleBasedXslt">
+                                    <option value="">-- Select XSLT File --</option>
+                                    @foreach (var file in _availableXsltFiles)
+                                    {
+                                        <option value="@file">@file.Replace("/app/xslt/", "")</option>
+                                    }
+                                </select>
+                                @if (!string.IsNullOrEmpty(_selectedRuleBasedXslt))
+                                {
+                                    <small class="text-muted d-block mt-1">
+                                        @_selectedRuleBasedXslt.Replace("/app/xslt/", "") selected
+                                    </small>
+                                }
+                            </div>
+                        }
+
+                        @if (_isGeneratingRuleBased || _genericLogs.Count > 0)
+                        {
+                            <!-- Log display area with toggle -->
+                            <div class="log-section">
+                                <div class="log-header">
+                                    <span class="log-label">Generation Log:</span>
+                                    <label class="log-toggle">
+                                        <input type="checkbox" @bind="_showTechnicalLogs" />
+                                        <span class="toggle-label">Technical Details</span>
+                                    </label>
+                                </div>
+
+                                <div class="log-container" @ref="_logScrollContainer">
+                                    @if (_showTechnicalLogs)
+                                    {
+                                        @foreach (var log in _technicalLogs)
+                                        {
+                                            <div class="log-entry technical">@log</div>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        @foreach (var log in _genericLogs)
+                                        {
+                                            <div class="log-entry generic">@log</div>
+                                        }
+                                    }
+
+                                    @if (_isGeneratingRuleBased && _genericLogs.Count == 0)
+                                    {
+                                        <div class="text-center py-4">
+                                            <div class="spinner-border text-primary" role="status">
+                                                <span class="visually-hidden">Generating...</span>
+                                            </div>
+                                            <p class="mt-2 text-muted">Starting generation...</p>
+                                        </div>
+                                    }
+                                </div>
+
+                                @if (_generationStats != null)
+                                {
+                                    <!-- Summary statistics box -->
+                                    <div class="summary-box">
+                                        <div class="summary-title">Summary:</div>
+                                        <ul class="summary-list">
+                                            <li>Converted @_generationStats.HeadersProcessed headers → @_generationStats.ItemsCreated sections</li>
+                                            <li>Hierarchy depth: @_generationStats.MaxDepth levels</li>
+                                            <li>Patterns matched: @_generationStats.PatternsMatched/@_generationStats.HeadersProcessed (@((_generationStats.HeadersProcessed > 0 ? (_generationStats.PatternsMatched * 100.0 / _generationStats.HeadersProcessed) : 0).ToString("F1"))%)</li>
+                                            <li>Generation time: @_generationStats.DurationMs ms</li>
+                                        </ul>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CloseRuleBasedModal" disabled="@_isGeneratingRuleBased">
+                            @(_generationStats != null ? "Close" : "Cancel")
+                        </button>
+                        @if (_generationStats == null)
+                        {
+                            <button type="button"
+                                    class="btn btn-primary"
+                                    @onclick="GenerateWithRules"
+                                    disabled="@(_isGeneratingRuleBased || string.IsNullOrEmpty(_selectedRuleBasedXslt))">
+                                <i class="bi bi-gear"></i> Generate
+                            </button>
+                        }
+                        else
+                        {
+                            <button type="button"
+                                    class="btn btn-primary"
+                                    @onclick="CloseRuleBasedModal">
+                                <i class="bi bi-check-circle"></i> View Hierarchy
+                            </button>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private HierarchyStructure? CurrentHierarchy { get; set; }
+    private HierarchyItem? SelectedItem { get; set; }
+    private bool HasChanges { get; set; }
+    private AvailableHeadersPanel? HeadersPanel { get; set; }
+
+    // Editor panel state
+    private HierarchyItem? EditingItem { get; set; }
+    private bool ShowEditor => EditingItem != null;
+    private string? _originalDataRef = null;  // Track original value for validation
+
+    // AI Generation state
+    private bool _showAiModal = false;
+    private bool _isGeneratingAi = false;
+    private bool _ollamaHealthy = false;
+    private bool _isAiGenerated = false;  // Track if current hierarchy is AI-generated
+    private bool _isRuleBasedGenerated = false;  // Track if current hierarchy is rule-based generated
+    private string? _aiError = null;
+    private HierarchyValidationResult? _validationResult = null;
+    private List<ExampleHierarchy> _exampleHierarchies = new();
+    private string _hierarchySearchFilter = string.Empty;
+    private List<OllamaModel> _availableAiModels = new();
+    private string _selectedAiModel = "deepseek-coder:33b";
+    private double _aiTemperature = 0.3;
+    private string _selectedAiXslt = "/app/xslt/transformation.xslt";
+    private List<string> _availableXsltFiles = new();
+    private bool _showTestApiButton = false;
+
+    // Rule-Based Generation state
+    private bool _showRuleBasedModal = false;
+    private bool _isGeneratingRuleBased = false;
+    private string? _ruleBasedError = null;
+    private string _selectedRuleBasedXslt = "/app/xslt/transformation.xslt";
+    private bool _showTechnicalLogs = false;
+    private List<string> _genericLogs = new();
+    private List<string> _technicalLogs = new();
+    private GenerationStatistics? _generationStats = null;
+    private ElementReference _logScrollContainer;
+
+    // Manual Mode fields
+    private enum HierarchyMode { LoadExisting, Manual }
+    private HierarchyMode _currentMode = HierarchyMode.LoadExisting;
+    private List<DocumentHeader>? _manualHeaders;
+    private HashSet<int> _selectedHeaderOrders = new();
+    private int? _lastClickedOrder = null;  // Anchor point for range selection
+
+    // Manual mode hierarchy representation
+    private List<HierarchyItem>? _manualHierarchyItems = null;
+
+    // Track selected tree items by their Id
+    private HashSet<string> _selectedManualItemIds = new();
+
+    // Track last selected item for range selection (shift+click)
+    private string? _lastSelectedManualItemId = null;
+
+    // ExampleHierarchy class for training data
+    private class ExampleHierarchy
+    {
+        public string Path { get; set; } = string.Empty;
+        public string DisplayName { get; set; } = string.Empty;
+        public bool IsSelected { get; set; }
+        public string? Content { get; set; }
+    }
+
+    // Project and file selection state
+    private List<ProjectInfo> Projects { get; set; } = new();
+    private string? SelectedProject { get; set; } // Format: "customer/project-id"
+    private string? SelectedSourceXml { get; set; } // Full path to XML file
+    private string? SelectedXsltFile { get; set; } // XSLT file path from user selections
+    private List<string> HierarchyXmlFiles { get; set; } = new();
+    private string? SelectedHierarchyXml { get; set; }
+    private bool IsLoadingDocument { get; set; }
+    private bool IsLoadingHierarchy { get; set; }
+
+    // ProjectFileSelector helper properties
+    private List<ProjectFileGroup> ProjectFileGroups { get; set; } = new();
+
+    private string GetSelectedFilePath() =>
+        !string.IsNullOrEmpty(SelectedSourceXml) ? SelectedSourceXml : string.Empty;
+
+    private async Task OnFilePathChangedFromComponent(string filePath)
+    {
+        if (!string.IsNullOrEmpty(filePath))
+        {
+            SelectedSourceXml = filePath;
+
+            // Extract project from file path
+            // Path format: /app/data/input/{customer}/projects/{projectId}/file.xml
+            // or: /app/data/output/{customer}/projects/{projectId}/file.xml
+            var match = System.Text.RegularExpressions.Regex.Match(
+                filePath,
+                @"/app/data/(input|output)/([^/]+)/projects/([^/]+)/(.+)$"
+            );
+
+            if (match.Success)
+            {
+                var customer = match.Groups[2].Value;    // customer
+                var projectId = match.Groups[3].Value;   // project-id
+                var fileName = match.Groups[4].Value;     // filename.xml
+
+                SelectedProject = $"{customer}/{projectId}";
+                Logger.LogInformation("Auto-selected project from file path: {Project}", SelectedProject);
+
+                // Save project selection
+                await UserSelectionService.UpdateSelectionAsync(projectId: SelectedProject);
+                Logger.LogInformation("Saved project selection: {Project}", SelectedProject);
+
+                // Save source XML selection (just filename for portability)
+                await UserSelectionService.UpdateSelectionAsync(sourceXml: fileName);
+                Logger.LogInformation("Saved source XML selection: {File}", fileName);
+            }
+            else
+            {
+                Logger.LogWarning("Failed to parse file path: {Path}", filePath);
+            }
+
+            await OnSourceXmlChangedAsync();
+            LoadHierarchyXmlFiles();
+        }
+    }
+
+    private void LoadHierarchyXmlFiles()
+    {
+        HierarchyXmlFiles.Clear();
+        SelectedHierarchyXml = null;
+
+        if (string.IsNullOrEmpty(SelectedSourceXml))
+            return;
+
+        // Extract project directory from source XML path
+        // e.g., /app/data/input/taxxor/projects/ar25-1/docling-output.xml
+        // -> /app/data/input/taxxor/projects/ar25-1
+        var projectDir = Path.GetDirectoryName(SelectedSourceXml);
+        if (string.IsNullOrEmpty(projectDir))
+            return;
+
+        var metadataDir = Path.Combine(projectDir, "metadata");
+        if (!Directory.Exists(metadataDir))
+            return;
+
+        // Get all XML files in metadata folder
+        HierarchyXmlFiles = Directory.GetFiles(metadataDir, "*.xml")
+            .OrderBy(f => Path.GetFileName(f))
+            .ToList();
+
+        Logger.LogInformation("Found {Count} hierarchy XML files in {Dir}", HierarchyXmlFiles.Count, metadataDir);
+
+        // Force Blazor to re-render the dropdown
+        StateHasChanged();
+    }
+
+    private async Task OnHierarchyXmlSelectionChanged()
+    {
+        if (!string.IsNullOrEmpty(SelectedHierarchyXml))
+        {
+            // Save to user selections (save just the filename for portability)
+            var filename = Path.GetFileName(SelectedHierarchyXml);
+            await UserSelectionService.UpdateSelectionAsync(hierarchyXml: filename);
+            Logger.LogInformation("Saved hierarchy XML selection: {File}", filename);
+
+            // Do NOT auto-load - user must click Load button
+        }
+    }
+
+    private async Task OnLoadHierarchyClickedAsync()
+    {
+
+        if (string.IsNullOrEmpty(SelectedHierarchyXml))
+        {
+            Logger.LogWarning("Cannot load hierarchy: no file selected");
+            return;
+        }
+
+        try
+        {
+            if (_currentMode == HierarchyMode.LoadExisting)
+            {
+                await LoadExistingHierarchyAsync();
+            }
+            else if (_currentMode == HierarchyMode.Manual)
+            {
+
+                // Load the saved hierarchy file
+                if (!File.Exists(SelectedHierarchyXml))
+                {
+                    ToastNotification.ShowError($"Hierarchy file not found: {Path.GetFileName(SelectedHierarchyXml)}");
+                    Logger.LogError("Hierarchy file not found: {Path}", SelectedHierarchyXml);
+                    return;
+                }
+
+                CurrentHierarchy = await HierarchyService.LoadHierarchyAsync(SelectedHierarchyXml);
+
+                // Convert CurrentHierarchy.Root.SubItems to Manual Mode tree format
+                if (CurrentHierarchy?.Root?.SubItems != null)
+                {
+                    _manualHierarchyItems = CurrentHierarchy.Root.SubItems.ToList();
+
+                    // Assign sequential order for display badges
+                    AssignSequentialOrderToTree(_manualHierarchyItems);
+
+                }
+                else
+                {
+                    _manualHierarchyItems = new List<HierarchyItem>();
+                }
+
+                // Reconstruct _manualHeaders from loaded hierarchy tree for Indent/Outdent functionality
+                _manualHeaders = new List<DocumentHeader>();
+                int order = 1;
+
+                void ConvertTreeToHeaders(List<HierarchyItem> items, int indentLevel)
+                {
+                    foreach (var item in items)
+                    {
+
+                        // Create DocumentHeader from HierarchyItem
+                        // IMPORTANT: Use the actual item.Id to match the tree items
+                        var headerId = item.Id;  // Keep original ID from loaded hierarchy
+                        var headerLevel = item.HeaderType ?? $"h{Math.Min(item.Level + 1, 6)}";
+
+                        var header = new DocumentHeader
+                        {
+                            // Use the actual item ID to match tree items
+                            Id = headerId,
+                            // Use HeaderType if available, otherwise infer from Level (0-based to h1-h6)
+                            Level = headerLevel,
+                            Title = item.LinkName,
+                            OriginalOrder = order,
+                            IndentLevel = indentLevel,
+                            XPath = "", // Not available from saved hierarchy
+                            Context = "", // Not available from saved hierarchy
+                            IsUsed = true, // All loaded items are used
+                            IsExcluded = false,
+                            DataNumber = item.TocNumber // Use TocNumber if available
+                        };
+
+                        _manualHeaders.Add(header);
+                        order++;
+
+                        // Recursively process children
+                        if (item.SubItems != null && item.SubItems.Any())
+                        {
+                            ConvertTreeToHeaders(item.SubItems, indentLevel + 1);
+                        }
+                    }
+                }
+
+                if (_manualHierarchyItems != null && _manualHierarchyItems.Any())
+                {
+                    ConvertTreeToHeaders(_manualHierarchyItems, 0);
+                }
+
+                HasChanges = false;
+            }
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load hierarchy from {Path}", SelectedHierarchyXml);
+            ToastNotification.ShowError($"Failed to load hierarchy: {ex.Message}");
+        }
+    }
+
+    // Alert state
+    private string? AlertMessage { get; set; }
+    private string AlertType { get; set; } = "info"; // success, warning, danger, info
+
+    // File paths for the headers panel - dynamic based on selection
+    private string? NormalizedXmlPath { get; set; }
+    private string? HierarchyXmlPath
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(SelectedProject)) return null;
+            var parts = SelectedProject.Split('/');
+            if (parts.Length != 2) return null;
+            return $"/app/data/output/{parts[0]}/projects/{parts[1]}/hierarchy.xml";
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Logger.LogInformation("[OnInitializedAsync] Starting initialization");
+
+        try
+        {
+            // Check Ollama health on page load
+            try
+            {
+                var models = await OllamaService.GetAvailableModelsAsync();
+                _ollamaHealthy = models?.Any() ?? false;
+            }
+            catch
+            {
+                _ollamaHealthy = false;
+            }
+
+            // Load file groups using the service (filters by active projects automatically)
+            ProjectFileGroups = await FileGroupBuilder.BuildXmlFileGroupsAsync(
+                includeInputFiles: true,
+                includeOutputFiles: true,
+                onlyActiveProjects: true);  // This fixes the bug!
+
+            Logger.LogInformation("[OnInitializedAsync] Loaded {Count} project file groups", ProjectFileGroups.Count);
+
+            // Try to restore last selection
+            var selection = await UserSelectionService.GetSelectionAsync();
+            if (selection != null)
+            {
+                Logger.LogInformation("[OnInitializedAsync] Found user selections");
+
+                // Restore project selection
+                if (!string.IsNullOrEmpty(selection.LastSelectedProject))
+                {
+                    SelectedProject = selection.LastSelectedProject;
+                    Logger.LogInformation("[OnInitializedAsync] Restored project: {Project}", SelectedProject);
+                }
+
+                // Restore source XML if available - reconstruct full path
+                if (!string.IsNullOrEmpty(selection.LastSelectedSourceXml) && !string.IsNullOrEmpty(SelectedProject))
+                {
+                    var sourceXmlFilename = selection.LastSelectedSourceXml;
+                    var parts = SelectedProject.Split('/');
+                    if (parts.Length == 2)
+                    {
+                        var customer = parts[0];
+                        var projectId = parts[1];
+
+                        // Try input directory first
+                        var inputPath = $"/app/data/input/{customer}/projects/{projectId}/{sourceXmlFilename}";
+                        if (File.Exists(inputPath))
+                        {
+                            SelectedSourceXml = inputPath;
+                            Logger.LogInformation("[OnInitializedAsync] Restored source XML from input: {File}", SelectedSourceXml);
+                        }
+                        else
+                        {
+                            // Try output directory as fallback
+                            var outputPath = $"/app/data/output/{customer}/projects/{projectId}/{sourceXmlFilename}";
+                            if (File.Exists(outputPath))
+                            {
+                                SelectedSourceXml = outputPath;
+                                Logger.LogInformation("[OnInitializedAsync] Restored source XML from output: {File}", SelectedSourceXml);
+                            }
+                            else
+                            {
+                                Logger.LogWarning("[OnInitializedAsync] Source XML file not found: {File}", sourceXmlFilename);
+                            }
+                        }
+                    }
+                }
+
+                // Restore XSLT selection
+                if (!string.IsNullOrEmpty(selection.LastSelectedXslt))
+                {
+                    SelectedXsltFile = selection.LastSelectedXslt;
+                    Logger.LogInformation("[OnInitializedAsync] Restored XSLT: {File}", SelectedXsltFile);
+                }
+
+                // If source XML was restored, auto-select appropriate XSLT and load hierarchy
+                if (!string.IsNullOrEmpty(SelectedSourceXml))
+                {
+                    // Load XSLT files
+                    LoadXsltFiles();
+
+                    // Override saved XSLT with auto-selection based on source XML filename
+                    await AutoSelectXsltForSourceXml();
+
+                    // Load hierarchy XML files from metadata folder
+                    LoadHierarchyXmlFiles();
+
+                    // Auto-transform and load if XSLT is available
+                    if (!string.IsNullOrEmpty(SelectedXsltFile))
+                    {
+                        await AutoTransformAndLoadAsync();
+                    }
+
+                    // Restore hierarchy XML selection if available
+                    if (!string.IsNullOrEmpty(selection.LastSelectedHierarchyXml))
+                    {
+                        var hierarchyFilename = selection.LastSelectedHierarchyXml;
+
+                        // Find matching file in HierarchyXmlFiles list
+                        var matchingFile = HierarchyXmlFiles.FirstOrDefault(f =>
+                            Path.GetFileName(f).Equals(hierarchyFilename, StringComparison.OrdinalIgnoreCase));
+
+                        if (matchingFile != null)
+                        {
+                            SelectedHierarchyXml = matchingFile;
+                            Logger.LogInformation("[OnInitializedAsync] Restored hierarchy XML: {File}", matchingFile);
+
+                            // Auto-load the hierarchy on initialization (user doesn't need to click Load button on page load)
+                            await OnLoadHierarchyClickedAsync();
+                        }
+                        else
+                        {
+                            Logger.LogWarning("[OnInitializedAsync] Hierarchy file not found: {File}", hierarchyFilename);
+                        }
+                    }
+                }
+                else
+                {
+                    Logger.LogInformation("[OnInitializedAsync] No source XML to restore");
+                }
+            }
+            else
+            {
+                Logger.LogWarning("[OnInitializedAsync] No user selections found");
+            }
+
+            // Restore the saved mode from localStorage
+            await RestoreModeFromLocalStorage();
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "[OnInitializedAsync] Error during initialization");
+            ToastNotification.ShowError($"Initialization error: {ex.Message}");
+        }
+    }
+
+    private async Task OnSourceXmlChangedAsync()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(SelectedSourceXml))
+            {
+                // Save only the filename for consistency with Transform page
+                var filename = Path.GetFileName(SelectedSourceXml);
+                await UserSelectionService.UpdateSelectionAsync(sourceXml: filename);
+
+                // Load XSLT files if not already loaded
+                if (!_availableXsltFiles.Any())
+                {
+                    LoadXsltFiles();
+                }
+
+                // Auto-select appropriate XSLT based on source XML filename
+                await AutoSelectXsltForSourceXml();
+
+                // Trigger transformation with new XSLT
+                await AutoTransformAndLoadAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error updating source XML selection");
+            ShowAlert("danger", $"Error: {ex.Message}");
+        }
+    }
+
+    private async Task LoadDocumentAsync(bool showToast = true)
+    {
+        if (string.IsNullOrEmpty(SelectedSourceXml)) return;
+
+        IsLoadingDocument = true;
+        try
+        {
+            // Warn if unsaved changes
+            if (HasChanges && CurrentHierarchy != null)
+            {
+                // TODO: Show confirmation dialog
+                Logger.LogWarning("Loading new document with unsaved changes");
+            }
+
+            // Clear current hierarchy
+            CurrentHierarchy = null;
+            HasChanges = false;
+
+            // Load headers - pass paths explicitly to avoid parameter binding issues
+            if (HeadersPanel != null)
+            {
+                await HeadersPanel.LoadHeadersAsync(NormalizedXmlPath, HierarchyXmlPath);
+            }
+
+            // Success toast removed - user can see document loaded by headers appearing
+            Logger.LogInformation("Loaded document headers from {Path}", SelectedSourceXml);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load document");
+            ToastNotification.ShowError($"Failed to load document: {ex.Message}");
+        }
+        finally
+        {
+            IsLoadingDocument = false;
+        }
+    }
+
+    private async Task LoadExistingHierarchyAsync()
+    {
+        if (string.IsNullOrEmpty(SelectedHierarchyXml))
+        {
+            Logger.LogWarning("No hierarchy XML file selected");
+            return;
+        }
+
+        IsLoadingHierarchy = true;
+        try
+        {
+            if (!File.Exists(SelectedHierarchyXml))
+            {
+                ToastNotification.ShowError($"Hierarchy file not found: {Path.GetFileName(SelectedHierarchyXml)}");
+                Logger.LogError("Hierarchy file not found: {Path}", SelectedHierarchyXml);
+                return;
+            }
+
+            CurrentHierarchy = await HierarchyService.LoadHierarchyAsync(SelectedHierarchyXml);
+            HasChanges = false;
+            _isAiGenerated = false;  // Manual hierarchies are not AI-generated
+            _isRuleBasedGenerated = false;  // Manual hierarchies are not rule-based generated
+            _validationResult = null;  // Clear validation result for manually loaded hierarchies
+            Logger.LogInformation("Loaded hierarchy from {Path}", SelectedHierarchyXml);
+            // Success toast removed - user can see hierarchy loaded in the UI
+
+            // Refresh headers panel to mark used headers - pass paths explicitly
+            if (HeadersPanel != null)
+            {
+                await HeadersPanel.LoadHeadersAsync(NormalizedXmlPath, HierarchyXmlPath);
+            }
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load hierarchy");
+            ToastNotification.ShowError($"Failed to load hierarchy: {ex.Message}");
+        }
+        finally
+        {
+            IsLoadingHierarchy = false;
+        }
+    }
+
+    private async Task SaveHierarchyAsync()
+    {
+        if (CurrentHierarchy == null || string.IsNullOrEmpty(SelectedProject))
+        {
+            ToastNotification.ShowError("No hierarchy to save or no project selected");
+            return;
+        }
+
+        try
+        {
+            // Normalize hierarchy before saving (ensure unique IDs, DataRefs, and proper paths)
+            if (_currentMode == HierarchyMode.Manual && CurrentHierarchy?.Root != null)
+            {
+                Logger.LogInformation("Normalizing Manual Mode hierarchy before save...");
+                NormalizeHierarchyTree(CurrentHierarchy.Root);
+                Logger.LogInformation("Normalization complete");
+            }
+
+            string filePath;
+
+            // Manual mode hierarchies go to metadata folder with specific name
+            if (_currentMode == HierarchyMode.Manual)
+            {
+                var parts = SelectedProject.Split('/');
+                if (parts.Length != 2)
+                {
+                    Logger.LogError("Invalid project format: {Project}", SelectedProject);
+                    ToastNotification.ShowError("Invalid project format");
+                    return;
+                }
+
+                var customer = parts[0];
+                var projectId = parts[1];
+                var metadataDir = $"/app/data/input/{customer}/projects/{projectId}/metadata";
+
+                // Ensure metadata directory exists
+                if (!Directory.Exists(metadataDir))
+                {
+                    Directory.CreateDirectory(metadataDir);
+                    Logger.LogInformation("Created metadata directory: {Dir}", metadataDir);
+                }
+
+                filePath = Path.Combine(metadataDir, "manual-hierarchy.xml");
+                Logger.LogInformation("Saving manually-built hierarchy to metadata folder: {Path}", filePath);
+            }
+            // AI-generated hierarchies go to metadata folder with specific name
+            else if (_isAiGenerated)
+            {
+                var parts = SelectedProject.Split('/');
+                if (parts.Length != 2)
+                {
+                    Logger.LogError("Invalid project format: {Project}", SelectedProject);
+                    ToastNotification.ShowError("Invalid project format");
+                    return;
+                }
+
+                var customer = parts[0];
+                var projectId = parts[1];
+                var metadataDir = $"/app/data/input/{customer}/projects/{projectId}/metadata";
+
+                // Ensure metadata directory exists
+                if (!Directory.Exists(metadataDir))
+                {
+                    Directory.CreateDirectory(metadataDir);
+                    Logger.LogInformation("Created metadata directory: {Dir}", metadataDir);
+                }
+
+                filePath = Path.Combine(metadataDir, "ai-hierarchy.xml");
+                Logger.LogInformation("Saving AI-generated hierarchy to metadata folder: {Path}", filePath);
+            }
+            else if (_isRuleBasedGenerated)
+            {
+                // Rule-based hierarchies go to metadata folder with specific name
+                var parts = SelectedProject.Split('/');
+                if (parts.Length != 2)
+                {
+                    Logger.LogError("Invalid project format: {Project}", SelectedProject);
+                    ToastNotification.ShowError("Invalid project format");
+                    return;
+                }
+
+                var customer = parts[0];
+                var projectId = parts[1];
+                var metadataDir = $"/app/data/input/{customer}/projects/{projectId}/metadata";
+
+                // Ensure metadata directory exists
+                if (!Directory.Exists(metadataDir))
+                {
+                    Directory.CreateDirectory(metadataDir);
+                    Logger.LogInformation("Created metadata directory: {Dir}", metadataDir);
+                }
+
+                filePath = Path.Combine(metadataDir, "rules-hierarchy.xml");
+                Logger.LogInformation("Saving rule-based hierarchy to metadata folder: {Path}", filePath);
+            }
+            else if (!string.IsNullOrEmpty(SelectedHierarchyXml))
+            {
+                // Save back to the selected hierarchy file
+                filePath = SelectedHierarchyXml;
+            }
+            else
+            {
+                // Fallback to default hierarchy.xml location in output folder
+                var parts = SelectedProject.Split('/');
+                if (parts.Length != 2)
+                {
+                    Logger.LogError("Invalid project format: {Project}", SelectedProject);
+                    ToastNotification.ShowError("Invalid project format");
+                    return;
+                }
+
+                var customer = parts[0];
+                var projectId = parts[1];
+                filePath = $"/app/data/output/{customer}/projects/{projectId}/hierarchy.xml";
+            }
+
+            await HierarchyService.SaveHierarchyAsync(filePath, CurrentHierarchy);
+            HasChanges = false;
+            Logger.LogInformation("Saved hierarchy to {Path}", filePath);
+            // Success toast removed - HasChanges = false indicates save success
+
+            // Refresh headers panel to update used status
+            if (HeadersPanel != null)
+            {
+                await HeadersPanel.RefreshUsedStatusAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save hierarchy");
+            ToastNotification.ShowError($"Failed to save hierarchy: {ex.Message}");
+        }
+    }
+
+    private void HandleItemSelected(HierarchyItem item)
+    {
+        SelectedItem = item;
+    }
+
+    private void HandleItemEdited(HierarchyItem item)
+    {
+        HasChanges = true;
+    }
+
+    private void HandleEditRequest(HierarchyItem item)
+    {
+        EditingItem = item;
+        _originalDataRef = item.DataRef;  // Store original for validation
+        StateHasChanged();
+    }
+
+    private async Task HandleItemUpdated(HierarchyItem updatedItem)
+    {
+        // Validate DataRef uniqueness if it was changed
+        if (_originalDataRef != null && updatedItem.DataRef != _originalDataRef)
+        {
+            // Check if new DataRef is unique (excluding the item being edited)
+            if (!IsDataRefUniqueInCurrentTree(updatedItem.DataRef, updatedItem.Id))
+            {
+                // Duplicate found - revert and show error
+                Logger.LogWarning("Duplicate DataRef detected: {DataRef}. Reverting to original: {Original}",
+                    updatedItem.DataRef, _originalDataRef);
+
+                ToastNotification.ShowError($"DataRef '{updatedItem.DataRef}' already exists. Reverted to '{_originalDataRef}'.");
+
+                updatedItem.DataRef = _originalDataRef;  // Revert to original
+                _originalDataRef = null;
+                EditingItem = null;
+                StateHasChanged();
+                return;  // Don't mark as changed
+            }
+        }
+
+        // Validation passed - accept changes
+        HasChanges = true;
+        EditingItem = null;
+        _originalDataRef = null;  // Clear tracking
+        StateHasChanged();
+
+        // Optionally refresh the headers panel to reflect changes
+        if (HeadersPanel != null)
+        {
+            await HeadersPanel.RefreshUsedStatusAsync();
+        }
+    }
+
+    private void CloseEditor()
+    {
+        EditingItem = null;
+        _originalDataRef = null;  // Clear tracking on cancel
+        StateHasChanged();
+    }
+
+    private async Task HandleHeadersChanged()
+    {
+        // Called when headers are loaded/refreshed
+        StateHasChanged();
+    }
+
+    private string GetConfidenceColor(int confidence)
+    {
+        return confidence >= 80 ? "success" : confidence >= 70 ? "warning" : "danger";
+    }
+
+    private async Task AutoTransformAndLoadAsync()
+    {
+        if (string.IsNullOrEmpty(SelectedSourceXml) || string.IsNullOrEmpty(SelectedXsltFile))
+        {
+            if (string.IsNullOrEmpty(SelectedXsltFile))
+            {
+                ShowAlert("warning", "No XSLT file selected. Please transform a document on the Transform page first.");
+            }
+            return;
+        }
+
+        IsLoadingDocument = true;
+        ClearAlert();
+
+        try
+        {
+            // Warn if unsaved changes
+            if (HasChanges && CurrentHierarchy != null)
+            {
+                Logger.LogWarning("Loading new document with unsaved changes");
+            }
+
+            // Clear current hierarchy
+            CurrentHierarchy = null;
+            HasChanges = false;
+
+            // Read source XML
+            var xmlContent = await File.ReadAllTextAsync(SelectedSourceXml);
+
+            // Read XSLT - handle both relative and absolute paths
+            var xsltPath = SelectedXsltFile.StartsWith("/app/xslt/")
+                ? SelectedXsltFile
+                : $"/app/xslt/{SelectedXsltFile}";
+            if (!File.Exists(xsltPath))
+            {
+                ShowAlert("danger", $"XSLT file not found: {SelectedXsltFile}");
+                return;
+            }
+            var xsltContent = await File.ReadAllTextAsync(xsltPath);
+
+            // Transform
+            Logger.LogInformation("Transforming {SourceXml} with {Xslt}", Path.GetFileName(SelectedSourceXml), SelectedXsltFile);
+            var transformResult = await XsltTransformationService.TransformAsync(
+                xmlContent,
+                xsltContent,
+                new TransformationOptions
+                {
+                    UseXslt3Service = true,
+                    NormalizeHeaders = false
+                },
+                xsltPath  // Pass file path for module resolution
+            );
+
+            if (!transformResult.IsSuccess)
+            {
+                ShowAlert("danger", $"Transformation failed: {transformResult.ErrorMessage}");
+                Logger.LogError("Transformation failed: {Error}", transformResult.ErrorMessage);
+                return;
+            }
+
+            // Save transformed XML to normalized location
+            var parts = SelectedProject?.Split('/');
+            if (parts?.Length == 2)
+            {
+                var customer = parts[0];
+                var projectId = parts[1];
+                var normalizedPath = $"/app/data/output/{customer}/projects/{projectId}/normalized.xml";
+                var normalizedDir = Path.GetDirectoryName(normalizedPath);
+                if (!Directory.Exists(normalizedDir))
+                {
+                    Directory.CreateDirectory(normalizedDir!);
+                }
+                await File.WriteAllTextAsync(normalizedPath, transformResult.OutputContent);
+                NormalizedXmlPath = normalizedPath;
+                Logger.LogInformation("Saved normalized XML to {Path}", normalizedPath);
+                Logger.LogInformation("NormalizedXmlPath set to: {Path}, File exists: {Exists}",
+                    NormalizedXmlPath, File.Exists(NormalizedXmlPath));
+            }
+
+            // Load headers by passing the path directly (before parameter binding completes)
+            Logger.LogInformation("About to load headers. HeadersPanel is null: {IsNull}, NormalizedXmlPath: {Path}",
+                HeadersPanel == null, NormalizedXmlPath);
+
+            if (HeadersPanel != null && !string.IsNullOrEmpty(NormalizedXmlPath))
+            {
+                await HeadersPanel.LoadHeadersAsync(NormalizedXmlPath, HierarchyXmlPath);
+                Logger.LogInformation("Headers loaded. AllHeaders count from panel should be visible in AvailableHeadersPanel logs");
+            }
+            else
+            {
+                Logger.LogWarning("HeadersPanel is null or NormalizedXmlPath is empty, cannot load headers");
+            }
+
+            // Only log success - no toast (user can see document loaded by headers appearing)
+            Logger.LogInformation("Successfully transformed and loaded document: {FileName}",
+                Path.GetFileName(SelectedSourceXml));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Auto-transform failed");
+            ShowAlert("danger", $"Transformation error: {ex.Message}");
+        }
+        finally
+        {
+            IsLoadingDocument = false;
+        }
+    }
+
+    private void ShowAlert(string type, string message)
+    {
+        AlertType = type;
+        AlertMessage = message;
+        StateHasChanged();
+    }
+
+    private void ClearAlert()
+    {
+        AlertMessage = null;
+    }
+
+    // AI Generation Methods
+
+    private async Task ShowAiGenerationModal()
+    {
+        _aiError = null;
+        _showAiModal = true;
+
+        // Load XSLT files
+        LoadXsltFiles();
+
+        // Load Ollama models and training hierarchies
+        await LoadOllamaModelsAsync();
+        LoadTrainingHierarchies();
+
+        // Restore training hierarchy selections from user preferences
+        var selection = await UserSelectionService.GetSelectionAsync();
+        if (selection?.LastSelectedTrainingHierarchies != null && selection.LastSelectedTrainingHierarchies.Any())
+        {
+            RestoreTrainingSelections(selection.LastSelectedTrainingHierarchies);
+            Logger.LogInformation("Restored {Count} training hierarchy selections", selection.LastSelectedTrainingHierarchies.Count);
+        }
+
+        StateHasChanged();
+    }
+
+    private void CloseAiModal()
+    {
+        _showAiModal = false;
+        _aiError = null;
+        StateHasChanged();
+    }
+
+    private void LoadXsltFiles()
+    {
+        try
+        {
+            var xsltDir = "/app/xslt";
+            if (Directory.Exists(xsltDir))
+            {
+                _availableXsltFiles = Directory.GetFiles(xsltDir, "*.xslt", SearchOption.AllDirectories)
+                    .OrderBy(f => f)
+                    .ToList();
+
+                // Smart default selection based on source XML filename
+                string? defaultXslt = null;
+
+                // Check if source XML filename contains "docling"
+                if (!string.IsNullOrEmpty(SelectedSourceXml))
+                {
+                    var sourceFileName = Path.GetFileName(SelectedSourceXml).ToLowerInvariant();
+                    if (sourceFileName.Contains("docling"))
+                    {
+                        // Select docling transformation
+                        defaultXslt = _availableXsltFiles.FirstOrDefault(f => f.Contains("docling/transformation.xslt"));
+                        Logger.LogInformation("Source XML contains 'docling', defaulting to docling/transformation.xslt");
+                    }
+                    else
+                    {
+                        // Select adobe transformation
+                        defaultXslt = _availableXsltFiles.FirstOrDefault(f => f.Contains("adobe/transformation.xslt"));
+                        Logger.LogInformation("Source XML does not contain 'docling', defaulting to adobe/transformation.xslt");
+                    }
+                }
+
+                // Fallback: use any transformation.xslt if smart selection didn't find anything
+                if (string.IsNullOrEmpty(defaultXslt))
+                {
+                    defaultXslt = _availableXsltFiles.FirstOrDefault(f => f.Contains("transformation.xslt"));
+                }
+
+                // Final fallback: use first available XSLT
+                _selectedAiXslt = defaultXslt ?? _availableXsltFiles.FirstOrDefault() ?? string.Empty;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load XSLT files");
+        }
+    }
+
+    private async Task AutoSelectXsltForSourceXml()
+    {
+        if (string.IsNullOrEmpty(SelectedSourceXml) || !_availableXsltFiles.Any())
+            return;
+
+        var sourceFileName = Path.GetFileName(SelectedSourceXml).ToLowerInvariant();
+        string? newXslt = null;
+
+        if (sourceFileName.Contains("docling"))
+        {
+            newXslt = _availableXsltFiles.FirstOrDefault(f => f.Contains("docling/transformation.xslt"));
+            Logger.LogInformation("Auto-selected Docling XSLT for source file: {File}", sourceFileName);
+        }
+        else
+        {
+            newXslt = _availableXsltFiles.FirstOrDefault(f => f.Contains("adobe/transformation.xslt"));
+            Logger.LogInformation("Auto-selected Adobe XSLT for source file: {File}", sourceFileName);
+        }
+
+        if (!string.IsNullOrEmpty(newXslt) && newXslt != SelectedXsltFile)
+        {
+            SelectedXsltFile = newXslt;
+            await UserSelectionService.UpdateSelectionAsync(xslt: SelectedXsltFile);
+            Logger.LogInformation("Updated XSLT selection to: {Xslt}", SelectedXsltFile);
+        }
+    }
+
+    private async Task LoadOllamaModelsAsync()
+    {
+        try
+        {
+            _availableAiModels = await OllamaService.GetAvailableModelsAsync();
+            _ollamaHealthy = _availableAiModels.Any();
+
+            if (!_ollamaHealthy)
+            {
+                _aiError = "Ollama service is not running or has no models installed.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load Ollama models");
+            _aiError = "Failed to connect to Ollama service.";
+            _ollamaHealthy = false;
+        }
+    }
+
+    private void LoadTrainingHierarchies()
+    {
+        try
+        {
+            var trainingDir = "/app/data/training-material/hierarchies";
+
+            if (!Directory.Exists(trainingDir))
+            {
+                Logger.LogWarning("Training material hierarchies directory not found: {Dir}", trainingDir);
+                return;
+            }
+
+            var hierarchyFiles = Directory.GetFiles(trainingDir, "*.xml", SearchOption.AllDirectories)
+                .OrderBy(f => f)
+                .ToList();
+
+            _exampleHierarchies = hierarchyFiles.Select(path =>
+            {
+                var relativePath = path.Replace(trainingDir + "/", "");
+                var parts = relativePath.Split('/');
+                var organization = parts.Length > 0 ? parts[0] : "unknown";
+                var project = parts.Length > 1 ? parts[1] : "unknown";
+                var filename = Path.GetFileName(path);
+
+                var displayName = $"{organization}/{project} - {filename}";
+
+                return new ExampleHierarchy
+                {
+                    Path = path,
+                    DisplayName = displayName,
+                    IsSelected = false,
+                    Content = null
+                };
+            }).ToList();
+
+            Logger.LogInformation("Loaded {Count} training hierarchies", _exampleHierarchies.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load training hierarchies");
+            _exampleHierarchies = new List<ExampleHierarchy>();
+        }
+    }
+
+    private async Task ToggleExample(ExampleHierarchy example)
+    {
+        example.IsSelected = !example.IsSelected;
+
+        if (example.IsSelected && example.Content == null)
+        {
+            try
+            {
+                example.Content = File.ReadAllText(example.Path);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to load example hierarchy: {Path}", example.Path);
+                example.IsSelected = false;
+                _aiError = $"Failed to load example: {Path.GetFileName(example.Path)}";
+            }
+        }
+
+        // Save current selections after toggle
+        await UserSelectionService.UpdateSelectionAsync(trainingHierarchies: GetSelectedHierarchyPaths());
+    }
+
+    private async Task GenerateWithAi()
+    {
+        _isGeneratingAi = true;
+        _aiError = null;
+
+        try
+        {
+            // Verify we have source XML selected
+            if (string.IsNullOrEmpty(SelectedSourceXml))
+            {
+                _aiError = "Please select a source XML file first.";
+                return;
+            }
+
+            // Get selected examples
+            var selectedExamples = _exampleHierarchies
+                .Where(e => e.IsSelected && e.Content != null)
+                .Select(e => e.Content!)
+                .ToList();
+
+            if (selectedExamples.Count == 0)
+            {
+                _aiError = "Please select at least one training example.";
+                return;
+            }
+
+            // Validate XSLT selection
+            if (string.IsNullOrEmpty(_selectedAiXslt))
+            {
+                _aiError = "Please select an XSLT transformation file.";
+                return;
+            }
+
+            // Read and transform source XML
+            var sourceXmlContent = await File.ReadAllTextAsync(SelectedSourceXml);
+
+            // Read XSLT file
+            var xsltContent = await File.ReadAllTextAsync(_selectedAiXslt);
+
+            // Transform with proper options and file path for include resolution
+            Logger.LogInformation("Transforming source XML with XSLT: {Xslt}", _selectedAiXslt);
+            var transformResult = await XsltTransformationService.TransformAsync(
+                sourceXmlContent,
+                xsltContent,
+                new TransformationOptions
+                {
+                    UseXslt3Service = true,
+                    NormalizeHeaders = false
+                },
+                _selectedAiXslt  // Pass file path for module resolution
+            );
+
+            if (!transformResult.IsSuccess)
+            {
+                _aiError = $"XSLT transformation failed: {transformResult.ErrorMessage}";
+                return;
+            }
+
+            // Log request parameters before generation
+            var selectedExamplePaths = _exampleHierarchies
+                .Where(e => e.IsSelected)
+                .Select(e => e.Path)
+                .ToList();
+
+            HierarchyRequestLogger.LogRequest(
+                SelectedProject ?? string.Empty,
+                SelectedSourceXml ?? string.Empty,
+                _selectedAiXslt,
+                selectedExamplePaths
+            );
+
+            // Temporarily set configuration to LLM mode
+            Environment.SetEnvironmentVariable("HierarchyGeneration__Mode", "LLM");
+
+            // Generate hierarchy with AI
+            Logger.LogInformation("Generating hierarchy with {ModelName} using {Count} examples",
+                _selectedAiModel, selectedExamples.Count);
+            var proposal = await HierarchyGenerator.GenerateHierarchyAsync(
+                normalizedXml: transformResult.OutputContent,
+                exampleHierarchies: selectedExamples,
+                modelName: _selectedAiModel,
+                cancellationToken: CancellationToken.None
+            );
+
+            // Store validation result for UI display
+            _validationResult = proposal.ValidationResult;
+
+            // Convert HierarchyProposal to HierarchyStructure and load into editor
+            var hierarchyStructure = proposal.ToHierarchyStructure();
+            CurrentHierarchy = hierarchyStructure;
+            HasChanges = true;
+            _isAiGenerated = true;  // Mark this hierarchy as AI-generated
+            _isRuleBasedGenerated = false;  // Not rule-based
+
+            // Show Test API button after generation completes
+            _showTestApiButton = true;
+
+            // Close modal
+            _showAiModal = false;
+
+            // Only show warnings/errors - no success toast
+            Logger.LogInformation("AI generated hierarchy with {Count} items, confidence: {Confidence}%",
+                proposal.TotalItems, proposal.OverallConfidence);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "AI hierarchy generation failed");
+            _aiError = $"Generation failed: {ex.Message}";
+        }
+        finally
+        {
+            // Reset environment variable
+            Environment.SetEnvironmentVariable("HierarchyGeneration__Mode", null);
+            _isGeneratingAi = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Get full paths of currently selected training hierarchies
+    /// </summary>
+    private List<string> GetSelectedHierarchyPaths()
+    {
+        return _exampleHierarchies
+            .Where(e => e.IsSelected)
+            .Select(e => e.Path)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Restore training hierarchy selections from saved paths
+    /// </summary>
+    private void RestoreTrainingSelections(List<string> paths)
+    {
+        foreach (var example in _exampleHierarchies)
+        {
+            if (paths.Contains(example.Path))
+            {
+                example.IsSelected = true;
+
+                // Preload content for selected examples
+                if (example.Content == null)
+                {
+                    try
+                    {
+                        example.Content = File.ReadAllText(example.Path);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError(ex, "Failed to load saved training hierarchy: {Path}", example.Path);
+                        example.IsSelected = false;
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Opens the hierarchy test API in a new window with the last generation parameters
+    /// </summary>
+    private async Task OpenTestApi()
+    {
+        try
+        {
+            var lastRequest = HierarchyRequestLogger.GetLastRequest();
+
+            if (lastRequest == null)
+            {
+                Logger.LogWarning("No last request parameters available");
+                return;
+            }
+
+            // Build test URL with parameters
+            var testUrl = $"http://localhost:8085/hierarchy-test-api?project={Uri.EscapeDataString(lastRequest.Project)}&sourceXml={Uri.EscapeDataString(lastRequest.SourceXml)}&xslt={Uri.EscapeDataString(lastRequest.Xslt)}&examples={Uri.EscapeDataString(lastRequest.Examples)}";
+
+            Logger.LogInformation("Opening test API with URL: {Url}", testUrl);
+
+            // Open in new window using JavaScript
+            await JSRuntime.InvokeVoidAsync("open", testUrl, "_blank");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to open test API");
+            ToastNotification.ShowError($"Failed to open test API: {ex.Message}");
+        }
+    }
+
+    // Rule-Based Generation Methods
+
+    private void ShowRuleBasedModal()
+    {
+        _ruleBasedError = null;
+        _showRuleBasedModal = true;
+
+        // Load XSLT files
+        LoadXsltFiles();
+
+        // Smart default selection based on source XML filename
+        if (_availableXsltFiles.Any() && !string.IsNullOrEmpty(SelectedSourceXml))
+        {
+            var sourceFileName = Path.GetFileName(SelectedSourceXml).ToLowerInvariant();
+            if (sourceFileName.Contains("docling"))
+            {
+                _selectedRuleBasedXslt = _availableXsltFiles.FirstOrDefault(f => f.Contains("docling/transformation.xslt")) ?? string.Empty;
+            }
+            else
+            {
+                _selectedRuleBasedXslt = _availableXsltFiles.FirstOrDefault(f => f.Contains("adobe/transformation.xslt")) ?? string.Empty;
+            }
+        }
+
+        StateHasChanged();
+    }
+
+    private void CloseRuleBasedModal()
+    {
+        _showRuleBasedModal = false;
+        _ruleBasedError = null;
+        _genericLogs.Clear();
+        _technicalLogs.Clear();
+        _generationStats = null;
+        _showTechnicalLogs = false;
+        StateHasChanged();
+    }
+
+    private async Task GenerateWithRules()
+    {
+        _isGeneratingRuleBased = true;
+        _ruleBasedError = null;
+
+        try
+        {
+            // Verify we have source XML selected
+            if (string.IsNullOrEmpty(SelectedSourceXml))
+            {
+                _ruleBasedError = "Please select a source XML file first.";
+                return;
+            }
+
+            // Validate XSLT selection
+            if (string.IsNullOrEmpty(_selectedRuleBasedXslt))
+            {
+                _ruleBasedError = "Please select an XSLT transformation file.";
+                return;
+            }
+
+            // Read and transform source XML
+            var sourceXmlContent = await File.ReadAllTextAsync(SelectedSourceXml);
+
+            // Read XSLT file
+            var xsltContent = await File.ReadAllTextAsync(_selectedRuleBasedXslt);
+
+            // Transform with proper options and file path for include resolution
+            Logger.LogInformation("Transforming source XML with XSLT: {Xslt}", _selectedRuleBasedXslt);
+            var transformResult = await XsltTransformationService.TransformAsync(
+                sourceXmlContent,
+                xsltContent,
+                new TransformationOptions
+                {
+                    UseXslt3Service = true,
+                    NormalizeHeaders = false
+                },
+                _selectedRuleBasedXslt  // Pass file path for module resolution
+            );
+
+            if (!transformResult.IsSuccess)
+            {
+                _ruleBasedError = $"XSLT transformation failed: {transformResult.ErrorMessage}";
+                return;
+            }
+
+            // Generate hierarchy with rule-based generator (no examples needed)
+            Logger.LogInformation("Generating hierarchy with rule-based generator");
+
+            // Temporarily set configuration to RuleBased mode
+            Environment.SetEnvironmentVariable("HierarchyGeneration__Mode", "RuleBased");
+
+            var proposal = await HierarchyGenerator.GenerateHierarchyAsync(
+                normalizedXml: transformResult.OutputContent,
+                exampleHierarchies: new List<string>(),  // Empty list for rule-based
+                modelName: string.Empty,  // Not used for rule-based
+                cancellationToken: CancellationToken.None
+            );
+
+            // Store validation result for UI display (rule-based shouldn't hallucinate)
+            _validationResult = proposal.ValidationResult;
+
+            // Extract logs and statistics from the generation result
+            if (proposal.RuleBasedGenerationResult != null)
+            {
+                _genericLogs = proposal.RuleBasedGenerationResult.GenericLogs;
+                _technicalLogs = proposal.RuleBasedGenerationResult.TechnicalLogs;
+                _generationStats = proposal.RuleBasedGenerationResult.Statistics;
+
+                // Save logs to context files for debugging
+                await SaveGenerationLogsAsync();
+
+                // Force UI update to show logs
+                StateHasChanged();
+            }
+
+            // Convert HierarchyProposal to HierarchyStructure and load into editor
+            var hierarchyStructure = proposal.ToHierarchyStructure();
+            CurrentHierarchy = hierarchyStructure;
+            HasChanges = true;
+            _isAiGenerated = false;  // Mark this hierarchy as NOT AI-generated
+            _isRuleBasedGenerated = true;  // Mark this hierarchy as rule-based generated
+
+            // Don't show Test API button for rule-based
+            _showTestApiButton = false;
+
+            // Switch to Manual mode to show the generated hierarchy in editor
+            _currentMode = HierarchyMode.Manual;
+            // Don't call LoadManualModeHeadersAsync() - it would overwrite the generated hierarchy!
+            // The generated hierarchy is already in CurrentHierarchy, ready for editing.
+
+            // Populate _manualHierarchyItems from the generated hierarchy for display
+            if (CurrentHierarchy?.Root?.SubItems != null && CurrentHierarchy.Root.SubItems.Any())
+            {
+                _manualHierarchyItems = CurrentHierarchy.Root.SubItems.ToList();
+                AssignSequentialOrderToTree(_manualHierarchyItems);
+            }
+            else
+            {
+                _manualHierarchyItems = new List<HierarchyItem>();
+            }
+
+            // DON'T close modal - let user see the logs and stats
+            // They can close it manually or click "View Hierarchy"
+
+            Logger.LogInformation("Rule-based hierarchy generated with {Count} items", proposal.TotalItems);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Rule-based hierarchy generation failed");
+            _ruleBasedError = $"Generation failed: {ex.Message}";
+        }
+        finally
+        {
+            // Reset environment variable
+            Environment.SetEnvironmentVariable("HierarchyGeneration__Mode", null);
+            _isGeneratingRuleBased = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Saves generation logs to context files in data/_work/ for debugging
+    /// </summary>
+    private async Task SaveGenerationLogsAsync()
+    {
+        try
+        {
+            var workDir = Path.Combine("data", "_work");
+
+            // Ensure directory exists
+            if (!Directory.Exists(workDir))
+            {
+                Directory.CreateDirectory(workDir);
+            }
+
+            // Save technical logs
+            if (_technicalLogs.Any())
+            {
+                var technicalLogPath = Path.Combine(workDir, "_generation-technical.log");
+                var technicalContent = string.Join(Environment.NewLine, _technicalLogs);
+                await File.WriteAllTextAsync(technicalLogPath, technicalContent);
+                Logger.LogDebug("Saved technical logs to {Path}", technicalLogPath);
+            }
+
+            // Save generic logs
+            if (_genericLogs.Any())
+            {
+                var genericLogPath = Path.Combine(workDir, "_generation-generic.log");
+                var genericContent = string.Join(Environment.NewLine, _genericLogs);
+                await File.WriteAllTextAsync(genericLogPath, genericContent);
+                Logger.LogDebug("Saved generic logs to {Path}", genericLogPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Don't fail the generation if log writing fails
+            Logger.LogError(ex, "Failed to save generation logs to disk");
+        }
+    }
+
+    // Manual Mode Methods
+
+    private async Task ChangeMode(HierarchyMode newMode)
+    {
+        _currentMode = newMode;
+        _lastClickedOrder = null;  // Reset anchor when changing modes
+
+        // Save the selected mode to localStorage
+        await SaveModeToLocalStorage(newMode);
+
+        if (newMode == HierarchyMode.Manual)
+        {
+            await LoadManualModeHeadersAsync();
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task LoadManualModeHeadersAsync()
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(SelectedSourceXml))
+            {
+                _manualHeaders = null;
+                return;
+            }
+
+            // Transform source XML to normalized XML first
+            var sourceXmlContent = await File.ReadAllTextAsync(SelectedSourceXml);
+
+            // Determine XSLT path using XsltPathResolver utility
+            var sourceFileName = Path.GetFileName(SelectedSourceXml);
+            var xsltPath = PdfConversion.Utils.XsltPathResolver.GetTransformationPath(sourceFileName);
+
+            var xsltContent = await File.ReadAllTextAsync(xsltPath);
+
+            var transformResult = await XsltTransformationService.TransformAsync(
+                sourceXmlContent,
+                xsltContent,
+                new TransformationOptions { UseXslt3Service = true, NormalizeHeaders = false },
+                xsltPath
+            );
+
+            if (!transformResult.IsSuccess)
+            {
+                Logger.LogError("Failed to transform XML for Manual Mode: {Error}", transformResult.ErrorMessage);
+                ToastNotification.ShowError($"Failed to transform XML: {transformResult.ErrorMessage}");
+                return;
+            }
+
+            // Save normalized XML to temp file for header extraction
+            var tempNormalizedPath = Path.Combine(Path.GetTempPath(), $"manual_mode_{Guid.NewGuid()}.xml");
+            await File.WriteAllTextAsync(tempNormalizedPath, transformResult.OutputContent);
+
+            // Extract headers
+            _manualHeaders = await HeaderExtractionService.ExtractHeadersAsync(tempNormalizedPath);
+
+            // Convert to hierarchy for tree display
+            _manualHierarchyItems = ManualHierarchyBuilder.ConvertToHierarchy(_manualHeaders);
+
+            // Assign sequential order for display badges
+            AssignSequentialOrderToTree(_manualHierarchyItems);
+
+            // Sync to CurrentHierarchy for saving
+            SyncManualHierarchyToCurrentHierarchy();
+
+            Logger.LogInformation("Loaded {Count} headers for Manual Mode", _manualHeaders.Count);
+
+            StateHasChanged();
+
+            // Clean up temp file
+            File.Delete(tempNormalizedPath);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load headers for Manual Mode");
+            ToastNotification.ShowError($"Failed to load headers: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Syncs the manual hierarchy tree to CurrentHierarchy for saving.
+    /// Converts List<HierarchyItem> to HierarchyStructure format.
+    /// </summary>
+    private void SyncManualHierarchyToCurrentHierarchy()
+    {
+        if (_manualHierarchyItems == null || !_manualHierarchyItems.Any())
+        {
+            CurrentHierarchy = null;
+            return;
+        }
+
+        // Create a root item to contain all manual hierarchy items
+        var root = new HierarchyItem
+        {
+            Id = "report-root",
+            LinkName = "Annual Report 2024",
+            Level = 0,
+            DataRef = "report-root.xml",
+            Path = "/",
+            SubItems = _manualHierarchyItems
+        };
+
+        CurrentHierarchy = new HierarchyStructure
+        {
+            Root = root,
+            OverallConfidence = 100, // Manual mode is always 100% confident
+            Uncertainties = new List<HierarchyItem>() // No uncertainties in manual mode
+        };
+
+        Logger.LogDebug("Synced manual hierarchy to CurrentHierarchy ({Count} root items)", _manualHierarchyItems.Count);
+    }
+
+    private void ToggleHeaderSelection(int originalOrder, bool shiftKey = false)
+    {
+        if (shiftKey && _lastClickedOrder.HasValue)
+        {
+            // Range selection: select all items between anchor and clicked
+            var start = Math.Min(_lastClickedOrder.Value, originalOrder);
+            var end = Math.Max(_lastClickedOrder.Value, originalOrder);
+
+            for (int i = start; i <= end; i++)
+            {
+                if (_manualHeaders?.Any(h => h.OriginalOrder == i) == true)
+                {
+                    _selectedHeaderOrders.Add(i);
+                }
+            }
+
+            Logger.LogDebug("Range selected from {Start} to {End}", start, end);
+        }
+        else
+        {
+            // Single selection: toggle
+            if (_selectedHeaderOrders.Contains(originalOrder))
+            {
+                _selectedHeaderOrders.Remove(originalOrder);
+            }
+            else
+            {
+                _selectedHeaderOrders.Add(originalOrder);
+            }
+
+            // Update anchor point
+            _lastClickedOrder = originalOrder;
+
+            Logger.LogDebug("Toggled selection for header {Order}", originalOrder);
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task HandleManualItemSelected(HierarchyItem item)
+    {
+        // Toggle selection for multi-select
+        if (_selectedManualItemIds.Contains(item.Id))
+        {
+            _selectedManualItemIds.Remove(item.Id);
+        }
+        else
+        {
+            _selectedManualItemIds.Add(item.Id);
+        }
+
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+
+    private async Task HandleManualItemSelectedWithModifiers(ItemSelectionEventArgs args)
+    {
+        var item = args.Item;
+
+        if (args.ShiftKey && _lastSelectedManualItemId != null)
+        {
+            // Range selection: Select all items between last selected and current
+            var allItemIds = GetAllItemIdsInOrder(_manualHierarchyItems);
+            var lastIndex = allItemIds.IndexOf(_lastSelectedManualItemId);
+            var currentIndex = allItemIds.IndexOf(item.Id);
+
+            Logger.LogDebug("Range selection - lastIndex: {Last}, currentIndex: {Current}", lastIndex, currentIndex);
+
+            if (lastIndex >= 0 && currentIndex >= 0)
+            {
+                var startIndex = Math.Min(lastIndex, currentIndex);
+                var endIndex = Math.Max(lastIndex, currentIndex);
+
+                // Add all items in range to selection (including their children)
+                for (int i = startIndex; i <= endIndex; i++)
+                {
+                    _selectedManualItemIds.Add(allItemIds[i]);
+                }
+                Logger.LogDebug("Added range from {Start} to {End}", startIndex, endIndex);
+            }
+        }
+        else if (args.CtrlKey)
+        {
+            // Toggle individual item selection (and its children)
+            var itemAndChildren = GetItemAndAllDescendantIds(item);
+            Logger.LogDebug("Ctrl-click - item and children count: {Count}", itemAndChildren.Count);
+
+            if (_selectedManualItemIds.Contains(item.Id))
+            {
+                // Deselect item and all its children
+                foreach (var id in itemAndChildren)
+                {
+                    _selectedManualItemIds.Remove(id);
+                }
+                Logger.LogDebug("Deselected item and children");
+            }
+            else
+            {
+                // Select item and all its children
+                foreach (var id in itemAndChildren)
+                {
+                    _selectedManualItemIds.Add(id);
+                }
+            }
+
+            // Update anchor for range selection
+            _lastSelectedManualItemId = item.Id;
+        }
+        else
+        {
+            // Normal click: Toggle if already selected, otherwise clear and select
+            var itemAndChildren = GetItemAndAllDescendantIds(item);
+            Logger.LogDebug("Normal click - item and children count: {Count}", itemAndChildren.Count);
+
+            // Check if this is the only selected item (and all its children are selected)
+            var isOnlySelection = _selectedManualItemIds.Count == itemAndChildren.Count
+                && itemAndChildren.All(id => _selectedManualItemIds.Contains(id));
+
+            Logger.LogDebug("Is only selection: {IsOnly}", isOnlySelection);
+
+            if (isOnlySelection)
+            {
+                // Toggle off: Deselect everything
+                _selectedManualItemIds.Clear();
+                _lastSelectedManualItemId = null;
+                Logger.LogDebug("Toggled off - cleared all selections");
+            }
+            else
+            {
+                // Select this item and its children
+                _selectedManualItemIds.Clear();
+                foreach (var id in itemAndChildren)
+                {
+                    _selectedManualItemIds.Add(id);
+                }
+
+                // Update anchor for range selection
+                _lastSelectedManualItemId = item.Id;
+            }
+        }
+
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Gets all item IDs in tree order (depth-first traversal).
+    /// Used for range selection to maintain document order.
+    /// </summary>
+    private List<string> GetAllItemIdsInOrder(List<HierarchyItem>? items)
+    {
+        var result = new List<string>();
+        if (items == null) return result;
+
+        void Traverse(List<HierarchyItem> children)
+        {
+            foreach (var item in children)
+            {
+                result.Add(item.Id);
+                if (item.SubItems != null && item.SubItems.Any())
+                {
+                    Traverse(item.SubItems);
+                }
+            }
+        }
+
+        Traverse(items);
+        return result;
+    }
+
+    /// <summary>
+    /// Gets the item ID and all descendant IDs (recursively).
+    /// Used for auto-selecting children when selecting a parent.
+    /// </summary>
+    private List<string> GetItemAndAllDescendantIds(HierarchyItem item)
+    {
+        var result = new List<string> { item.Id };
+
+        void CollectDescendants(HierarchyItem parent)
+        {
+            if (parent.SubItems != null && parent.SubItems.Any())
+            {
+                foreach (var child in parent.SubItems)
+                {
+                    result.Add(child.Id);
+                    CollectDescendants(child);
+                }
+            }
+        }
+
+        CollectDescendants(item);
+        return result;
+    }
+
+    private async Task HandleManualItemEdited(HierarchyItem item)
+    {
+        // Validate that the tree maintains ascending order
+        if (_manualHierarchyItems != null)
+        {
+            var (isValid, validationError) = ValidateAscendingOrder(_manualHierarchyItems);
+            if (!isValid)
+            {
+                Logger.LogWarning("Tree edit resulted in invalid order: {Error}", validationError);
+                ToastNotification.ShowError($"Warning: {validationError}");
+            }
+        }
+
+        // Tree structure changed - rebuild _manualHeaders from tree
+        UpdateManualHeadersFromTree(_manualHierarchyItems);
+
+        // Reassign sequential order after drag and drop
+        AssignSequentialOrderToTree(_manualHierarchyItems);
+
+        HasChanges = true;
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+
+    private void UpdateManualHeadersFromTree(List<HierarchyItem>? tree)
+    {
+        if (tree == null || _manualHeaders == null) return;
+
+        // Walk tree and update IndentLevel for each header
+        void UpdateLevel(List<HierarchyItem> items, int level)
+        {
+            foreach (var item in items)
+            {
+                // Look up header by ID directly (works with both "manual_X" and loaded IDs)
+                var header = _manualHeaders.FirstOrDefault(h => h.Id == item.Id);
+                if (header != null)
+                {
+                    header.IndentLevel = level;
+                }
+
+                if (item.SubItems != null && item.SubItems.Any())
+                {
+                    UpdateLevel(item.SubItems, level + 1);
+                }
+            }
+        }
+
+        UpdateLevel(tree, 0);
+    }
+
+    private List<int> GetOrdersFromTreeSelection(HashSet<string> selectedIds)
+    {
+        // Filter to only include "top-level" selections (no selected ancestors)
+        // This prevents passing both parent and children to ManualHierarchyBuilder,
+        // which already handles moving children with their parent
+        var topLevelIds = FilterToTopLevelSelections(selectedIds);
+
+        // Look up the DocumentHeader objects by ID and get their OriginalOrder
+        // This works for both generated IDs (manual_X) and loaded IDs (like "statement-of-cash-flows")
+        var result = new List<int>();
+
+        if (_manualHeaders != null)
+        {
+            foreach (var id in topLevelIds)
+            {
+                var header = _manualHeaders.FirstOrDefault(h => h.Id == id);
+                if (header != null)
+                {
+                    result.Add(header.OriginalOrder);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Filters selected IDs to only include items whose parent/ancestors are not also selected.
+    /// This prevents duplicate processing when a parent and its children are both selected.
+    /// </summary>
+    private HashSet<string> FilterToTopLevelSelections(HashSet<string> selectedIds)
+    {
+        if (_manualHierarchyItems == null)
+            return selectedIds;
+
+        var result = new HashSet<string>();
+
+        // Build a map of item ID -> parent ID for fast lookup
+        var itemToParent = new Dictionary<string, string?>();
+        BuildParentMap(_manualHierarchyItems, null, itemToParent);
+
+        // For each selected ID, check if any ancestor is also selected
+        foreach (var id in selectedIds)
+        {
+            if (!HasSelectedAncestor(id, selectedIds, itemToParent))
+            {
+                result.Add(id);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Recursively builds a map of item ID -> parent ID.
+    /// </summary>
+    private void BuildParentMap(List<HierarchyItem> items, string? parentId, Dictionary<string, string?> map)
+    {
+        foreach (var item in items)
+        {
+            map[item.Id] = parentId;
+
+            if (item.SubItems != null && item.SubItems.Any())
+            {
+                BuildParentMap(item.SubItems, item.Id, map);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Checks if any ancestor of the given item ID is in the selected set.
+    /// </summary>
+    private bool HasSelectedAncestor(string itemId, HashSet<string> selectedIds, Dictionary<string, string?> itemToParent)
+    {
+        // Walk up the parent chain
+        var currentId = itemId;
+        while (itemToParent.TryGetValue(currentId, out var parentId) && parentId != null)
+        {
+            if (selectedIds.Contains(parentId))
+            {
+                return true; // Found a selected ancestor
+            }
+            currentId = parentId;
+        }
+
+        return false; // No selected ancestors
+    }
+
+    /// <summary>
+    /// Indents an item in the tree structure (makes it a child of previous sibling).
+    /// Updates Level property for item and all descendants.
+    /// Validates that operation maintains ascending OriginalOrder.
+    /// </summary>
+    private (bool success, string? errorMessage) IndentItemInTree(string itemId, List<HierarchyItem> rootItems)
+    {
+        // Clone tree for validation
+        var testTree = CloneHierarchyTree(rootItems);
+
+        // Find the item and its parent/siblings IN THE CLONE
+        HierarchyItem? testItem = null;
+        List<HierarchyItem>? testSiblings = null;
+        HierarchyItem? testPreviousSibling = null;
+
+        bool FindItemInClone(List<HierarchyItem> items, HierarchyItem? parent)
+        {
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (items[i].Id == itemId)
+                {
+                    testItem = items[i];
+                    testSiblings = items;
+                    testPreviousSibling = i > 0 ? items[i - 1] : null;
+                    return true;
+                }
+
+                if (items[i].SubItems != null && FindItemInClone(items[i].SubItems, items[i]))
+                    return true;
+            }
+            return false;
+        }
+
+        if (!FindItemInClone(testTree, null) || testItem == null || testSiblings == null)
+            return (false, "Item not found in tree");
+
+        if (testPreviousSibling == null)
+            return (false, "Cannot indent first item - no previous sibling exists");
+
+        // Perform operation on clone
+        testSiblings.Remove(testItem);
+        testPreviousSibling.SubItems ??= new List<HierarchyItem>();
+        testPreviousSibling.SubItems.Add(testItem);
+        AdjustLevels(testItem, +1);
+
+        // Validate result
+        var (isValid, validationError) = ValidateAscendingOrder(testTree);
+        if (!isValid)
+        {
+            return (false, validationError);
+        }
+
+        // Validation passed - now perform on real tree
+        HierarchyItem? item = null;
+        List<HierarchyItem>? siblings = null;
+        HierarchyItem? previousSibling = null;
+
+        bool FindItem(List<HierarchyItem> items, HierarchyItem? parent)
+        {
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (items[i].Id == itemId)
+                {
+                    item = items[i];
+                    siblings = items;
+                    previousSibling = i > 0 ? items[i - 1] : null;
+                    return true;
+                }
+
+                if (items[i].SubItems != null && FindItem(items[i].SubItems, items[i]))
+                    return true;
+            }
+            return false;
+        }
+
+        FindItem(rootItems, null);
+
+        // Apply changes to real tree
+        siblings!.Remove(item!);
+        previousSibling!.SubItems ??= new List<HierarchyItem>();
+        previousSibling.SubItems.Add(item);
+        AdjustLevels(item, +1);
+
+        return (true, null);
+    }
+
+    /// <summary>
+    /// Outdents an item in the tree structure (makes it a sibling of its parent).
+    /// Updates Level property for item and all descendants.
+    /// Validates that operation maintains ascending OriginalOrder.
+    /// </summary>
+    private (bool success, string? errorMessage) OutdentItemInTree(string itemId, List<HierarchyItem> rootItems)
+    {
+        // Clone tree for validation
+        var testTree = CloneHierarchyTree(rootItems);
+
+        // Find the item, its parent, and grandparent IN THE CLONE
+        HierarchyItem? testItem = null;
+        HierarchyItem? testParent = null;
+        List<HierarchyItem>? testParentSiblings = null;
+
+        bool FindItemInClone(List<HierarchyItem> items, HierarchyItem? currentParent, List<HierarchyItem>? grandparentChildren)
+        {
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (items[i].Id == itemId)
+                {
+                    testItem = items[i];
+                    testParent = currentParent;
+                    testParentSiblings = grandparentChildren;
+                    return true;
+                }
+
+                if (items[i].SubItems != null && FindItemInClone(items[i].SubItems, items[i], items))
+                    return true;
+            }
+            return false;
+        }
+
+        if (!FindItemInClone(testTree, null, null) || testItem == null)
+            return (false, "Item not found in tree");
+
+        if (testParent == null)
+            return (false, "Cannot outdent root-level item");
+
+        // Perform operation on clone
+        testParent.SubItems?.Remove(testItem);
+        if (testParentSiblings != null)
+        {
+            var parentIndex = testParentSiblings.IndexOf(testParent);
+            testParentSiblings.Insert(parentIndex + 1, testItem);
+        }
+        else
+        {
+            testTree.Add(testItem);
+        }
+        AdjustLevels(testItem, -1);
+
+        // Validate result
+        var (isValid, validationError) = ValidateAscendingOrder(testTree);
+        if (!isValid)
+        {
+            return (false, validationError);
+        }
+
+        // Validation passed - now perform on real tree
+        HierarchyItem? item = null;
+        HierarchyItem? parent = null;
+        List<HierarchyItem>? parentSiblings = null;
+
+        bool FindItem(List<HierarchyItem> items, HierarchyItem? currentParent, List<HierarchyItem>? grandparentChildren)
+        {
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (items[i].Id == itemId)
+                {
+                    item = items[i];
+                    parent = currentParent;
+                    parentSiblings = grandparentChildren;
+                    return true;
+                }
+
+                if (items[i].SubItems != null && FindItem(items[i].SubItems, items[i], items))
+                    return true;
+            }
+            return false;
+        }
+
+        FindItem(rootItems, null, null);
+
+        // Apply changes to real tree
+        parent!.SubItems?.Remove(item!);
+        if (parentSiblings != null)
+        {
+            var parentIndex = parentSiblings.IndexOf(parent);
+            parentSiblings.Insert(parentIndex + 1, item);
+        }
+        else
+        {
+            rootItems.Add(item);
+        }
+        AdjustLevels(item, -1);
+
+        return (true, null);
+    }
+
+    /// <summary>
+    /// Recursively adjusts Level property for item and all descendants.
+    /// </summary>
+    private void AdjustLevels(HierarchyItem item, int adjustment)
+    {
+        item.Level += adjustment;
+
+        if (item.SubItems != null)
+        {
+            foreach (var child in item.SubItems)
+            {
+                AdjustLevels(child, adjustment);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Validates that the tree maintains ascending OriginalOrder when read top-to-bottom.
+    /// Returns true if order is valid, false with error message if broken.
+    /// </summary>
+    private (bool isValid, string? errorMessage) ValidateAscendingOrder(List<HierarchyItem> rootItems)
+    {
+        var orders = new List<int>();
+
+        void CollectOrders(List<HierarchyItem> items)
+        {
+            foreach (var item in items)
+            {
+                // Extract OriginalOrder from Id (format: "manual_{OriginalOrder}")
+                if (item.Id.StartsWith("manual_") && int.TryParse(item.Id.Replace("manual_", ""), out var order))
+                {
+                    orders.Add(order);
+                }
+
+                if (item.SubItems != null && item.SubItems.Any())
+                {
+                    CollectOrders(item.SubItems);
+                }
+            }
+        }
+
+        CollectOrders(rootItems);
+
+        // Check if strictly ascending
+        for (int i = 1; i < orders.Count; i++)
+        {
+            if (orders[i] <= orders[i - 1])
+            {
+                return (false, $"Operation would break document order: item #{orders[i]} cannot come after item #{orders[i - 1]}. Items must maintain their original document sequence from top to bottom.");
+            }
+        }
+
+        return (true, null);
+    }
+
+    /// <summary>
+    /// Deep clones a hierarchy tree for validation purposes.
+    /// </summary>
+    private List<HierarchyItem> CloneHierarchyTree(List<HierarchyItem> items)
+    {
+        var clones = new List<HierarchyItem>();
+
+        foreach (var item in items)
+        {
+            clones.Add(CloneItem(item));
+        }
+
+        return clones;
+    }
+
+    /// <summary>
+    /// Deep clones a single hierarchy item and its descendants.
+    /// </summary>
+    private HierarchyItem CloneItem(HierarchyItem item)
+    {
+        var clone = new HierarchyItem
+        {
+            Id = item.Id,
+            LinkName = item.LinkName,
+            Level = item.Level,
+            DataRef = item.DataRef,
+            Path = item.Path,
+            Confidence = item.Confidence,
+            HeaderType = item.HeaderType,
+            SequentialOrder = item.SequentialOrder,
+            IsHallucinated = item.IsHallucinated,
+            IsUncertain = item.IsUncertain,
+            SubItems = new List<HierarchyItem>()
+        };
+
+        if (item.SubItems != null)
+        {
+            foreach (var child in item.SubItems)
+            {
+                clone.SubItems.Add(CloneItem(child));
+            }
+        }
+
+        return clone;
+    }
+
+    /// <summary>
+    /// Checks if the current selection can be indented without validation errors.
+    /// </summary>
+    private bool CanIndentCurrentSelection()
+    {
+        if (_manualHeaders == null || !_selectedManualItemIds.Any())
+        {
+            return false;
+        }
+
+        var selectedOrders = GetOrdersFromTreeSelection(_selectedManualItemIds);
+        return ManualHierarchyBuilder.CanIndentItems(_manualHeaders, selectedOrders);
+    }
+
+    /// <summary>
+    /// Checks if the current selection can be outdented without validation errors.
+    /// </summary>
+    private bool CanOutdentCurrentSelection()
+    {
+        if (_manualHeaders == null || !_selectedManualItemIds.Any())
+        {
+            return false;
+        }
+
+        var selectedOrders = GetOrdersFromTreeSelection(_selectedManualItemIds);
+        return ManualHierarchyBuilder.CanOutdentItems(_manualHeaders, selectedOrders);
+    }
+
+    private void IndentSelectedHeaders()
+    {
+        if (_manualHeaders == null || !_selectedManualItemIds.Any() || _manualHierarchyItems == null)
+            return;
+
+        try
+        {
+            // Get top-level selections (without their children)
+            var topLevelIds = FilterToTopLevelSelections(_selectedManualItemIds);
+
+            // Indent each selected item in the tree (and its descendants)
+            foreach (var itemId in topLevelIds)
+            {
+                var (success, errorMessage) = IndentItemInTree(itemId, _manualHierarchyItems);
+                if (!success)
+                {
+                    ToastNotification.ShowError(errorMessage ?? "Failed to indent item");
+                    Logger.LogWarning("Indent operation failed: {ErrorMessage}", errorMessage);
+                    return;
+                }
+            }
+
+            // Sync flat list from tree structure
+            UpdateManualHeadersFromTree(_manualHierarchyItems);
+
+            // Reassign sequential order after operation
+            AssignSequentialOrderToTree(_manualHierarchyItems);
+
+            // Sync to CurrentHierarchy for saving
+            SyncManualHierarchyToCurrentHierarchy();
+
+            HasChanges = true;
+            StateHasChanged();
+            Logger.LogInformation("Indented {Count} items", topLevelIds.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to indent headers");
+            ToastNotification.ShowError($"Failed to indent: {ex.Message}");
+        }
+    }
+
+    private void OutdentSelectedHeaders()
+    {
+        if (_manualHeaders == null || !_selectedManualItemIds.Any() || _manualHierarchyItems == null)
+            return;
+
+        try
+        {
+            // Get top-level selections (without their children)
+            var topLevelIds = FilterToTopLevelSelections(_selectedManualItemIds);
+
+            // Outdent each selected item in the tree (and its descendants)
+            foreach (var itemId in topLevelIds)
+            {
+                var (success, errorMessage) = OutdentItemInTree(itemId, _manualHierarchyItems);
+                if (!success)
+                {
+                    ToastNotification.ShowError(errorMessage ?? "Failed to outdent item");
+                    Logger.LogWarning("Outdent operation failed: {ErrorMessage}", errorMessage);
+                    return;
+                }
+            }
+
+            // Sync flat list from tree structure
+            UpdateManualHeadersFromTree(_manualHierarchyItems);
+
+            // Reassign sequential order after operation
+            AssignSequentialOrderToTree(_manualHierarchyItems);
+
+            // Sync to CurrentHierarchy for saving
+            SyncManualHierarchyToCurrentHierarchy();
+
+            HasChanges = true;
+            StateHasChanged();
+            Logger.LogInformation("Outdented {Count} items", topLevelIds.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to outdent headers");
+            ToastNotification.ShowError($"Failed to outdent: {ex.Message}");
+        }
+    }
+
+    private void ExcludeSelectedHeaders()
+    {
+        if (_manualHeaders == null || !_selectedManualItemIds.Any())
+            return;
+
+        try
+        {
+            // Sync current tree state to _manualHeaders to preserve indent/outdent changes
+            UpdateManualHeadersFromTree(_manualHierarchyItems);
+
+            var selectedOrders = GetOrdersFromTreeSelection(_selectedManualItemIds);
+
+            if (selectedOrders.Count == 0)
+            {
+                ToastNotification.ShowWarning("No valid items to exclude");
+                return;
+            }
+
+            ManualHierarchyBuilder.ExcludeItems(_manualHeaders, selectedOrders);
+
+            // Rebuild tree (excluded items won't appear, but indent levels are preserved)
+            _manualHierarchyItems = ManualHierarchyBuilder.ConvertToHierarchy(_manualHeaders);
+
+            // Assign sequential order for display badges
+            AssignSequentialOrderToTree(_manualHierarchyItems);
+
+            // Sync to CurrentHierarchy for saving
+            SyncManualHierarchyToCurrentHierarchy();
+
+            _selectedManualItemIds.Clear();
+            HasChanges = true;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to exclude headers");
+            ToastNotification.ShowError($"Failed to exclude: {ex.Message}");
+        }
+    }
+
+    private void IncludeAllHeaders()
+    {
+        if (_manualHeaders == null)
+            return;
+
+        try
+        {
+            // Sync current tree state to _manualHeaders to preserve indent/outdent changes
+            UpdateManualHeadersFromTree(_manualHierarchyItems);
+
+            ManualHierarchyBuilder.IncludeAllItems(_manualHeaders);
+            _manualHierarchyItems = ManualHierarchyBuilder.ConvertToHierarchy(_manualHeaders);
+
+            // Assign sequential order for display badges
+            AssignSequentialOrderToTree(_manualHierarchyItems);
+
+            // Sync to CurrentHierarchy for saving
+            SyncManualHierarchyToCurrentHierarchy();
+
+            _selectedManualItemIds.Clear();
+
+            HasChanges = true;
+            StateHasChanged();
+            Logger.LogInformation("Reset all headers to flat list");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to reset headers");
+            ToastNotification.ShowError($"Failed to reset: {ex.Message}");
+        }
+    }
+
+    private void DeselectAllHeaders()
+    {
+        _selectedManualItemIds.Clear();
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Recursively expands all items in the hierarchy tree
+    /// </summary>
+    private void ExpandAllItems()
+    {
+        if (_manualHierarchyItems == null) return;
+
+        foreach (var item in _manualHierarchyItems)
+        {
+            ExpandItemRecursive(item);
+        }
+
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Recursively collapses all items in the hierarchy tree
+    /// </summary>
+    private void CollapseAllItems()
+    {
+        if (_manualHierarchyItems == null) return;
+
+        foreach (var item in _manualHierarchyItems)
+        {
+            CollapseItemRecursive(item);
+        }
+
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Helper method to recursively expand an item and all its children
+    /// </summary>
+    private void ExpandItemRecursive(HierarchyItem item)
+    {
+        item.IsExpanded = true;
+
+        foreach (var subItem in item.SubItems)
+        {
+            ExpandItemRecursive(subItem);
+        }
+    }
+
+    /// <summary>
+    /// Helper method to recursively collapse an item and all its children
+    /// </summary>
+    private void CollapseItemRecursive(HierarchyItem item)
+    {
+        item.IsExpanded = false;
+
+        foreach (var subItem in item.SubItems)
+        {
+            CollapseItemRecursive(subItem);
+        }
+    }
+
+    /// <summary>
+    /// Assigns sequential order numbers to all items in the hierarchy tree.
+    /// This enables the visual badges showing item order in the UI.
+    /// </summary>
+    private void AssignSequentialOrderToTree(List<HierarchyItem>? items)
+    {
+        if (items == null) return;
+
+        int sequentialOrder = 1;
+
+        void AssignOrder(List<HierarchyItem> treeItems)
+        {
+            foreach (var item in treeItems)
+            {
+                item.SequentialOrder = sequentialOrder++;
+
+                if (item.SubItems != null && item.SubItems.Any())
+                {
+                    AssignOrder(item.SubItems);
+                }
+            }
+        }
+
+        AssignOrder(items);
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (_currentMode != HierarchyMode.Manual || !_selectedManualItemIds.Any())
+            return;
+
+        // Tab = Indent
+        if (e.Key == "Tab" && !e.ShiftKey)
+        {
+            IndentSelectedHeaders();
+            await Task.CompletedTask;
+        }
+        // Shift+Tab = Outdent
+        else if (e.Key == "Tab" && e.ShiftKey)
+        {
+            OutdentSelectedHeaders();
+            await Task.CompletedTask;
+        }
+        // Delete = Exclude
+        else if (e.Key == "Delete")
+        {
+            ExcludeSelectedHeaders();
+            await Task.CompletedTask;
+        }
+        // Escape = Deselect
+        else if (e.Key == "Escape")
+        {
+            DeselectAllHeaders();
+            await Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Recursively checks if a DataRef exists in the tree, excluding the specified item.
+    /// This ensures we don't flag the item being edited as a duplicate of itself.
+    /// </summary>
+    private bool DataRefExistsInTree(string dataRef, HierarchyItem rootItem, string excludeItemId)
+    {
+        if (rootItem.Id != excludeItemId && rootItem.DataRef == dataRef)
+            return true;
+
+        return rootItem.SubItems.Any(child => DataRefExistsInTree(dataRef, child, excludeItemId));
+    }
+
+    /// <summary>
+    /// Checks if a DataRef is unique across the current hierarchy tree (Manual or Load Existing mode).
+    /// </summary>
+    private bool IsDataRefUniqueInCurrentTree(string dataRef, string excludeItemId)
+    {
+        if (_currentMode == HierarchyMode.Manual)
+        {
+            // Check Manual Mode tree
+            if (_manualHierarchyItems != null)
+            {
+                foreach (var rootItem in _manualHierarchyItems)
+                {
+                    if (DataRefExistsInTree(dataRef, rootItem, excludeItemId))
+                        return false;
+                }
+            }
+        }
+        else
+        {
+            // Check Load Existing Mode tree
+            if (CurrentHierarchy?.Root != null)
+            {
+                if (DataRefExistsInTree(dataRef, CurrentHierarchy.Root, excludeItemId))
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Normalizes all items in the hierarchy tree before saving.
+    /// Ensures unique IDs, unique DataRef filenames, and proper web paths.
+    /// </summary>
+    private void NormalizeHierarchyTree(HierarchyItem rootItem)
+    {
+        var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var usedDataRefs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Recursively normalize all items
+        NormalizeItemRecursive(rootItem, usedIds, usedDataRefs);
+    }
+
+    /// <summary>
+    /// Recursively normalizes a hierarchy item and all its children.
+    /// </summary>
+    private void NormalizeItemRecursive(HierarchyItem item, HashSet<string> usedIds, HashSet<string> usedDataRefs)
+    {
+        // Generate unique ID based on LinkName
+        var baseId = PdfConversion.Utils.FilenameUtils.NormalizeFileName(item.LinkName);
+        var uniqueId = baseId;
+
+        // If ID already used, add suffix
+        if (usedIds.Contains(uniqueId))
+        {
+            var random = new Random();
+            var chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+            var suffix = new string(Enumerable.Repeat(chars, 6)
+                .Select(s => s[random.Next(s.Length)]).ToArray());
+            uniqueId = $"{baseId}-{suffix}";
+        }
+
+        item.Id = uniqueId;
+        usedIds.Add(uniqueId);
+
+        // Generate unique DataRef based on LinkName
+        var baseFilename = PdfConversion.Utils.FilenameUtils.NormalizeFileName(item.LinkName);
+        var uniqueDataRef = $"{baseFilename}.xml";
+
+        // If DataRef already used, add sequential numbering
+        if (usedDataRefs.Contains(uniqueDataRef))
+        {
+            int counter = 1;
+            while (usedDataRefs.Contains($"{baseFilename}-{counter}.xml"))
+            {
+                counter++;
+            }
+            uniqueDataRef = $"{baseFilename}-{counter}.xml";
+        }
+
+        item.DataRef = uniqueDataRef;
+        usedDataRefs.Add(uniqueDataRef);
+
+        // Ensure Path is set to "/"
+        item.Path = "/";
+
+        // Recursively normalize children
+        foreach (var child in item.SubItems)
+        {
+            NormalizeItemRecursive(child, usedIds, usedDataRefs);
+        }
+    }
+
+    // Mode persistence methods
+    private async Task SaveModeToLocalStorage(HierarchyMode mode)
+    {
+        try
+        {
+            var modeString = mode.ToString();
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "hierarchyMode", modeString);
+            Logger.LogInformation("Saved hierarchy mode to localStorage: {Mode}", modeString);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to save mode to localStorage");
+        }
+    }
+
+    private async Task RestoreModeFromLocalStorage()
+    {
+        try
+        {
+            var modeString = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", "hierarchyMode");
+            if (!string.IsNullOrEmpty(modeString))
+            {
+                if (Enum.TryParse<HierarchyMode>(modeString, out var savedMode))
+                {
+                    _currentMode = savedMode;
+                    Logger.LogInformation("Restored hierarchy mode from localStorage: {Mode}", savedMode);
+
+                    // If Manual mode was restored and we have source XML, load the headers
+                    if (savedMode == HierarchyMode.Manual && !string.IsNullOrEmpty(SelectedSourceXml))
+                    {
+                        await LoadManualModeHeadersAsync();
+                    }
+                }
+                else
+                {
+                    Logger.LogWarning("Invalid mode value in localStorage: {Value}", modeString);
+                }
+            }
+            else
+            {
+                Logger.LogInformation("No saved hierarchy mode found in localStorage");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to restore mode from localStorage");
+        }
+    }
+}

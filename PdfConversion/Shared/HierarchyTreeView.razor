@@ -1,0 +1,42 @@
+@using PdfConversion.Models
+
+<div class="hierarchy-tree">
+    @if (RootItem != null)
+    {
+        <HierarchyTreeItem Item="RootItem"
+                          Level="0"
+                          RootItem="RootItem"
+                          OnItemSelected="HandleItemSelected"
+                          OnItemEdited="HandleItemEdited"
+                          OnEditRequest="HandleEditRequest" />
+    }
+</div>
+
+@code {
+    [Parameter]
+    public HierarchyItem? RootItem { get; set; }
+
+    [Parameter]
+    public EventCallback<HierarchyItem> OnItemSelected { get; set; }
+
+    [Parameter]
+    public EventCallback<HierarchyItem> OnItemEdited { get; set; }
+
+    [Parameter]
+    public EventCallback<HierarchyItem> OnEditRequest { get; set; }
+
+    private async Task HandleItemSelected(HierarchyItem item)
+    {
+        await OnItemSelected.InvokeAsync(item);
+    }
+
+    private async Task HandleItemEdited(HierarchyItem item)
+    {
+        await OnItemEdited.InvokeAsync(item);
+    }
+
+    private async Task HandleEditRequest(HierarchyItem item)
+    {
+        await OnEditRequest.InvokeAsync(item);
+    }
+}

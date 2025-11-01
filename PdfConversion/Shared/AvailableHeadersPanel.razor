@@ -1,0 +1,277 @@
+@using PdfConversion.Models
+@using PdfConversion.Services
+@inject IHeaderExtractionService HeaderExtractionService
+@inject ILogger<AvailableHeadersPanel> Logger
+@inject IJSRuntime JSRuntime
+
+<div class="headers-panel">
+    <div class="panel-header">
+        <h5>Available Headers</h5>
+        <span class="header-count">@FilteredHeaders.Count / @AllHeaders.Count</span>
+    </div>
+
+    <div class="panel-toolbar">
+        <div class="search-box">
+            <i class="bi bi-search"></i>
+            <input type="text"
+                   class="form-control form-control-sm"
+                   @bind="SearchText"
+                   @bind:event="oninput"
+                   placeholder="Search headers..." />
+            @if (!string.IsNullOrEmpty(SearchText))
+            {
+                <button class="btn btn-sm btn-link clear-btn" @onclick="ClearSearch">
+                    <i class="bi bi-x"></i>
+                </button>
+            }
+        </div>
+
+        <select class="form-select form-select-sm level-filter" @bind="SelectedLevel">
+            <option value="">All Levels</option>
+            <option value="h1">H1 only</option>
+            <option value="h2">H2 only</option>
+            <option value="h3">H3 only</option>
+            <option value="h4">H4 only</option>
+            <option value="h5">H5 only</option>
+            <option value="h6">H6 only</option>
+        </select>
+    </div>
+
+    <div class="level-summary">
+        @foreach (var level in new[] { "h1", "h2", "h3", "h4", "h5", "h6" })
+        {
+            var count = AllHeaders.Count(h => h.Level == level);
+            if (count > 0)
+            {
+                <span class="level-badge level-@level">@level.ToUpper() (@count)</span>
+            }
+        }
+    </div>
+
+    <div class="headers-list">
+        @if (FilteredHeaders.Any())
+        {
+            @foreach (var header in FilteredHeaders)
+            {
+                <div class="header-item @(header.IsUsed ? "used" : "") @(DraggedHeader == header ? "dragging" : "")"
+                     draggable="@((!header.IsUsed).ToString().ToLower())"
+                     @ondragstart="@(() => OnHeaderDragStart(header))"
+                     @ondragend="OnHeaderDragEnd"
+                     title="@GetHeaderTooltip(header)">
+                    <span class="level-badge level-@header.Level">@header.Level.ToUpper()</span>
+                    <span class="header-title">@header.Title</span>
+                    @if (header.IsUsed)
+                    {
+                        <i class="bi bi-check-circle-fill text-success used-icon"></i>
+                    }
+                </div>
+            }
+        }
+        else
+        {
+            <div class="no-results">
+                <i class="bi bi-inbox"></i>
+                <p>No headers found</p>
+                @if (!string.IsNullOrEmpty(SearchText) || !string.IsNullOrEmpty(SelectedLevel))
+                {
+                    <button class="btn btn-sm btn-link" @onclick="ClearFilters">Clear filters</button>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public string? NormalizedXmlPath { get; set; }
+
+    [Parameter]
+    public string? HierarchyXmlPath { get; set; }
+
+    [Parameter]
+    public EventCallback OnHeadersChanged { get; set; }
+
+    private List<DocumentHeader> AllHeaders { get; set; } = new();
+    private DocumentHeader? DraggedHeader { get; set; }
+
+    private string _searchText = string.Empty;
+    private string SearchText
+    {
+        get => _searchText;
+        set
+        {
+            if (_searchText != value)
+            {
+                _searchText = value;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private string _selectedLevel = string.Empty;
+    private string SelectedLevel
+    {
+        get => _selectedLevel;
+        set
+        {
+            if (_selectedLevel != value)
+            {
+                _selectedLevel = value;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private List<DocumentHeader> FilteredHeaders
+    {
+        get
+        {
+            var filtered = AllHeaders.AsEnumerable();
+
+            // Apply search filter
+            if (!string.IsNullOrEmpty(SearchText))
+            {
+                filtered = filtered.Where(h =>
+                    h.Title.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
+            }
+
+            // Apply level filter
+            if (!string.IsNullOrEmpty(SelectedLevel))
+            {
+                filtered = filtered.Where(h => h.Level == SelectedLevel);
+            }
+
+            return filtered.ToList();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadHeadersAsync();
+    }
+
+    public async Task LoadHeadersAsync()
+    {
+        await LoadHeadersAsync(NormalizedXmlPath, HierarchyXmlPath);
+    }
+
+    public async Task LoadHeadersAsync(string? normalizedXmlPath, string? hierarchyXmlPath = null)
+    {
+        Logger.LogInformation("[AvailableHeadersPanel] LoadHeadersAsync called. NormalizedXmlPath: {Path}",
+            normalizedXmlPath ?? "(null)");
+
+        if (string.IsNullOrEmpty(normalizedXmlPath))
+        {
+            Logger.LogWarning("[AvailableHeadersPanel] normalizedXmlPath is null or empty, cannot load headers");
+            AllHeaders = new List<DocumentHeader>();
+            return;
+        }
+
+        try
+        {
+            Logger.LogInformation("[AvailableHeadersPanel] Calling HeaderExtractionService.ExtractHeadersAsync for {Path}",
+                normalizedXmlPath);
+
+            AllHeaders = await HeaderExtractionService.ExtractHeadersAsync(normalizedXmlPath);
+
+            Logger.LogInformation("[AvailableHeadersPanel] Extracted {Count} headers from {Path}",
+                AllHeaders.Count, normalizedXmlPath);
+
+            var hierarchyPath = hierarchyXmlPath ?? HierarchyXmlPath;
+            if (!string.IsNullOrEmpty(hierarchyPath))
+            {
+                Logger.LogInformation("[AvailableHeadersPanel] Marking used headers from {Path}", hierarchyPath);
+                await HeaderExtractionService.MarkUsedHeadersAsync(AllHeaders, hierarchyPath);
+            }
+            else
+            {
+                Logger.LogInformation("[AvailableHeadersPanel] HierarchyXmlPath is null, skipping used header marking");
+            }
+
+            // Don't invoke callback here to prevent infinite loop
+            // await OnHeadersChanged.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "[AvailableHeadersPanel] Failed to load headers from {Path}", normalizedXmlPath);
+            AllHeaders = new List<DocumentHeader>();
+        }
+    }
+
+    private async Task OnHeaderDragStart(DocumentHeader header)
+    {
+        await JSRuntime.InvokeVoidAsync("console.log", "[AvailableHeadersPanel] Header drag start:", header.Id, header.Title, "IsUsed:", header.IsUsed);
+
+        if (header.IsUsed)
+        {
+            await JSRuntime.InvokeVoidAsync("console.warn", "[AvailableHeadersPanel] Cannot drag used header:", header.Id);
+            return;
+        }
+
+        DraggedHeader = header;
+        await JSRuntime.InvokeVoidAsync("console.log", "[AvailableHeadersPanel] DraggedHeader set to:", header.Id);
+
+        // Set the dragged header in HierarchyTreeItem so it can accept the drop
+        HierarchyTreeItem.SetDraggedHeader(header);
+        await JSRuntime.InvokeVoidAsync("console.log", "[AvailableHeadersPanel] Called HierarchyTreeItem.SetDraggedHeader");
+
+        // Visual-only state update for the panel
+        StateHasChanged();
+    }
+
+    private async Task OnHeaderDragEnd()
+    {
+        await JSRuntime.InvokeVoidAsync("console.log", "[AvailableHeadersPanel] Header drag end");
+
+        // Clear local state only (visual feedback)
+        DraggedHeader = null;
+
+        // DON'T clear HierarchyTreeItem.DraggedHeader here - that causes a race condition!
+        // The drop handler in HierarchyTreeItem needs DraggedHeader to still be set.
+        // HierarchyTreeItem.HandleHeaderDrop will clear it after processing (line 584).
+        await JSRuntime.InvokeVoidAsync("console.log", "[AvailableHeadersPanel] Cleared local DraggedHeader (global will be cleared by drop handler)");
+
+        StateHasChanged();
+    }
+
+    private void ClearSearch()
+    {
+        SearchText = string.Empty;
+    }
+
+    private void ClearFilters()
+    {
+        SearchText = string.Empty;
+        SelectedLevel = string.Empty;
+    }
+
+    private string GetHeaderTooltip(DocumentHeader header)
+    {
+        var tooltip = $"Level: {header.Level.ToUpper()}\nXPath: {header.XPath}";
+
+        if (!string.IsNullOrEmpty(header.Context))
+        {
+            tooltip += $"\n\nContext:\n{header.Context}";
+        }
+
+        if (header.IsUsed)
+        {
+            tooltip += "\n\n✓ Already in hierarchy";
+        }
+
+        return tooltip;
+    }
+
+    /// <summary>
+    /// Public method to refresh the used status of headers
+    /// Called from parent when hierarchy changes
+    /// </summary>
+    public async Task RefreshUsedStatusAsync()
+    {
+        if (!string.IsNullOrEmpty(HierarchyXmlPath))
+        {
+            await HeaderExtractionService.MarkUsedHeadersAsync(AllHeaders, HierarchyXmlPath);
+            StateHasChanged();
+        }
+    }
+}

@@ -88,8 +88,10 @@ public class ProjectLabelServiceTests : IDisposable
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
         Assert.NotNull(data);
-        Assert.True(data.Labels.ContainsKey(customer));
-        Assert.Equal(label, data.Labels[customer][projectId]);
+        Assert.NotNull(data.Projects);
+        Assert.True(data.Projects.ContainsKey(customer));
+        Assert.True(data.Projects[customer].ContainsKey(projectId));
+        Assert.Equal(label, data.Projects[customer][projectId].Label);
         Assert.True(data.LastModified > DateTime.UtcNow.AddMinutes(-1));
     }
 
@@ -162,8 +164,9 @@ public class ProjectLabelServiceTests : IDisposable
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
         Assert.NotNull(data);
-        Assert.True(data.Labels.ContainsKey(customer));
-        Assert.False(data.Labels[customer].ContainsKey(projectId));
+        Assert.NotNull(data.Projects);
+        Assert.True(data.Projects.ContainsKey(customer));
+        Assert.False(data.Projects[customer].ContainsKey(projectId));
     }
 
     [Fact]
@@ -249,10 +252,11 @@ public class ProjectLabelServiceTests : IDisposable
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
         Assert.NotNull(data);
-        Assert.Equal(3, data.Labels.Count);
+        Assert.NotNull(data.Projects);
+        Assert.Equal(3, data.Projects.Count);
         foreach (var customer in customers)
         {
-            Assert.True(data.Labels.ContainsKey(customer));
+            Assert.True(data.Projects.ContainsKey(customer));
         }
     }
 
@@ -285,5 +289,162 @@ public class ProjectLabelServiceTests : IDisposable
         Assert.Equal("Custom Label One", project1.CustomLabel);
         Assert.Null(project2.CustomLabel);
         Assert.Null(project3.CustomLabel);
+    }
+
+    [Fact]
+    public async Task GetProjectLabelsDataAsync_ShouldReturnStructuredData()
+    {
+        // Arrange - Create some labels first
+        await _service.SetProjectLabelAsync("optiver", "ar24-1", "Label One");
+        await _service.SetProjectLabelAsync("optiver", "ar24-2", "Label Two");
+        await _service.SetProjectLabelAsync("testcustomer", "test-1", "Test Label");
+
+        // Act
+        var data = await _service.GetProjectLabelsDataAsync();
+
+        // Assert
+        Assert.NotNull(data);
+        Assert.NotNull(data.Projects);
+        Assert.Equal(2, data.Projects.Count); // 2 customers
+        Assert.True(data.Projects.ContainsKey("optiver"));
+        Assert.True(data.Projects.ContainsKey("testcustomer"));
+        Assert.Equal(2, data.Projects["optiver"].Count); // 2 projects
+        Assert.Single(data.Projects["testcustomer"]); // 1 project
+        Assert.Equal("Label One", data.Projects["optiver"]["ar24-1"].Label);
+        Assert.Equal("Label Two", data.Projects["optiver"]["ar24-2"].Label);
+        Assert.Equal("Test Label", data.Projects["testcustomer"]["test-1"].Label);
+    }
+
+    [Fact]
+    public async Task GetProjectLabelsDataAsync_EmptyFile_ReturnsEmptyStructure()
+    {
+        // Arrange - No labels set
+
+        // Act
+        var data = await _service.GetProjectLabelsDataAsync();
+
+        // Assert
+        Assert.NotNull(data);
+        Assert.NotNull(data.Projects);
+        Assert.Empty(data.Projects);
+    }
+
+    [Fact]
+    public async Task SaveProjectLabelsDataAsync_ShouldPersistChanges()
+    {
+        // Arrange
+        var data = new ProjectLabelsData
+        {
+            Projects = new Dictionary<string, Dictionary<string, ProjectMetadata>>
+            {
+                ["customer1"] = new Dictionary<string, ProjectMetadata>
+                {
+                    ["project1"] = new ProjectMetadata
+                    {
+                        Label = "Custom Label",
+                        Status = ProjectLifecycleStatus.Ready
+                    }
+                },
+                ["customer2"] = new Dictionary<string, ProjectMetadata>
+                {
+                    ["project2"] = new ProjectMetadata
+                    {
+                        Label = "Another Label",
+                        Status = ProjectLifecycleStatus.InProgress
+                    }
+                }
+            },
+            LastModified = DateTime.UtcNow
+        };
+
+        // Act
+        await _service.SaveProjectLabelsDataAsync(data);
+
+        // Assert - Read back and verify
+        var loadedData = await _service.GetProjectLabelsDataAsync();
+        Assert.NotNull(loadedData);
+        Assert.Equal(2, loadedData.Projects.Count);
+        Assert.Equal("Custom Label", loadedData.Projects["customer1"]["project1"].Label);
+        Assert.Equal(ProjectLifecycleStatus.Ready, loadedData.Projects["customer1"]["project1"].Status);
+        Assert.Equal("Another Label", loadedData.Projects["customer2"]["project2"].Label);
+        Assert.Equal(ProjectLifecycleStatus.InProgress, loadedData.Projects["customer2"]["project2"].Status);
+    }
+
+    [Fact]
+    public async Task SaveProjectLabelsDataAsync_WithConcurrentCalls_ShouldHandleThreadSafely()
+    {
+        // Arrange
+        var tasks = new List<Task>();
+
+        // Act - Run 10 concurrent saves with different data
+        for (int i = 0; i < 10; i++)
+        {
+            var index = i; // Capture for closure
+            tasks.Add(Task.Run(async () =>
+            {
+                var data = new ProjectLabelsData
+                {
+                    Projects = new Dictionary<string, Dictionary<string, ProjectMetadata>>
+                    {
+                        ["customer"] = new Dictionary<string, ProjectMetadata>
+                        {
+                            [$"project{index}"] = new ProjectMetadata
+                            {
+                                Label = $"Label {index}",
+                                Status = ProjectLifecycleStatus.Open
+                            }
+                        }
+                    }
+                };
+                await _service.SaveProjectLabelsDataAsync(data);
+            }));
+        }
+
+        // Should not throw exceptions
+        await Task.WhenAll(tasks);
+
+        // Assert - Verify file was written (last write wins)
+        var finalData = await _service.GetProjectLabelsDataAsync();
+        Assert.NotNull(finalData);
+        Assert.NotNull(finalData.Projects);
+        // Should contain exactly 1 project (the last one written)
+        Assert.Single(finalData.Projects["customer"]);
+    }
+
+    [Fact]
+    public async Task GetProjectLabelsDataAsync_WithMetadataFields_PreservesAllFields()
+    {
+        // Arrange
+        var now = DateTime.UtcNow;
+        var data = new ProjectLabelsData
+        {
+            Projects = new Dictionary<string, Dictionary<string, ProjectMetadata>>
+            {
+                ["optiver"] = new Dictionary<string, ProjectMetadata>
+                {
+                    ["ar24-1"] = new ProjectMetadata
+                    {
+                        Label = "Custom Label",
+                        Status = ProjectLifecycleStatus.InProgress,
+                        CreatedAt = now.AddDays(-7),
+                        LastModified = now.AddDays(-1)
+                    }
+                }
+            },
+            LastModified = now
+        };
+
+        await _service.SaveProjectLabelsDataAsync(data);
+
+        // Act
+        var loadedData = await _service.GetProjectLabelsDataAsync();
+
+        // Assert
+        var metadata = loadedData.Projects["optiver"]["ar24-1"];
+        Assert.Equal("Custom Label", metadata.Label);
+        Assert.Equal(ProjectLifecycleStatus.InProgress, metadata.Status);
+        // Timestamps should be within 1 second of original (allowing for serialization precision)
+        Assert.True(Math.Abs((metadata.CreatedAt - data.Projects["optiver"]["ar24-1"].CreatedAt).TotalSeconds) < 1);
+        Assert.True(Math.Abs((metadata.LastModified - data.Projects["optiver"]["ar24-1"].LastModified).TotalSeconds) < 1);
     }
 }

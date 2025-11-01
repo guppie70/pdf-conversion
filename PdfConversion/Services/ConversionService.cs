@@ -1,5 +1,6 @@
 using PdfConversion.Models;
 using PdfConversion.Helpers;
+using PdfConversion.Utils;
 using System.Xml;
 using System.Xml.Linq;
 using System.Xml.XPath;
@@ -250,8 +251,11 @@ public class ConversionService : IConversionService
             // Read source XML content
             var xmlContent = await _projectService.ReadInputFileAsync(projectId, sourceFile);
 
-            // Read main XSLT file
-            var xsltPath = "/app/xslt/transformation.xslt";
+            // Auto-detect XSLT based on source filename
+            var xsltPath = XsltPathResolver.GetTransformationPath(sourceFile);
+
+            _logger.LogInformation("Using XSLT file: {XsltPath} (detected from source: {SourceFile})", xsltPath, sourceFile);
+
             if (!File.Exists(xsltPath))
             {
                 throw new FileNotFoundException($"XSLT transformation file not found: {xsltPath}");
@@ -272,8 +276,8 @@ public class ConversionService : IConversionService
                 }
             };
 
-            // Perform transformation
-            var result = await _xsltService.TransformAsync(xmlContent, xsltContent, options);
+            // Perform transformation (pass xsltPath so includes can be resolved)
+            var result = await _xsltService.TransformAsync(xmlContent, xsltContent, options, xsltPath);
 
             if (!result.IsSuccess)
             {
@@ -301,6 +305,17 @@ public class ConversionService : IConversionService
         {
             _logger.LogInformation("Validating conversion configuration for project {ProjectId}", projectId);
 
+            // Extract customer and project from projectId format "customer/projectId"
+            var projectParts = projectId.Split('/', 2);
+            if (projectParts.Length != 2)
+            {
+                result.IsValid = false;
+                result.ErrorMessage = $"Invalid projectId format: {projectId}. Expected 'customer/projectId'";
+                return result;
+            }
+            var customer = projectParts[0];
+            var project = projectParts[1];
+
             // 1. Validate project exists
             if (!await _projectService.ProjectExistsAsync(projectId))
             {
@@ -310,7 +325,7 @@ public class ConversionService : IConversionService
             }
 
             // 2. Validate source file exists
-            var sourceFilePath = Path.Combine("/app/data/input/optiver/projects", projectId, sourceFile);
+            var sourceFilePath = Path.Combine("/app/data/input", customer, "projects", project, sourceFile);
             var sourceValidation = await ValidateSourceFileAsync(sourceFilePath);
             if (!sourceValidation.IsValid)
             {
@@ -320,7 +335,7 @@ public class ConversionService : IConversionService
             }
 
             // 3. Validate hierarchy file exists and structure
-            var hierarchyFilePath = Path.Combine("/app/data/input/optiver/projects", projectId, "metadata", hierarchyFile);
+            var hierarchyFilePath = Path.Combine("/app/data/input", customer, "projects", project, "metadata", hierarchyFile);
             var hierarchyValidation = await ValidateHierarchyFileAsync(hierarchyFilePath);
             if (!hierarchyValidation.IsValid)
             {
@@ -531,7 +546,16 @@ public class ConversionService : IConversionService
     {
         try
         {
-            var outputPath = Path.Combine("/app/data/output/optiver/projects", projectId, "data");
+            // Extract customer and project from projectId format "customer/projectId"
+            var projectParts = projectId.Split('/', 2);
+            if (projectParts.Length != 2)
+            {
+                return ValidationResult.Failure($"Invalid projectId format: {projectId}. Expected 'customer/projectId'");
+            }
+            var customer = projectParts[0];
+            var project = projectParts[1];
+
+            var outputPath = Path.Combine("/app/data/output", customer, "projects", project, "data");
 
             // Check if parent directory exists
             var parentDir = Path.GetDirectoryName(outputPath);
@@ -587,7 +611,16 @@ public class ConversionService : IConversionService
     {
         try
         {
-            var outputPath = $"/app/data/output/optiver/projects/{projectId}/data";
+            // Extract customer and project from projectId format "customer/projectId"
+            var projectParts = projectId.Split('/', 2);
+            if (projectParts.Length != 2)
+            {
+                throw new ArgumentException($"Invalid projectId format: {projectId}. Expected 'customer/projectId'");
+            }
+            var customer = projectParts[0];
+            var project = projectParts[1];
+
+            var outputPath = Path.Combine("/app/data/output", customer, "projects", project, "data");
 
             _logger.LogInformation("Preparing output folder for project {ProjectId}", projectId);
 
@@ -686,9 +719,21 @@ public class ConversionService : IConversionService
 
             logCallback("✓ All validations passed");
 
+            // Extract customer and project from projectId format "customer/projectId"
+            var projectParts = projectId.Split('/', 2);
+            if (projectParts.Length != 2)
+            {
+                result.Success = false;
+                result.Errors.Add($"Invalid projectId format: {projectId}. Expected 'customer/projectId'");
+                logCallback($"✗ Invalid projectId format: {projectId}");
+                return result;
+            }
+            var customer = projectParts[0];
+            var project = projectParts[1];
+
             // 2. Load hierarchy
             logCallback("Loading hierarchy...");
-            var hierarchyPath = Path.Combine("/app/data/input/optiver/projects", projectId, "metadata", hierarchyFile);
+            var hierarchyPath = Path.Combine("/app/data/input", customer, "projects", project, "metadata", hierarchyFile);
             var hierarchyItems = await LoadHierarchyAsync(hierarchyPath);
             result.TotalSections = hierarchyItems.Count;
             logCallback($"✓ Loaded {hierarchyItems.Count} hierarchy items");
@@ -699,7 +744,8 @@ public class ConversionService : IConversionService
             logCallback("✓ Template loaded successfully");
 
             // 4. Transform source XML
-            logCallback("Transforming source XML...");
+            var sourceXmlPath = Path.Combine("/app/data/input", customer, "projects", project, sourceFile);
+            logCallback($"Transforming source XML: {sourceXmlPath}");
             var transformedXhtml = await TransformSourceXmlAsync(projectId, sourceFile);
 
             if (transformedXhtml == null)
@@ -727,6 +773,7 @@ public class ConversionService : IConversionService
             logCallback("Processing sections...");
 
             // Track resolved duplicates to avoid asking twice
+            // Key is HierarchyItem.Id (unique per item) to prevent cache collisions when multiple items share the same LinkName
             var resolvedDuplicates = new Dictionary<string, HeaderMatch>();
 
             for (int i = 0; i < matches.Count; i++)
@@ -758,14 +805,15 @@ public class ConversionService : IConversionService
                 {
                     // Collect all duplicate matches for this linkname
                     var linkName = match.HierarchyItem.LinkName;
+                    var hierarchyItemId = match.HierarchyItem.Id;
 
                     // Check if we already resolved this from a previous boundary selection
-                    if (resolvedDuplicates.ContainsKey(linkName))
+                    // Use hierarchy item ID as cache key to prevent collisions when multiple items share the same LinkName
+                    if (resolvedDuplicates.ContainsKey(hierarchyItemId))
                     {
                         logCallback($"{progress} ℹ Using previously selected duplicate for '{linkName}'");
-                        match = resolvedDuplicates[linkName];
-                        // Remove from resolved list as we've now used it
-                        resolvedDuplicates.Remove(linkName);
+                        match = resolvedDuplicates[hierarchyItemId];
+                        // Keep cache entry for subsequent instances (3+) of the same header
                     }
                     else
                     {
@@ -778,38 +826,72 @@ public class ConversionService : IConversionService
                         // If we haven't processed this duplicate group yet
                         if (duplicateMatches.Any() && duplicateMatches[0] == match)
                         {
-                            logCallback($"{progress} ℹ Duplicate found for '{linkName}', asking user...");
+                            logCallback($"{progress} ℹ Multiple headers found for '{linkName}'");
+
+                            // Get list of matches processed so far (for context visualization)
+                            var processedMatches = matches.Take(i).ToList();
+
+                            // TRY AUTO-DISAMBIGUATION FIRST
+                            logCallback($"{progress}   Checking next 3-4 headers to auto-resolve ambiguity...");
+
+                            var currentHierarchyIndex = hierarchyItems.IndexOf(match.HierarchyItem);
+                            var disambiguatedMatch = TryDisambiguateBySequence(
+                                duplicateMatches,
+                                hierarchyItems,
+                                currentHierarchyIndex,
+                                transformedXhtml,
+                                matches,
+                                processedMatches,
+                                logCallback,
+                                progress);
 
                             HeaderMatch? selectedMatch = null;
 
-                            if (duplicateSelectionCallback != null)
+                            if (disambiguatedMatch != null)
                             {
-                                try
-                                {
-                                    // Get list of matches processed so far (for context visualization)
-                                    var processedMatches = matches.Take(i).ToList();
+                                // Auto-disambiguation succeeded
+                                logCallback($"{progress} ✓ Auto-selected based on header sequence: {disambiguatedMatch.MatchedText}");
+                                selectedMatch = disambiguatedMatch;
+                                // Cache this selection for future reference (keyed by hierarchy item ID)
+                                resolvedDuplicates[hierarchyItemId] = disambiguatedMatch;
+                            }
+                            else
+                            {
+                                // Could not auto-resolve, ask user
+                                logCallback($"{progress} ℹ Could not auto-resolve, asking user...");
 
-                                    // Get current hierarchy item (the one with duplicates)
-                                    var currentHierarchyItem = match.HierarchyItem;
-
-                                    selectedMatch = await duplicateSelectionCallback(
-                                        duplicateMatches,
-                                        transformedXhtml,
-                                        processedMatches,
-                                        hierarchyItems,
-                                        currentHierarchyItem);
-                                }
-                                catch (Exception ex)
+                                if (duplicateSelectionCallback != null)
                                 {
-                                    _logger.LogError(ex, "Error in duplicate selection callback");
-                                    logCallback($"{progress} ✗ Error in duplicate selection: {ex.Message}");
+                                    try
+                                    {
+                                        // Get current hierarchy item (the one with duplicates)
+                                        var currentHierarchyItem = match.HierarchyItem;
+
+                                        selectedMatch = await duplicateSelectionCallback(
+                                            duplicateMatches,
+                                            transformedXhtml,
+                                            processedMatches,
+                                            hierarchyItems,
+                                            currentHierarchyItem);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        _logger.LogError(ex, "Error in duplicate selection callback");
+                                        logCallback($"{progress} ✗ Error in duplicate selection: {ex.Message}");
+                                    }
                                 }
                             }
 
                             if (selectedMatch != null)
                             {
-                                logCallback($"{progress} ✓ User selected match {selectedMatch.DuplicateIndex + 1} of {selectedMatch.DuplicateCount}: {selectedMatch.MatchedText}");
-                                match = selectedMatch; // Use selected match
+                                if (disambiguatedMatch == null)
+                                {
+                                    // User selection (not auto)
+                                    logCallback($"{progress} ✓ User selected match {selectedMatch.DuplicateIndex + 1} of {selectedMatch.DuplicateCount}: {selectedMatch.MatchedText}");
+                                    // Cache this selection for future reference (keyed by hierarchy item ID)
+                                    resolvedDuplicates[hierarchyItemId] = selectedMatch;
+                                }
+                                match = selectedMatch; // Use selected match (auto or user)
                             }
                             else
                             {
@@ -879,8 +961,8 @@ public class ConversionService : IConversionService
                                 // Smart detection succeeded
                                 nextHeader = disambiguatedMatch.MatchedHeader;
                                 logCallback($"{progress} ✓ Auto-selected boundary based on header sequence: {disambiguatedMatch.MatchedText}");
-                                // Store this selection for reuse
-                                resolvedDuplicates[nextLinkName] = disambiguatedMatch;
+                                // Store this selection for reuse (keyed by hierarchy item ID to prevent collisions)
+                                resolvedDuplicates[nextHierarchyItem.Id] = disambiguatedMatch;
                             }
                             else
                             {
@@ -912,8 +994,8 @@ public class ConversionService : IConversionService
                                 {
                                     nextHeader = selectedNextMatch.MatchedHeader;
                                     logCallback($"{progress} ✓ User selected boundary: {selectedNextMatch.MatchedText}");
-                                    // Store this selection for reuse when processing the next section
-                                    resolvedDuplicates[nextLinkName] = selectedNextMatch;
+                                    // Store this selection for reuse when processing the next section (keyed by hierarchy item ID)
+                                    resolvedDuplicates[nextHierarchyItem.Id] = selectedNextMatch;
                                 }
                                 else
                                 {
@@ -1003,7 +1085,7 @@ public class ConversionService : IConversionService
                     var sectionXml = PopulateTemplate(template, match.HierarchyItem, normalizedContent);
 
                     // Write to file (always complete current file write before cancelling)
-                    var outputPath = Path.Combine("/app/data/output/optiver/projects", projectId, "data", match.HierarchyItem.DataRef);
+                    var outputPath = Path.Combine("/app/data/output", customer, "projects", project, "data", match.HierarchyItem.DataRef);
                     var xhtmlContent = XhtmlSerializationHelper.SerializeXhtmlDocument(sectionXml);
                     await File.WriteAllTextAsync(outputPath, xhtmlContent, cancellationToken);
 
@@ -1280,18 +1362,18 @@ public class ConversionService : IConversionService
             logCallback($"{progress}   Searching through {allHeaders.Count} unprocessed headers (filtered from {allHeadersUnfiltered.Count} total)");
 
             // Score each duplicate by how well the subsequent headers match
-            var candidateScores = new Dictionary<HeaderMatch, int>();
+            var candidateScores = new List<CandidateScore>();
 
             foreach (var duplicate in duplicateMatches)
             {
                 if (duplicate.MatchedHeader == null) continue;
 
-                int score = 0;
+                int forwardScore = 0;
                 var duplicateIndex = allHeaders.IndexOf(duplicate.MatchedHeader);
 
                 if (duplicateIndex < 0) continue;
 
-                // Look for the subsequent hierarchy items after this duplicate
+                // Calculate forward-looking score (existing logic)
                 for (int j = 0; j < upcomingHierarchy.Count; j++)
                 {
                     var expectedItem = upcomingHierarchy[j];
@@ -1306,7 +1388,7 @@ public class ConversionService : IConversionService
                         if (HeaderMatchesHierarchy(headerText, expectedItem.LinkName))
                         {
                             found = true;
-                            score += (5 - j); // Higher score for closer matches (5 for 1st, 4 for 2nd, etc.)
+                            forwardScore += (5 - j); // Higher score for closer matches (5 for 1st, 4 for 2nd, etc.)
                             logCallback($"{progress}     Found expected header '{expectedItem.LinkName}' at position {j + 1}");
                             break;
                         }
@@ -1315,30 +1397,67 @@ public class ConversionService : IConversionService
                     if (!found)
                     {
                         // Penalty for missing expected header
-                        score -= 2;
+                        forwardScore -= 2;
                         logCallback($"{progress}     Expected header '{expectedItem.LinkName}' not found (penalty: -2)");
                     }
                 }
 
-                candidateScores[duplicate] = score;
-                logCallback($"{progress}     Candidate {duplicate.DuplicateIndex + 1}: '{duplicate.MatchedText}' - Score: {score}");
+                // Calculate tiebreaker score (Phase 1: always returns 0)
+                var (tiebreakerScore, tiebreakerReason) = CalculateTiebreakerScore(duplicate, allHeaders, logCallback, progress);
+
+                candidateScores.Add(new CandidateScore
+                {
+                    Match = duplicate,
+                    ForwardLookingScore = forwardScore,
+                    TiebreakerScore = tiebreakerScore,
+                    TiebreakerReason = tiebreakerReason
+                });
+
+                logCallback($"{progress}     Candidate {duplicate.DuplicateIndex + 1}: '{duplicate.MatchedText}' - Forward: {forwardScore}, Tiebreaker: {tiebreakerScore}");
             }
 
             // Find the best scoring candidate
             if (candidateScores.Count > 0)
             {
-                var bestCandidate = candidateScores.OrderByDescending(kvp => kvp.Value).First();
-                var secondBest = candidateScores.OrderByDescending(kvp => kvp.Value).Skip(1).FirstOrDefault();
+                var sortedCandidates = candidateScores
+                    .OrderByDescending(c => c.ForwardLookingScore)
+                    .ThenByDescending(c => c.TiebreakerScore)
+                    .ToList();
 
-                // Only auto-select if there's a clear winner (at least 3 points difference)
-                if (secondBest.Key == null || bestCandidate.Value - secondBest.Value >= 3)
+                var best = sortedCandidates[0];
+                var secondBest = sortedCandidates.Count > 1 ? sortedCandidates[1] : null;
+
+                // Only auto-select if there's a clear winner
+                bool hasForwardWinner = secondBest == null || best.ForwardLookingScore - secondBest.ForwardLookingScore >= 3;
+                bool hasTiebreakerWinner = secondBest != null &&
+                                           best.ForwardLookingScore == secondBest.ForwardLookingScore &&
+                                           best.TiebreakerScore - secondBest.TiebreakerScore >= 2;
+
+                if (hasForwardWinner || hasTiebreakerWinner)
                 {
-                    logCallback($"{progress}   Best match found with score {bestCandidate.Value}");
-                    return bestCandidate.Key;
+                    if (hasTiebreakerWinner)
+                    {
+                        _logger.LogInformation(
+                            "[Tiebreaker] Auto-selected header '{Header}' | Forward: {Forward} | Tiebreaker: {Tiebreaker} | Reason: {Reason}",
+                            best.Match.MatchedText?.Trim() ?? "",
+                            best.ForwardLookingScore,
+                            best.TiebreakerScore,
+                            best.TiebreakerReason
+                        );
+                        logCallback($"{progress}   ✓ Tiebreaker resolved: {best.Match.MatchedText} (Reason: {best.TiebreakerReason})");
+                    }
+                    else
+                    {
+                        logCallback($"{progress}   Best match found with score {best.ForwardLookingScore}");
+                    }
+                    return best.Match;
                 }
                 else
                 {
-                    logCallback($"{progress}   Scores too close to auto-select (best: {bestCandidate.Value}, second: {secondBest.Value})");
+                    if (secondBest != null)
+                    {
+                        logCallback($"{progress}   Scores too close to auto-select (best: {best.TotalScore}, second: {secondBest.TotalScore})");
+                    }
                 }
             }
 
@@ -1350,6 +1469,190 @@ public class ConversionService : IConversionService
             logCallback($"{progress}   Error during disambiguation: {ex.Message}");
             return null;
         }
+    }
+
+    /// <summary>
+    /// Calculates tiebreaker score for a duplicate header candidate.
+    /// Only used when forward-looking scores are too close to decide.
+    ///
+    /// Priority:
+    /// 1. Backward header pattern matching (header-to-header relationships)
+    /// 2. Non-header context fallback (element type, continuation markers) - only if header matching fails
+    /// </summary>
+    private (int Score, string Reason) CalculateTiebreakerScore(
+        HeaderMatch candidate,
+        List<XElement> allHeaders,
+        Action<string> logCallback,
+        string progress)
+    {
+        if (candidate.MatchedHeader == null)
+            return (0, "No header element");
+
+        int score = 0;
+        var reasons = new List<string>();
+
+        // PRIORITY 1: Backward header pattern matching (pure header-to-header)
+        var (backwardScore, backwardReason) = CalculateBackwardHeaderScore(candidate, allHeaders);
+        if (backwardScore != 0)
+        {
+            score += backwardScore;
+            reasons.Add(backwardReason);
+        }
+
+        // PRIORITY 2: Non-header context fallback (only if header matching didn't help)
+        if (score == 0)
+        {
+            var (fallbackScore, fallbackReason) = CalculateNonHeaderFallbackScore(candidate);
+            score += fallbackScore;
+            if (!string.IsNullOrEmpty(fallbackReason))
+                reasons.Add(fallbackReason);
+        }
+
+        var reason = reasons.Count > 0 ? string.Join(", ", reasons) : "No tiebreakers applied";
+        return (score, reason);
+    }
+
+    /// <summary>
+    /// Analyzes backward header pattern - looks at previous headers before each candidate.
+    /// Pure header-to-header relationship matching.
+    /// </summary>
+    private (int Score, string Reason) CalculateBackwardHeaderScore(
+        HeaderMatch candidate,
+        List<XElement> allHeaders)
+    {
+        if (candidate.MatchedHeader == null)
+            return (0, "");
+
+        int score = 0;
+        var reasons = new List<string>();
+
+        // Find position of this candidate in the header list
+        var candidateIndex = allHeaders.IndexOf(candidate.MatchedHeader);
+        if (candidateIndex < 0)
+            return (0, "");
+
+        // Look backward at previous 2-3 headers
+        var previousHeaders = allHeaders
+            .Take(candidateIndex)
+            .TakeLast(3)
+            .ToList();
+
+        if (previousHeaders.Count == 0)
+        {
+            // No previous headers - likely first header in document
+            score += 2;
+            reasons.Add("FirstHeader(+2)");
+        }
+        else
+        {
+            // Check if the immediately previous header is the same text (repeated header)
+            var prevHeader = previousHeaders.LastOrDefault();
+            if (prevHeader != null)
+            {
+                var prevText = NormalizeHeaderText(prevHeader.Value);
+                var currentText = NormalizeHeaderText(candidate.MatchedHeader.Value);
+
+                if (prevText == currentText)
+                {
+                    // Same header repeated immediately before - likely continuation page
+                    score -= 5;
+                    reasons.Add("RepeatedHeader(-5)");
+                }
+            }
+        }
+
+        var reason = reasons.Count > 0 ? string.Join(", ", reasons) : "";
+        return (score, reason);
+    }
+
+    /// <summary>
+    /// Non-header context fallback scoring (element type + continuation markers).
+    /// Only used when backward header pattern matching fails to differentiate candidates.
+    /// SAVED FOR FALLBACK - currently disabled.
+    /// </summary>
+    private (int Score, string Reason) CalculateNonHeaderFallbackScore(HeaderMatch candidate)
+    {
+        if (candidate.MatchedHeader == null)
+            return (0, "");
+
+        int score = 0;
+        var reasons = new List<string>();
+
+        // Element Type Scoring
+        int elementScore = GetElementTypeScore(candidate.MatchedHeader);
+        if (elementScore != 0)
+        {
+            score += elementScore;
+            reasons.Add($"ElementType({elementScore})");
+        }
+
+        // Continuation Marker Detection
+        if (IsFollowedByContinuationMarker(candidate.MatchedHeader))
+        {
+            score -= 8;
+            reasons.Add("Continuation(-8)");
+        }
+
+        var reason = reasons.Count > 0 ? string.Join(", ", reasons) : "";
+        return (score, reason);
+    }
+
+    /// <summary>
+    /// Scores header elements based on their type.
+    /// H1-H6 headers get positive scores (10 for H1, down to 5 for H6).
+    /// Paragraph/span elements get negative scores (-5) since they're not proper headers.
+    /// </summary>
+    private int GetElementTypeScore(XElement element)
+    {
+        var name = element.Name.LocalName.ToLower();
+        return name switch
+        {
+            "h1" => 10,
+            "h2" => 9,
+            "h3" => 8,
+            "h4" => 7,
+            "h5" => 6,
+            "h6" => 5,
+            "p" => -5,      // Paragraph text penalized
+            "span" => -5,   // Inline text penalized
+            _ => 0
+        };
+    }
+
+    /// <summary>
+    /// Detects if a header is followed by a table containing "(continued)" marker.
+    /// This indicates a continuation page rather than a new section start.
+    /// Stops searching when encountering another header (section boundary).
+    /// </summary>
+    private bool IsFollowedByContinuationMarker(XElement header)
+    {
+        // Check next few elements for tables with "(continued)" marker
+        // Stop when we encounter another header (indicates boundary of this header's content)
+        var nextElements = header.ElementsAfterSelf().Take(5);
+
+        foreach (var elem in nextElements)
+        {
+            // Stop if we hit another header - that's the next section
+            var elemName = elem.Name.LocalName.ToLower();
+            if (elemName.Length == 2 && elemName[0] == 'h' && char.IsDigit(elemName[1]))
+            {
+                break; // Stop searching, we've hit the next header
+            }
+
+            // Look for div with table-wrapper class
+            if (elemName == "div" &&
+                elem.Attribute("class")?.Value.Contains("table-wrapper") == true)
+            {
+                // Check if table contains "(continued)" text
+                var hasContinuation = elem.Descendants()
+                    .Any(d => d.Value.Contains("(continued)"));
+
+                if (hasContinuation)
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

@@ -17,12 +17,12 @@ public interface IXsltTransformationService
     /// <summary>
     /// Transforms XML content using XSLT
     /// </summary>
-    Task<TransformationResult> TransformAsync(string xmlContent, string xsltContent, TransformationOptions? options = null);
+    Task<TransformationResult> TransformAsync(string xmlContent, string xsltContent, TransformationOptions? options = null, string? xsltFilePath = null);
 
     /// <summary>
     /// Transforms XML content using XSLT with support for editing module files
     /// </summary>
-    Task<TransformationResult> TransformWithEditedModuleAsync(string xmlContent, string xsltContent, string? editedModuleFile, string? editedModuleContent, TransformationOptions? options = null);
+    Task<TransformationResult> TransformWithEditedModuleAsync(string xmlContent, string xsltContent, string? editedModuleFile, string? editedModuleContent, TransformationOptions? options = null, string? xsltFilePath = null);
 
     /// <summary>
     /// Validates XSLT syntax
@@ -65,7 +65,7 @@ public class XsltTransformationService : IXsltTransformationService
         _performanceMonitoring = performanceMonitoring;
     }
 
-    public async Task<TransformationResult> TransformAsync(string xmlContent, string xsltContent, TransformationOptions? options = null)
+    public async Task<TransformationResult> TransformAsync(string xmlContent, string xsltContent, TransformationOptions? options = null, string? xsltFilePath = null)
     {
         options ??= new TransformationOptions();
         var stopwatch = Stopwatch.StartNew();
@@ -77,7 +77,7 @@ public class XsltTransformationService : IXsltTransformationService
 
         try
         {
-            _logger.LogDebug("Starting XSLT transformation (UseXslt3Service: {UseXslt3Service})", options.UseXslt3Service);
+            _logger.LogDebug("Starting XSLT transformation (UseXslt3Service: {UseXslt3Service}, FilePath: {FilePath})", options.UseXslt3Service, xsltFilePath ?? "unknown");
 
             // Check distributed cache first if available
             if (_distributedCacheService != null)
@@ -100,7 +100,7 @@ public class XsltTransformationService : IXsltTransformationService
                 _logger.LogDebug("Using XSLT3Service for transformation");
 
                 // Resolve xsl:include directives before sending to XSLT3Service
-                var resolvedXsltContent = await ResolveXsltIncludesAsync(xsltContent, null, null);
+                var resolvedXsltContent = await ResolveXsltIncludesAsync(xsltContent, null, null, xsltFilePath);
 
                 result = await _xslt3Client.TransformAsync(xmlContent, resolvedXsltContent, options.Parameters);
 
@@ -323,7 +323,7 @@ public class XsltTransformationService : IXsltTransformationService
         }
     }
 
-    public async Task<TransformationResult> TransformWithEditedModuleAsync(string xmlContent, string xsltContent, string? editedModuleFile, string? editedModuleContent, TransformationOptions? options = null)
+    public async Task<TransformationResult> TransformWithEditedModuleAsync(string xmlContent, string xsltContent, string? editedModuleFile, string? editedModuleContent, TransformationOptions? options = null, string? xsltFilePath = null)
     {
         options ??= new TransformationOptions();
         var stopwatch = Stopwatch.StartNew();
@@ -335,7 +335,7 @@ public class XsltTransformationService : IXsltTransformationService
 
         try
         {
-            _logger.LogDebug("Starting XSLT transformation with edited module (UseXslt3Service: {UseXslt3Service})", options.UseXslt3Service);
+            _logger.LogDebug("Starting XSLT transformation with edited module (UseXslt3Service: {UseXslt3Service}, FilePath: {FilePath})", options.UseXslt3Service, xsltFilePath ?? "unknown");
 
             if (!string.IsNullOrEmpty(editedModuleFile))
             {
@@ -348,7 +348,7 @@ public class XsltTransformationService : IXsltTransformationService
                 _logger.LogDebug("Using XSLT3Service for transformation");
 
                 // Resolve xsl:include directives, using Monaco content for edited module
-                var resolvedXsltContent = await ResolveXsltIncludesAsync(xsltContent, editedModuleFile, editedModuleContent);
+                var resolvedXsltContent = await ResolveXsltIncludesAsync(xsltContent, editedModuleFile, editedModuleContent, xsltFilePath);
 
                 result = await _xslt3Client.TransformAsync(xmlContent, resolvedXsltContent, options.Parameters);
 
@@ -402,7 +402,7 @@ public class XsltTransformationService : IXsltTransformationService
             result.WarningMessages.Add("Edited module content requires XSLT3Service for reliable transformation");
 
             // Fall back to standard transformation
-            return await TransformAsync(xmlContent, xsltContent, options);
+            return await TransformAsync(xmlContent, xsltContent, options, xsltFilePath);
         }
         catch (Exception ex)
         {
@@ -565,7 +565,8 @@ public class XsltTransformationService : IXsltTransformationService
     /// <param name="xsltContent">The XSLT content to resolve</param>
     /// <param name="editedModuleFile">Optional: relative path of module file being edited (e.g., "modules/headers.xslt")</param>
     /// <param name="editedModuleContent">Optional: content of the edited module from Monaco editor</param>
-    private async Task<string> ResolveXsltIncludesAsync(string xsltContent, string? editedModuleFile = null, string? editedModuleContent = null)
+    /// <param name="xsltFilePath">Optional: full path to the main XSLT file (e.g., "/app/xslt/adobe/transformation.xslt")</param>
+    private async Task<string> ResolveXsltIncludesAsync(string xsltContent, string? editedModuleFile = null, string? editedModuleContent = null, string? xsltFilePath = null)
     {
         try
         {
@@ -603,8 +604,21 @@ public class XsltTransformationService : IXsltTransformationService
                 }
                 else
                 {
-                    // Resolve relative path from /app/xslt/
-                    var includePath = Path.Combine("/app/xslt", href);
+                    // Resolve relative path from main XSLT file's directory if path provided
+                    string baseDirectory;
+                    if (!string.IsNullOrEmpty(xsltFilePath))
+                    {
+                        var xsltDirectory = Path.GetDirectoryName(xsltFilePath);
+                        baseDirectory = string.IsNullOrEmpty(xsltDirectory) ? "/app/xslt" : xsltDirectory;
+                        _logger.LogDebug("Resolving include relative to XSLT directory: {BaseDirectory}", baseDirectory);
+                    }
+                    else
+                    {
+                        baseDirectory = "/app/xslt";
+                        _logger.LogDebug("No XSLT file path provided, using default base directory: {BaseDirectory}", baseDirectory);
+                    }
+
+                    var includePath = Path.Combine(baseDirectory, href);
 
                     if (!File.Exists(includePath))
                     {

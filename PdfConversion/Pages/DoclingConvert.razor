@@ -1,0 +1,965 @@
+@page "/docling-convert"
+@using System.Net.Http.Headers
+@using System.Threading
+@using Microsoft.AspNetCore.SignalR.Client
+@using Microsoft.JSInterop
+@using PdfConversion.Services
+@using PdfConversion.Models
+@inject IProjectLabelService ProjectLabelService
+@inject IHttpClientFactory HttpClientFactory
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject ILogger<DoclingConvert> Logger
+@inject DoclingJobPollingService JobPollingService
+@inject IUserSelectionService UserSelectionService
+@inject IBase64ImageExtractor ImageExtractor
+@inject IFileGroupBuilderService FileGroupBuilder
+@implements IAsyncDisposable
+
+<PageTitle>Convert</PageTitle>
+
+<div class="docling-convert-container">
+    <div class="docling-header">
+        <h3>Convert</h3>
+        <p class="text-muted">Convert a PDF or Word file to standard XHTML format to use in the Transform section</p>
+    </div>
+
+    <!-- Configuration Panel -->
+    <div class="docling-panel">
+        <div class="panel-header">
+            <h5>Configuration</h5>
+        </div>
+        <div class="panel-body">
+            <!-- Existing File Selection -->
+            <div class="form-group">
+                <label for="existingFileSelect" class="form-label">Select File</label>
+                <ProjectFileSelector
+                    FileGroups="@ExistingFileGroups"
+                    SelectedValue="@SelectedExistingFile"
+                    OnSelectionChanged="@HandleExistingFileSelectionChanged"
+                    PlaceholderText="-- Select File --"
+                    IsDisabled="@IsConverting"
+                    CssClass="form-select" />
+            </div>
+
+            <!-- Validation Alert -->
+            @if (!IsConverting && string.IsNullOrEmpty(ErrorMessage) && string.IsNullOrEmpty(SuccessMessage))
+            {
+                @if (string.IsNullOrEmpty(SelectedExistingFile))
+                {
+                    <div class="alert alert-warning mt-3" role="alert">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        Please select a file to convert
+                    </div>
+                }
+            }
+
+            <!-- Output Format -->
+            <div class="form-group mt-3">
+                <label for="formatSelect" class="form-label">Output Format</label>
+                <select id="formatSelect"
+                        class="form-select"
+                        value="@OutputFormat"
+                        @onchange="HandleOutputFormatChange"
+                        disabled="@IsConverting">
+                    <option value="xml">XML</option>
+                    <option value="html">HTML</option>
+                    <option value="markdown">Markdown</option>
+                    <option value="doctags">DocTags</option>
+                    <option value="json">JSON</option>
+                </select>
+            </div>
+
+            <!-- Convert Button -->
+            <div class="button-group mt-3">
+                <button class="btn btn-primary"
+                        @onclick="ConvertWithDocling"
+                        disabled="@(!IsReadyToConvert || IsConverting)">
+                    @if (IsConverting)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        <span>Converting...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-play-circle"></i>
+                        <span> Convert with Docling</span>
+                    }
+                </button>
+
+                @if (IsConverting && !string.IsNullOrEmpty(CurrentJobId))
+                {
+                    <button class="btn btn-secondary ms-2"
+                            @onclick="CancelConversion">
+                        <i class="bi bi-x-circle"></i>
+                        <span> Cancel</span>
+                    </button>
+                }
+            </div>
+
+            <!-- Progress Bar -->
+            @if (IsConverting)
+            {
+                <div class="mt-3">
+                    <div class="progress" style="height: 30px;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated @(JobProgress > 0.15 && JobProgress < 0.75 ? "processing-pulse" : "") d-flex align-items-center justify-content-center"
+                             role="progressbar"
+                             style="width: @((JobProgress * 100).ToString("F1"))%"
+                             aria-valuenow="@((JobProgress * 100).ToString("F0"))"
+                             aria-valuemin="0"
+                             aria-valuemax="100">
+                            @if (JobProgress > 0 && JobProgress < 1)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1" role="status" style="width: 1rem; height: 1rem;"></span>
+                            }
+                            <span>@((JobProgress * 100).ToString("F0"))%</span>
+                        </div>
+                    </div>
+                    <div class="text-muted small mt-1">
+                        @JobStatusMessage
+                        <span> - @ElapsedSeconds seconds elapsed</span>
+                    </div>
+
+                    @if (ActivityLog.Any())
+                    {
+                        <div class="card mt-2">
+                            <div class="card-header py-1 px-2">
+                                <small class="fw-bold">Activity Log</small>
+                            </div>
+                            <div @ref="_activityLogContainer" class="card-body p-2 activity-log-container">
+                                @foreach (var log in ActivityLog.TakeLast(20))
+                                {
+                                    <div class="activity-log-entry">@log</div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Error Message -->
+    @if (!string.IsNullOrEmpty(ErrorMessage))
+    {
+        <div class="alert alert-danger mt-3" role="alert">
+            <i class="bi bi-exclamation-triangle"></i>
+            <strong>Error:</strong> @ErrorMessage
+            @if (ShowFallbackOption)
+            {
+                <div class="mt-2">
+                    <button class="btn btn-outline-primary btn-sm" @onclick="NavigateToTransform">
+                        <i class="bi bi-arrow-right-circle"></i> Use Adobe XML Pipeline Instead
+                    </button>
+                </div>
+            }
+        </div>
+    }
+
+    <!-- Success Message -->
+    @if (!string.IsNullOrEmpty(SuccessMessage))
+    {
+        <div class="alert alert-success mt-3" role="alert">
+            <i class="bi bi-check-circle"></i>
+            <strong>Success:</strong> @SuccessMessage
+        </div>
+    }
+
+    <!-- Preview Area -->
+    @if (!string.IsNullOrEmpty(DoclingOutput))
+    {
+        <div class="docling-panel mt-3">
+            <div class="panel-header">
+                <h5>Conversion Output</h5>
+            </div>
+            <div class="panel-body">
+                <div id="monacoPreviewContainer" class="monaco-container"></div>
+                <div class="button-group mt-3">
+                    <button class="btn btn-primary" @onclick="NavigateToTransform">
+                        <i class="bi bi-arrow-right-circle"></i> Next: Transform
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    // State
+    private List<ProjectInfo> Projects { get; set; } = new();
+    private string SelectedProject { get; set; } = string.Empty;
+    private string SelectedExistingFile { get; set; } = string.Empty;
+    private byte[]? UploadedFileData { get; set; }
+    private string? UploadedFileName { get; set; }
+    private string? UploadedContentType { get; set; }
+    private string OutputFormat { get; set; } = "html";
+    private bool IsConverting { get; set; }
+    private int ElapsedSeconds { get; set; }
+    private string DoclingOutput { get; set; } = string.Empty;
+    private string ErrorMessage { get; set; } = string.Empty;
+    private string SuccessMessage { get; set; } = string.Empty;
+    private bool ShowFallbackOption { get; set; }
+
+    // Async job tracking
+    private string? CurrentJobId { get; set; }
+    private double JobProgress { get; set; }
+    private string JobStatusMessage { get; set; } = string.Empty;
+    private int? JobCurrentPage { get; set; }
+    private int? JobTotalPages { get; set; }
+    private List<string> ActivityLog { get; set; } = new();
+    private ElementReference _activityLogContainer;
+
+    // SignalR
+    private HubConnection? _hubConnection;
+
+    private System.Timers.Timer? _conversionTimer;
+    private bool _monacoInitialized = false;
+
+    private bool IsReadyToConvert
+    {
+        get
+        {
+            var hasExistingFile = !string.IsNullOrEmpty(SelectedExistingFile);
+            Logger.LogInformation($"[IsReadyToConvert] hasExistingFile={hasExistingFile} ('{SelectedExistingFile}')");
+            return hasExistingFile;
+        }
+    }
+
+    // ProjectFileSelector helper properties
+    private List<ProjectFileGroup> ExistingFileGroups { get; set; } = new();
+
+    private async Task HandleExistingFileSelectionChanged(string filePath)
+    {
+        await HandleExistingFileChange(new ChangeEventArgs { Value = filePath });
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            Logger.LogInformation("[OnInitializedAsync] Starting initialization");
+            await LoadProjectsAsync();
+
+            // Load existing document files using the service
+            ExistingFileGroups = await FileGroupBuilder.BuildDocumentFileGroupsAsync(
+                extensions: new[] { ".pdf", ".docx", ".doc" },
+                onlyActiveProjects: true);
+
+            await InitializeSignalR();
+            await RestoreUserSelectionsAsync();
+            Logger.LogInformation($"[OnInitializedAsync] Initialized with {Projects.Count} projects and {ExistingFileGroups.Sum(g => g.Files.Count)} existing files");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error initializing DoclingConvert page");
+            ErrorMessage = $"Failed to load projects: {ex.Message}";
+        }
+    }
+
+    private async Task InitializeSignalR()
+    {
+        try
+        {
+            _hubConnection = new HubConnectionBuilder()
+                .WithUrl(Navigation.ToAbsoluteUri("/hubs/docling-progress"))
+                .WithAutomaticReconnect()
+                .Build();
+
+            _hubConnection.On<DoclingJobInfo>("ProgressUpdate", HandleProgressUpdate);
+
+            await _hubConnection.StartAsync();
+            Logger.LogInformation("SignalR connection established");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to initialize SignalR");
+        }
+    }
+
+    private void HandleProgressUpdate(DoclingJobInfo jobInfo)
+    {
+        try
+        {
+            if (jobInfo.JobId != CurrentJobId)
+            {
+                return;
+            }
+
+            Logger.LogDebug($"Progress update: {jobInfo.Progress:P0} - {jobInfo.Message}");
+
+            JobProgress = jobInfo.Progress;
+            JobStatusMessage = jobInfo.Message;
+            JobCurrentPage = jobInfo.CurrentPage;
+            JobTotalPages = jobInfo.TotalPages;
+
+            // Add message to activity log with timestamp
+            if (!string.IsNullOrEmpty(jobInfo.Message))
+            {
+                var timestamp = DateTime.Now.ToString("HH:mm:ss");
+                ActivityLog.Add($"[{timestamp}] {jobInfo.Message}");
+
+                // Keep only last 50 messages to avoid memory issues
+                if (ActivityLog.Count > 50)
+                {
+                    ActivityLog.RemoveRange(0, ActivityLog.Count - 50);
+                }
+            }
+
+            // Handle completion
+            if (jobInfo.Status == DoclingJobStatus.Completed)
+            {
+                _ = HandleJobCompletion(jobInfo);
+            }
+            else if (jobInfo.Status == DoclingJobStatus.Failed)
+            {
+                HandleJobFailure(jobInfo);
+            }
+            else if (jobInfo.Status == DoclingJobStatus.Cancelled)
+            {
+                HandleJobCancellation();
+            }
+
+            // Update UI and auto-scroll activity log
+            InvokeAsync(async () =>
+            {
+                StateHasChanged();
+                await Task.Delay(50); // Let DOM update
+                await ScrollActivityLogToBottom();
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error handling progress update");
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!string.IsNullOrEmpty(DoclingOutput) && !_monacoInitialized)
+        {
+            try
+            {
+                await InitializeMonacoEditor();
+                _monacoInitialized = true;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error initializing Monaco editor");
+            }
+        }
+    }
+
+    private async Task LoadProjectsAsync()
+    {
+        try
+        {
+            var projects = await ProjectLabelService.GetAllProjectsAsync("/app/data/input");
+            // Sort by customer and project ID for grouped display
+            Projects = projects
+                .OrderBy(p => p.Customer)
+                .ThenBy(p => p.ProjectId)
+                .ToList();
+            Logger.LogInformation($"Loaded {Projects.Count} projects");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading projects");
+            throw;
+        }
+    }
+
+
+    private async Task RestoreUserSelectionsAsync()
+    {
+        try
+        {
+            var selection = await UserSelectionService.GetSelectionAsync();
+
+            // Restore output format
+            if (!string.IsNullOrEmpty(selection.LastDoclingOutputFormat))
+            {
+                OutputFormat = selection.LastDoclingOutputFormat;
+                Logger.LogInformation($"Restored output format: {OutputFormat}");
+            }
+
+            // Restore existing file selection
+            if (!string.IsNullOrEmpty(selection.LastDoclingExistingFile))
+            {
+                var fileExists = ExistingFileGroups.SelectMany(g => g.Files).Any(f => f.FullPath == selection.LastDoclingExistingFile);
+                if (fileExists)
+                {
+                    SelectedExistingFile = selection.LastDoclingExistingFile;
+                    Logger.LogInformation($"Restored existing file: {SelectedExistingFile}");
+
+                    // Load the file data (this will also set SelectedProject)
+                    await LoadExistingFileDataAsync(SelectedExistingFile);
+                }
+                else
+                {
+                    Logger.LogWarning($"Saved file '{selection.LastDoclingExistingFile}' no longer exists");
+                    SelectedExistingFile = string.Empty;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error restoring user selections");
+            // Don't fail initialization if restoration fails - just use defaults
+        }
+    }
+
+    private async Task LoadExistingFileDataAsync(string filePath)
+    {
+        try
+        {
+            // Load the file data for conversion
+            var fileData = await File.ReadAllBytesAsync(filePath);
+            UploadedFileData = fileData;
+            UploadedFileName = Path.GetFileName(filePath);
+
+            // Determine content type based on extension
+            var extension = Path.GetExtension(filePath).ToLowerInvariant();
+            UploadedContentType = extension switch
+            {
+                ".pdf" => "application/pdf",
+                ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                ".doc" => "application/msword",
+                _ => "application/octet-stream"
+            };
+
+            // Set SelectedProject from the file's project - find from ExistingFileGroups
+            var fileGroup = ExistingFileGroups.SelectMany(g => g.Files.Select(f => new { Group = g, File = f }))
+                .FirstOrDefault(x => x.File.FullPath == filePath);
+            if (fileGroup != null)
+            {
+                SelectedProject = fileGroup.Group.ProjectId;
+            }
+
+            Logger.LogInformation($"Loaded existing file: {UploadedFileName} ({FormatFileSize(fileData.Length)})");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading existing file data");
+            throw;
+        }
+    }
+
+
+    private async Task HandleExistingFileChange(ChangeEventArgs e)
+    {
+        SelectedExistingFile = e.Value?.ToString() ?? string.Empty;
+
+        if (!string.IsNullOrEmpty(SelectedExistingFile))
+        {
+            try
+            {
+                await LoadExistingFileDataAsync(SelectedExistingFile);
+
+                // Save existing file selection with full customer/project path
+                var fileGroup = ExistingFileGroups.SelectMany(g => g.Files.Select(f => new { Group = g, File = f }))
+                    .FirstOrDefault(x => x.File.FullPath == SelectedExistingFile);
+                if (fileGroup != null)
+                {
+                    var selection = await UserSelectionService.GetSelectionAsync();
+                    selection.LastDoclingExistingFile = SelectedExistingFile;
+                    // Store in "customer/project-id" format
+                    selection.LastDoclingProject = $"{fileGroup.Group.Customer}/{fileGroup.Group.ProjectId}";
+                    await UserSelectionService.SaveSelectionAsync(selection);
+                    Logger.LogDebug($"Saved existing file selection: {SelectedExistingFile}, project: {selection.LastDoclingProject}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error loading existing file");
+                ErrorMessage = $"Failed to load file: {ex.Message}";
+                SelectedExistingFile = string.Empty;
+                UploadedFileData = null;
+            }
+        }
+
+        StateHasChanged();
+    }
+
+
+    private async void HandleOutputFormatChange(ChangeEventArgs e)
+    {
+        OutputFormat = e.Value?.ToString() ?? "html";
+        Logger.LogInformation($"[HandleOutputFormatChange] Output format changed to: '{OutputFormat}'");
+
+        // Save output format selection
+        try
+        {
+            var selection = await UserSelectionService.GetSelectionAsync();
+            selection.LastDoclingOutputFormat = OutputFormat;
+            await UserSelectionService.SaveSelectionAsync(selection);
+            Logger.LogDebug($"Saved output format: {OutputFormat}");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving output format selection");
+        }
+
+        StateHasChanged();
+    }
+
+
+    private async Task ConvertWithDocling()
+    {
+        if (UploadedFileData == null || string.IsNullOrEmpty(UploadedFileName) || string.IsNullOrEmpty(SelectedProject))
+        {
+            ErrorMessage = "File data not available. Please select the file again.";
+            return;
+        }
+
+        IsConverting = true;
+        ElapsedSeconds = 0;
+        ErrorMessage = string.Empty;
+        SuccessMessage = string.Empty;
+        ShowFallbackOption = false;
+        DoclingOutput = string.Empty;
+        _monacoInitialized = false;
+        CurrentJobId = null;
+        JobProgress = 0;
+        JobStatusMessage = "Starting conversion...";
+        JobCurrentPage = null;
+        JobTotalPages = null;
+        ActivityLog.Clear();
+
+        // Start elapsed time timer
+        _conversionTimer = new System.Timers.Timer(1000);
+        _conversionTimer.Elapsed += (s, e) =>
+        {
+            ElapsedSeconds++;
+            InvokeAsync(StateHasChanged);
+        };
+        _conversionTimer.Start();
+
+        try
+        {
+            Logger.LogInformation($"Starting async conversion: project={SelectedProject}, file={UploadedFileName}, format={OutputFormat}");
+
+            // Prepare multipart form data
+            using var content = new MultipartFormDataContent();
+
+            var fileContent = new ByteArrayContent(UploadedFileData);
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue(UploadedContentType ?? "application/octet-stream");
+            content.Add(fileContent, "file", UploadedFileName);
+            content.Add(new StringContent(OutputFormat), "output_format");
+
+            // Call async endpoint to start job
+            var httpClient = HttpClientFactory.CreateClient("DoclingService");
+            var response = await httpClient.PostAsync("/convert-async", content);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                ErrorMessage = $"Failed to start conversion: {error}";
+                Logger.LogError($"Failed to start job: HTTP {response.StatusCode} - {error}");
+                IsConverting = false;
+                _conversionTimer?.Stop();
+                return;
+            }
+
+            var jobStartResponse = await response.Content.ReadFromJsonAsync<DoclingJobStartResponse>();
+            if (jobStartResponse == null)
+            {
+                ErrorMessage = "Failed to parse job response";
+                IsConverting = false;
+                _conversionTimer?.Stop();
+                return;
+            }
+
+            CurrentJobId = jobStartResponse.JobId;
+            Logger.LogInformation($"Job started: {CurrentJobId}");
+
+            // Subscribe to SignalR updates for this job
+            if (_hubConnection?.State == HubConnectionState.Connected)
+            {
+                await _hubConnection.InvokeAsync("SubscribeToJob", CurrentJobId);
+                Logger.LogInformation($"Subscribed to job {CurrentJobId} via SignalR");
+            }
+
+            // Start polling service tracking
+            JobPollingService.StartTracking(CurrentJobId, "current-user");
+        }
+        catch (HttpRequestException ex)
+        {
+            _conversionTimer?.Stop();
+            IsConverting = false;
+            ErrorMessage = $"Connection error: Unable to reach Docling service. {ex.Message}";
+            ShowFallbackOption = true;
+            Logger.LogError(ex, "HTTP request error calling Docling service");
+        }
+        catch (Exception ex)
+        {
+            _conversionTimer?.Stop();
+            IsConverting = false;
+            ErrorMessage = $"Unexpected error: {ex.Message}";
+            ShowFallbackOption = true;
+            Logger.LogError(ex, "Error starting Docling conversion");
+        }
+    }
+
+    private async Task HandleJobCompletion(DoclingJobInfo jobInfo)
+    {
+        try
+        {
+            _conversionTimer?.Stop();
+            IsConverting = false;
+
+            Logger.LogInformation($"Job {jobInfo.JobId} completed successfully");
+
+            // Fetch result with base64-embedded images
+            var httpClient = HttpClientFactory.CreateClient("DoclingService");
+            var response = await httpClient.GetAsync($"/jobs/{jobInfo.JobId}/result");
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<DoclingJobResultResponse>();
+                if (result?.Success == true && result.OutputContent != null)
+                {
+                    var htmlWithBase64 = result.OutputContent;
+                    Logger.LogInformation($"Retrieved result: {htmlWithBase64.Length} bytes with base64-embedded images");
+
+                    // Determine project folder from selected file path
+                    string projectFolderPath;
+                    string baseFilename;
+
+                    if (!string.IsNullOrEmpty(SelectedExistingFile))
+                    {
+                        // Derive project folder from file path
+                        // Example: /app/data/input/taxxor/projects/ar25-1/taxxor-small.pdf
+                        // -> project folder: /app/data/input/taxxor/projects/ar25-1
+                        projectFolderPath = Path.GetDirectoryName(SelectedExistingFile) ?? string.Empty;
+                        baseFilename = Path.GetFileNameWithoutExtension(SelectedExistingFile);
+                        Logger.LogInformation($"Using project folder from file path: {projectFolderPath}");
+                    }
+                    else
+                    {
+                        ErrorMessage = "No file selected";
+                        return;
+                    }
+
+                    if (string.IsNullOrEmpty(projectFolderPath))
+                    {
+                        ErrorMessage = "Could not determine project folder path";
+                        return;
+                    }
+
+                    // Determine if this format needs image extraction
+                    bool needsImageExtraction = OutputFormat == "xml" || OutputFormat == "html" || OutputFormat == "markdown";
+                    string outputContent;
+                    int imageCount = 0;
+
+                    if (needsImageExtraction)
+                    {
+                        // Extract images and replace base64 with file references
+                        var imagesPath = Path.Combine(projectFolderPath, "images", "from-conversion");
+                        Directory.CreateDirectory(imagesPath);
+
+                        Logger.LogInformation($"Extracting images to: {imagesPath}");
+                        var modifiedHtml = await ImageExtractor.ExtractAndReplaceImagesAsync(
+                            htmlWithBase64,
+                            imagesPath,
+                            baseFilename);
+
+                        // Count extracted images
+                        if (Directory.Exists(imagesPath))
+                        {
+                            imageCount = Directory.GetFiles(imagesPath).Length;
+                        }
+
+                        // Convert to XML if user selected XML format
+                        if (OutputFormat == "xml")
+                        {
+                            Logger.LogInformation("Converting HTML to XML format");
+                            outputContent = ConvertHtmlToXml(modifiedHtml);
+                        }
+                        else
+                        {
+                            outputContent = modifiedHtml;
+                        }
+                    }
+                    else
+                    {
+                        // DocTags and JSON formats - save as-is without image extraction
+                        Logger.LogInformation($"Saving {OutputFormat} format without image extraction");
+                        outputContent = htmlWithBase64;  // Actually contains DocTags or JSON content from Docling
+                    }
+
+                    // Save with appropriate file extension
+                    var fileExtension = OutputFormat switch
+                    {
+                        "xml" => "xml",
+                        "markdown" => "md",
+                        "doctags" => "doctags",
+                        "json" => "json",
+                        _ => "html"  // default for html format
+                    };
+                    var outputPath = Path.Combine(projectFolderPath, $"docling-output.{fileExtension}");
+                    await File.WriteAllTextAsync(outputPath, outputContent, System.Text.Encoding.UTF8);
+                    Logger.LogInformation($"Saved output to: {outputPath}");
+
+                    // Update Monaco display
+                    DoclingOutput = outputContent;
+
+                    // Build success message
+                    var imageInfo = needsImageExtraction && imageCount > 0
+                        ? $" with {imageCount} images extracted"
+                        : "";
+                    SuccessMessage = $"Conversion successful! Processed {result.PageCount ?? 0} pages in {ElapsedSeconds} seconds{imageInfo}. Output saved to {outputPath}";
+                    Logger.LogInformation($"Conversion complete{(needsImageExtraction ? " with image extraction" : "")}");
+                }
+                else
+                {
+                    ErrorMessage = result?.Error ?? "Failed to retrieve conversion result";
+                }
+            }
+            else
+            {
+                ErrorMessage = "Failed to retrieve conversion result";
+            }
+
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error handling job completion");
+            ErrorMessage = $"Error retrieving result: {ex.Message}";
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string ConvertHtmlToXml(string htmlContent)
+    {
+        try
+        {
+            // Load HTML with HtmlAgilityPack
+            var htmlDoc = new HtmlAgilityPack.HtmlDocument();
+            htmlDoc.LoadHtml(htmlContent);
+
+            // Remove all <style> elements
+            var styleNodes = htmlDoc.DocumentNode.SelectNodes("//style");
+            if (styleNodes != null)
+            {
+                foreach (var styleNode in styleNodes)
+                {
+                    styleNode.Remove();
+                }
+                Logger.LogDebug($"Removed {styleNodes.Count} style elements");
+            }
+
+            // Clean up <title> element - remove CDATA wrapper
+            var titleNode = htmlDoc.DocumentNode.SelectSingleNode("//title");
+            if (titleNode != null)
+            {
+                // Get the raw inner content
+                var rawContent = titleNode.InnerHtml;
+
+                // Extract text from CDATA section if present
+                string titleText;
+                if (rawContent.Contains("CDATA"))
+                {
+                    // Extract content between CDATA markers
+                    var cdataPattern = @"(?://)?\s*<!\[CDATA\[\s*(.*?)\s*\]\]>\s*(?://)?";
+                    var match = System.Text.RegularExpressions.Regex.Match(rawContent, cdataPattern,
+                        System.Text.RegularExpressions.RegexOptions.Singleline);
+
+                    if (match.Success)
+                    {
+                        titleText = match.Groups[1].Value.Trim();
+                    }
+                    else
+                    {
+                        // Fallback: use InnerText and clean it
+                        titleText = titleNode.InnerText.Trim();
+                    }
+                }
+                else
+                {
+                    titleText = titleNode.InnerText.Trim();
+                }
+
+                // Clear the node and set clean text content
+                titleNode.RemoveAllChildren();
+                titleNode.AppendChild(htmlDoc.CreateTextNode(titleText));
+
+                Logger.LogDebug($"Cleaned title: '{titleText}'");
+            }
+
+            // Configure output as XML (not HTML)
+            htmlDoc.OptionOutputAsXml = true;
+            htmlDoc.OptionWriteEmptyNodes = true;
+            htmlDoc.OptionAutoCloseOnEnd = true;
+
+            // Find the root <html> element
+            var htmlElement = htmlDoc.DocumentNode.SelectSingleNode("//html");
+            if (htmlElement == null)
+            {
+                Logger.LogWarning("No <html> element found, using document node");
+                htmlElement = htmlDoc.DocumentNode;
+            }
+
+            // Generate XML output
+            using var writer = new System.IO.StringWriter();
+
+            // Write XML declaration
+            writer.WriteLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+
+            // Write only the <html> element (not the document node to avoid span wrapper)
+            htmlElement.WriteTo(writer);
+
+            return writer.ToString();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error converting HTML to XML");
+            // Return original HTML if conversion fails
+            return htmlContent;
+        }
+    }
+
+    private void HandleJobFailure(DoclingJobInfo jobInfo)
+    {
+        _conversionTimer?.Stop();
+        IsConverting = false;
+        ErrorMessage = $"Conversion failed: {jobInfo.Error}";
+        Logger.LogError($"Job {jobInfo.JobId} failed: {jobInfo.Error}");
+    }
+
+    private void HandleJobCancellation()
+    {
+        _conversionTimer?.Stop();
+        IsConverting = false;
+        ErrorMessage = "Conversion was cancelled";
+        Logger.LogInformation("Job was cancelled");
+    }
+
+    private async Task CancelConversion()
+    {
+        if (string.IsNullOrEmpty(CurrentJobId))
+        {
+            return;
+        }
+
+        try
+        {
+            var httpClient = HttpClientFactory.CreateClient("DoclingService");
+            var response = await httpClient.DeleteAsync($"/jobs/{CurrentJobId}");
+
+            if (response.IsSuccessStatusCode)
+            {
+                Logger.LogInformation($"Cancelled job {CurrentJobId}");
+            }
+            else
+            {
+                Logger.LogWarning($"Failed to cancel job {CurrentJobId}: {response.StatusCode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, $"Error cancelling job {CurrentJobId}");
+        }
+    }
+
+    private async Task InitializeMonacoEditor()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync(
+                "eval",
+                @"
+                if (typeof monaco !== 'undefined') {
+                    const container = document.getElementById('monacoPreviewContainer');
+                    if (container) {
+                        const editor = monaco.editor.create(container, {
+                            value: " + System.Text.Json.JsonSerializer.Serialize(DoclingOutput) + @",
+                            language: 'xml',
+                            theme: 'vs-dark',
+                            readOnly: true,
+                            automaticLayout: true,
+                            minimap: { enabled: true },
+                            scrollBeyondLastLine: false,
+                            fontSize: 13,
+                            lineNumbers: 'on',
+                            wordWrap: 'on'
+                        });
+                    }
+                }
+                "
+            );
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error initializing Monaco editor");
+        }
+    }
+
+    private void NavigateToTransform()
+    {
+        Navigation.NavigateTo("/development");
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        double len = bytes;
+        int order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+
+    private async Task ScrollActivityLogToBottom()
+    {
+        try
+        {
+            // Only scroll if there are activity logs to show
+            if (!ActivityLog.Any())
+            {
+                return;
+            }
+
+            // Call JavaScript function to scroll container to bottom
+            await JSRuntime.InvokeVoidAsync("scrollToBottom", _activityLogContainer);
+        }
+        catch (Exception ex)
+        {
+            // Log but don't fail on scroll errors - it's a UX enhancement
+            Logger.LogDebug(ex, "Error scrolling activity log to bottom");
+        }
+    }
+
+    public void Dispose()
+    {
+        _conversionTimer?.Stop();
+        _conversionTimer?.Dispose();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _conversionTimer?.Stop();
+        _conversionTimer?.Dispose();
+
+        if (_hubConnection != null)
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(CurrentJobId))
+                {
+                    await _hubConnection.InvokeAsync("UnsubscribeFromJob", CurrentJobId);
+                    JobPollingService.StopTracking(CurrentJobId);
+                }
+
+                await _hubConnection.DisposeAsync();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error disposing SignalR connection");
+            }
+        }
+    }
+}

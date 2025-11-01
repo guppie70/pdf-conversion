@@ -1,0 +1,1360 @@
+@page "/hierarchy-test"
+@using PdfConversion.Services
+@using PdfConversion.Models
+@using System.Text.Json
+@using System.Xml.Linq
+@inject IHierarchyGeneratorService HierarchyGenerator
+@inject IOllamaService OllamaService
+@inject IProjectManagementService ProjectManagement
+@inject IXsltTransformationService XsltService
+@inject IJSRuntime JSRuntime
+@inject ILogger<HierarchyTest> Logger
+
+<PageTitle>AI Hierarchy Generator Test</PageTitle>
+
+<div class="hierarchy-test-container">
+    <div class="header">
+        <h3>
+            <i class="bi bi-robot"></i> AI Hierarchy Generator Test
+        </h3>
+        <p class="text-muted mb-0">Test AI-powered hierarchy generation using Ollama LLM</p>
+    </div>
+
+    @if (_generatedProposal?.ValidationResult != null && !_generatedProposal.ValidationResult.IsValid)
+    {
+        <div class="alert alert-warning mt-3">
+            <div class="d-flex align-items-start">
+                <i class="bi bi-exclamation-triangle-fill me-2 mt-1" style="font-size: 1.2em;"></i>
+                <div class="flex-grow-1">
+                    <h6 class="mb-2">⚠️ Hierarchy Contains Hallucinations</h6>
+                    <p class="mb-2">@_generatedProposal.ValidationResult.Summary</p>
+                    <details>
+                        <summary class="text-decoration-underline" style="cursor: pointer;">
+                            Show hallucinated items (@_generatedProposal.ValidationResult.HallucinatedItems.Count)
+                        </summary>
+                        <ul class="mt-2 mb-0">
+                            @foreach (var item in _generatedProposal.ValidationResult.HallucinatedItems.Take(20))
+                            {
+                                <li><code>@item</code></li>
+                            }
+                            @if (_generatedProposal.ValidationResult.HallucinatedItems.Count > 20)
+                            {
+                                <li class="text-muted">... and @(_generatedProposal.ValidationResult.HallucinatedItems.Count - 20) more</li>
+                            }
+                        </ul>
+                    </details>
+                    <p class="mb-0 mt-2 small">
+                        <strong>What this means:</strong> These section names don't exist in your source document.
+                        You can manually remove them below or regenerate with different settings.
+                    </p>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="three-panel-layout">
+        <!-- Left Panel: Configuration -->
+        <div class="panel config-panel">
+            <div class="panel-header">
+                <h5>Configuration</h5>
+                @if (_ollamaHealthy)
+                {
+                    <span class="badge bg-success">
+                        <i class="bi bi-check-circle"></i> Ollama Connected
+                    </span>
+                }
+                else
+                {
+                    <span class="badge bg-danger">
+                        <i class="bi bi-x-circle"></i> Ollama Offline
+                    </span>
+                }
+            </div>
+            <div class="panel-content">
+                @if (_isLoadingConfig)
+                {
+                    <div class="loading-state">
+                        <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                        <span class="ms-2">Loading configuration...</span>
+                    </div>
+                }
+                else if (!_ollamaHealthy)
+                {
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <strong>Ollama Not Running</strong>
+                        <p class="mb-0 mt-2">Please start Ollama service:</p>
+                        <code class="d-block mt-2">ollama serve</code>
+                    </div>
+                }
+                else
+                {
+                    <!-- Project Selection -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Project</label>
+                        <select class="form-select" @bind="_selectedProjectId" @bind:after="OnProjectSelected">
+                            <option value="">-- Select Project --</option>
+                            @foreach (var project in _projects)
+                            {
+                                <option value="@($"{project.Organization}/{project.ProjectId}")">@project.Name (@($"{project.Organization}/{project.ProjectId}"))</option>
+                            }
+                        </select>
+                    </div>
+
+                    <!-- Source XML File Selection -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Source XML File</label>
+                        <select class="form-select" @bind="_selectedSourceFile" disabled="@string.IsNullOrEmpty(_selectedProjectId)">
+                            <option value="">-- Select Source XML --</option>
+                            @foreach (var file in _availableSourceFiles)
+                            {
+                                <option value="@file">@Path.GetFileName(file)</option>
+                            }
+                        </select>
+                        @if (!string.IsNullOrEmpty(_selectedSourceFile))
+                        {
+                            <small class="text-muted d-block mt-1">
+                                @Path.GetFileName(_selectedSourceFile) selected
+                            </small>
+                        }
+                    </div>
+
+                    <!-- XSLT Transformation Selection -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">XSLT Transformation</label>
+                        <select class="form-select" @bind="_selectedXsltFile" disabled="@string.IsNullOrEmpty(_selectedProjectId)">
+                            <option value="">-- Select XSLT File --</option>
+                            @foreach (var file in _availableXsltFiles)
+                            {
+                                <option value="@file">@file.Replace("/app/xslt/", "")</option>
+                            }
+                        </select>
+                        @if (!string.IsNullOrEmpty(_selectedXsltFile))
+                        {
+                            <small class="text-muted d-block mt-1">
+                                @_selectedXsltFile.Replace("/app/xslt/", "") selected
+                            </small>
+                        }
+                    </div>
+
+                    <!-- Example Hierarchies Selection -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">
+                            Example Hierarchies
+                            <small class="text-muted">(select 2-3)</small>
+                        </label>
+                        @if (_exampleHierarchies.Any())
+                        {
+                            <div class="mb-2">
+                                <input type="text"
+                                       class="form-control form-control-sm"
+                                       placeholder="Search hierarchies (e.g., 'optiver', 'ar24', 'financials')..."
+                                       @bind="_hierarchySearchFilter"
+                                       @bind:event="oninput" />
+                            </div>
+                            <div class="example-list" style="max-height: 300px; overflow-y: auto;">
+                                @{
+                                    var filteredExamples = string.IsNullOrWhiteSpace(_hierarchySearchFilter)
+                                        ? _exampleHierarchies
+                                        : _exampleHierarchies.Where(e =>
+                                            e.DisplayName.Contains(_hierarchySearchFilter, StringComparison.OrdinalIgnoreCase)
+                                        ).ToList();
+                                }
+                                @foreach (var example in filteredExamples)
+                                {
+                                    <div class="form-check">
+                                        <input class="form-check-input"
+                                               type="checkbox"
+                                               id="@example.Path"
+                                               checked="@example.IsSelected"
+                                               @onchange="@(() => ToggleExample(example))" />
+                                        <label class="form-check-label" for="@example.Path">
+                                            @example.DisplayName
+                                        </label>
+                                    </div>
+                                }
+                            </div>
+                            <small class="text-muted d-block mt-2">
+                                @{
+                                    var selectedCount = _exampleHierarchies.Count(e => e.IsSelected);
+                                    var filteredCount = filteredExamples.Count();
+                                }
+                                @selectedCount selected
+                                @if (!string.IsNullOrWhiteSpace(_hierarchySearchFilter))
+                                {
+                                    <text> (showing @filteredCount of @_exampleHierarchies.Count)</text>
+                                }
+                            </small>
+                        }
+                        else
+                        {
+                            <div class="alert alert-info small mb-0">
+                                No example hierarchies found
+                            </div>
+                        }
+                    </div>
+
+                    <!-- Model Selection -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">AI Model</label>
+                        <select class="form-select" @bind="_selectedModel">
+                            @foreach (var model in _availableModels)
+                            {
+                                <option value="@model.Name">
+                                    @model.Name
+                                    @if (model.Details != null)
+                                    {
+                                        <text> (@model.Details.ParameterSize)</text>
+                                    }
+                                </option>
+                            }
+                        </select>
+                    </div>
+
+                    <!-- Temperature Slider -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">
+                            Temperature: @_temperature.ToString("F1")
+                        </label>
+                        <input type="range"
+                               class="form-range"
+                               min="0.0"
+                               max="1.0"
+                               step="0.1"
+                               @bind="_temperature" />
+                        <small class="text-muted d-block">
+                            Lower = more consistent, Higher = more creative
+                        </small>
+                    </div>
+
+                    <!-- Generate Button -->
+                    <button class="btn btn-primary w-100"
+                            @onclick="GenerateHierarchy"
+                            disabled="@(!CanGenerate || _isGenerating)">
+                        @if (_isGenerating)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                            <text>Generating... @_generationProgress%</text>
+                        }
+                        else
+                        {
+                            <i class="bi bi-robot me-2"></i>
+                            <text>Generate Hierarchy</text>
+                        }
+                    </button>
+
+                    @if (_errorMessage != null)
+                    {
+                        <div class="alert alert-danger mt-3 mb-0">
+                            <div class="d-flex align-items-start">
+                                <i class="bi bi-exclamation-triangle me-2 mt-1"></i>
+                                <div>
+                                    <strong>Error:</strong>
+                                    <pre class="mb-0 mt-2" style="white-space: pre-wrap; font-size: 0.9em;">@_errorMessage</pre>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        <!-- Middle Panel: Input Preview -->
+        <div class="panel preview-panel">
+            <div class="panel-header">
+                <h5>Input Preview</h5>
+                @if (!string.IsNullOrEmpty(_selectedSourceFile) && !string.IsNullOrEmpty(_selectedXsltFile))
+                {
+                    <span class="badge bg-info">Ready</span>
+                }
+            </div>
+            <div class="panel-content">
+                @if (string.IsNullOrEmpty(_selectedSourceFile) || string.IsNullOrEmpty(_selectedXsltFile))
+                {
+                    <div class="alert alert-secondary">
+                        <i class="bi bi-arrow-left"></i> Select project, source XML file, and XSLT transformation
+                    </div>
+                }
+                else
+                {
+                    <ul class="nav nav-tabs mb-3" role="tablist">
+                        <li class="nav-item">
+                            <button class="nav-link @(_previewTab == "structure" ? "active" : "")"
+                                    @onclick="@(() => _previewTab = "structure")">
+                                Source Document
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link @(_previewTab == "transformation" ? "active" : "")"
+                                    @onclick="@(() => _previewTab = "transformation")">
+                                Transformation
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link @(_previewTab == "examples" ? "active" : "")"
+                                    @onclick="@(() => _previewTab = "examples")">
+                                Example Hierarchies (@_exampleHierarchies.Count(e => e.IsSelected))
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link @(_previewTab == "prompt" ? "active" : "")"
+                                    @onclick="@(() => _previewTab = "prompt")">
+                                Full Prompt
+                            </button>
+                        </li>
+                    </ul>
+
+                    @if (_previewTab == "structure")
+                    {
+                        <div class="preview-content">
+                            <h6>Source XML File:</h6>
+                            <p class="text-muted">@Path.GetFileName(_selectedSourceFile)</p>
+                            <h6 class="mt-3">Document Headers (first 50):</h6>
+                            <pre class="preview-text">@GetDocumentHeadersPreview()</pre>
+                        </div>
+                    }
+                    else if (_previewTab == "transformation")
+                    {
+                        <div class="preview-content">
+                            <h6>XSLT File:</h6>
+                            <p class="text-muted">@_selectedXsltFile.Replace("/app/xslt/", "")</p>
+
+                            @if (!string.IsNullOrEmpty(_transformationError))
+                            {
+                                <div class="alert alert-danger mt-3">
+                                    <strong>Transformation Error:</strong>
+                                    <pre>@_transformationError</pre>
+                                </div>
+                            }
+                            else if (!string.IsNullOrEmpty(_transformedXmlPreview))
+                            {
+                                <h6 class="mt-3">Normalized XML Preview (first 1000 chars):</h6>
+                                <pre class="preview-text">@_transformedXmlPreview</pre>
+                            }
+                            else
+                            {
+                                <div class="alert alert-info mt-3">
+                                    <i class="bi bi-info-circle"></i>
+                                    Transformation will occur when you click "Generate Hierarchy"
+                                </div>
+                            }
+                        </div>
+                    }
+                    else if (_previewTab == "examples")
+                    {
+                        <div class="preview-content">
+                            @foreach (var example in _exampleHierarchies.Where(e => e.IsSelected))
+                            {
+                                <h6>@example.DisplayName:</h6>
+                                <pre class="preview-text small">@(example.Content?.Length > 1000 ? example.Content.Substring(0, 1000) + "..." : example.Content)</pre>
+                            }
+                            @if (!_exampleHierarchies.Any(e => e.IsSelected))
+                            {
+                                <div class="alert alert-warning">
+                                    No examples selected
+                                </div>
+                            }
+                        </div>
+                    }
+                    else if (_previewTab == "prompt")
+                    {
+                        <div class="preview-content">
+                            <div class="alert alert-info small">
+                                This shows the actual prompt that will be sent to the AI
+                            </div>
+                            <pre class="preview-text small">@GetPromptPreview()</pre>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        <!-- Right Panel: AI Results -->
+        <div class="panel results-panel">
+            <div class="panel-header">
+                <h5>AI Results</h5>
+                @if (_generatedProposal != null)
+                {
+                    <span class="badge bg-success">Generated</span>
+                }
+            </div>
+            <div class="panel-content">
+                @if (_generatedProposal == null)
+                {
+                    <div class="alert alert-secondary">
+                        <i class="bi bi-arrow-left"></i> Generate hierarchy to see results
+                    </div>
+                }
+                else
+                {
+                    <ul class="nav nav-tabs mb-3" role="tablist">
+                        <li class="nav-item">
+                            <button class="nav-link @(_resultsTab == "summary" ? "active" : "")"
+                                    @onclick="@(() => _resultsTab = "summary")">
+                                Summary
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link @(_resultsTab == "tree" ? "active" : "")"
+                                    @onclick="@(() => _resultsTab = "tree")">
+                                Tree (@_generatedProposal.TotalItems)
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link @(_resultsTab == "hierarchyxml" ? "active" : "")"
+                                    @onclick="@(() => _resultsTab = "hierarchyxml")">
+                                Hierarchy XML
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link @(_resultsTab == "uncertainties" ? "active" : "")"
+                                    @onclick="@(() => _resultsTab = "uncertainties")">
+                                Uncertainties (@_generatedProposal.Uncertainties.Count)
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link @(_resultsTab == "json" ? "active" : "")"
+                                    @onclick="@(() => _resultsTab = "json")">
+                                JSON
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link @(_resultsTab == "debug" ? "active" : "")"
+                                    @onclick="@(() => { _resultsTab = "debug"; LoadDebugFiles(); })">
+                                Debug Files
+                                @if (_debugFiles.Any())
+                                {
+                                    <span class="badge bg-info">@_debugFiles.Count</span>
+                                }
+                            </button>
+                        </li>
+                    </ul>
+
+                    @if (_resultsTab == "summary")
+                    {
+                        <div class="results-content">
+                            <div class="metric-card">
+                                <label>Total Items</label>
+                                <div class="metric-value">@_generatedProposal.TotalItems</div>
+                            </div>
+                            <div class="metric-card">
+                                <label>Overall Confidence</label>
+                                <div class="metric-value">
+                                    @_generatedProposal.OverallConfidence%
+                                    <span class="badge @GetConfidenceBadgeClass(_generatedProposal.OverallConfidence) ms-2">
+                                        @GetConfidenceLabel(_generatedProposal.OverallConfidence)
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="metric-card">
+                                <label>Uncertainties</label>
+                                <div class="metric-value text-warning">@_generatedProposal.Uncertainties.Count</div>
+                            </div>
+                            <div class="metric-card">
+                                <label>Generation Time</label>
+                                <div class="metric-value">@_generationTime.ToString("F1")s</div>
+                            </div>
+
+                            @if (!string.IsNullOrEmpty(_generatedProposal.Reasoning))
+                            {
+                                <div class="mt-3">
+                                    <h6>AI Reasoning:</h6>
+                                    <div class="alert alert-info">
+                                        @_generatedProposal.Reasoning
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else if (_resultsTab == "tree")
+                    {
+                        <div class="results-content">
+                            @RenderHierarchyItem(_generatedProposal.Root, 0)
+                        </div>
+                    }
+                    else if (_resultsTab == "hierarchyxml")
+                    {
+                        @if (_hierarchyXml != null)
+                        {
+                            <div class="hierarchy-xml-container">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span class="text-muted">Generated hierarchy in XML format (ready for HierarchyService)</span>
+                                    <button class="btn btn-sm btn-success" @onclick="CopyHierarchyXml">
+                                        <i class="bi bi-clipboard"></i> Copy to Clipboard
+                                    </button>
+                                </div>
+                                <pre class="code-preview xml-preview">@_hierarchyXml</pre>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="alert alert-info">
+                                <i class="bi bi-info-circle"></i> Generate a hierarchy to see the XML output
+                            </div>
+                        }
+                    }
+                    else if (_resultsTab == "uncertainties")
+                    {
+                        <div class="results-content">
+                            @if (_generatedProposal.Uncertainties.Any())
+                            {
+                                @foreach (var item in _generatedProposal.Uncertainties)
+                                {
+                                    <div class="uncertainty-card">
+                                        <div class="d-flex justify-content-between align-items-start mb-2">
+                                            <strong>@item.LinkName</strong>
+                                            <span class="badge bg-warning">
+                                                @(item.Confidence ?? 0)%
+                                            </span>
+                                        </div>
+                                        <div class="small text-muted mb-1">
+                                            Level @item.Level • ID: @item.Id
+                                        </div>
+                                        @if (!string.IsNullOrEmpty(item.Reasoning))
+                                        {
+                                            <div class="small mt-2">
+                                                <strong>Reason:</strong> @item.Reasoning
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <div class="alert alert-success">
+                                    <i class="bi bi-check-circle"></i>
+                                    No uncertain items! All items have confidence ≥ 70%
+                                </div>
+                            }
+                        </div>
+                    }
+                    else if (_resultsTab == "json")
+                    {
+                        <div class="results-content">
+                            <pre class="json-output">@GetProposalJson()</pre>
+                        </div>
+                    }
+                    else if (_resultsTab == "debug")
+                    {
+                        <div class="results-content">
+                            @if (_debugFiles.Any())
+                            {
+                                <div class="debug-files-list">
+                                    <p class="text-muted mb-3">Recent debug files saved to <code>/app/data/debug/ollama-responses/</code></p>
+
+                                    @foreach (var debugFile in _debugFiles.OrderByDescending(f => f.Timestamp))
+                                    {
+                                        <div class="debug-file-item card mb-3">
+                                            <div class="card-header">
+                                                <strong>@debugFile.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</strong>
+                                                <span class="float-end">
+                                                    <span class="badge bg-secondary">Response: @FormatFileSize(debugFile.ResponseSize)</span>
+                                                    <span class="badge bg-secondary ms-1">Prompt: @FormatFileSize(debugFile.PromptSize)</span>
+                                                </span>
+                                            </div>
+                                            <div class="card-body">
+                                                <div class="btn-group" role="group">
+                                                    <button class="btn btn-sm btn-primary"
+                                                            @onclick="@(async () => await ViewDebugFile(debugFile.ResponsePath))">
+                                                        <i class="bi bi-file-code"></i> View Response
+                                                    </button>
+                                                    <button class="btn btn-sm btn-secondary"
+                                                            @onclick="@(async () => await ViewDebugFile(debugFile.PromptPath))">
+                                                        <i class="bi bi-file-text"></i> View Prompt
+                                                    </button>
+                                                    <button class="btn btn-sm btn-success"
+                                                            @onclick="@(() => DownloadDebugFile(debugFile.ResponsePath))">
+                                                        <i class="bi bi-download"></i> Download Response
+                                                    </button>
+                                                    <button class="btn btn-sm btn-success"
+                                                            @onclick="@(() => DownloadDebugFile(debugFile.PromptPath))">
+                                                        <i class="bi bi-download"></i> Download Prompt
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="alert alert-info">
+                                    <i class="bi bi-info-circle"></i> No debug files yet. Generate a hierarchy to create debug files.
+                                </div>
+                            }
+
+                            @if (!string.IsNullOrEmpty(_debugFileContent))
+                            {
+                                <div class="debug-file-viewer mt-3">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <strong>@_debugFileName</strong>
+                                        <button class="btn btn-sm btn-secondary" @onclick="CloseDebugFileViewer">
+                                            <i class="bi bi-x"></i> Close
+                                        </button>
+                                    </div>
+                                    <pre class="code-preview">@_debugFileContent</pre>
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    // Configuration state
+    private bool _ollamaHealthy;
+    private bool _isLoadingConfig = true;
+    private List<Project> _projects = new();
+    private List<OllamaModel> _availableModels = new();
+    private List<ExampleHierarchy> _exampleHierarchies = new();
+    private string _hierarchySearchFilter = string.Empty;
+
+    // File selection state
+    private string _selectedSourceFile = string.Empty;
+    private string _selectedXsltFile = "/app/xslt/transformation.xslt";
+    private List<string> _availableSourceFiles = new();
+    private List<string> _availableXsltFiles = new();
+
+    // Selection state
+    private string _selectedProjectId = "";
+    private string _selectedModel = "llama3.1:70b";
+    private double _temperature = 0.3;
+    private string _previewTab = "structure";
+    private string _resultsTab = "summary";
+
+    // Debug files state
+    private List<DebugFileInfo> _debugFiles = new();
+    private string? _debugFileContent;
+    private string? _debugFileName;
+
+    // Hierarchy XML state
+    private string? _hierarchyXml;
+
+    // Transformation state
+    private string? _transformedXmlPreview = null;
+    private string? _transformationError = null;
+
+    // Generation state
+    private bool _isGenerating;
+    private int _generationProgress;
+    private HierarchyProposal? _generatedProposal;
+    private double _generationTime;
+    private string? _errorMessage;
+
+    private bool CanGenerate =>
+        !string.IsNullOrEmpty(_selectedProjectId) &&
+        !string.IsNullOrEmpty(_selectedSourceFile) &&
+        !string.IsNullOrEmpty(_selectedXsltFile) &&
+        _exampleHierarchies.Any(e => e.IsSelected) &&
+        _ollamaHealthy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadConfiguration();
+        await LoadDebugFiles();
+    }
+
+    private async Task LoadConfiguration()
+    {
+        _isLoadingConfig = true;
+        StateHasChanged();
+
+        try
+        {
+            // Check Ollama health
+            _ollamaHealthy = await OllamaService.CheckHealthAsync();
+
+            if (!_ollamaHealthy)
+            {
+                Logger.LogWarning("Ollama service is not available");
+                return;
+            }
+
+            // Load available models
+            _availableModels = await OllamaService.GetAvailableModelsAsync();
+            if (_availableModels.Any() && !_availableModels.Any(m => m.Name == _selectedModel))
+            {
+                _selectedModel = _availableModels.First().Name;
+            }
+
+            // Load projects
+            var allProjects = await ProjectManagement.GetProjectsAsync();
+            _projects = allProjects.ToList();
+
+            // Load example hierarchies
+            await LoadExampleHierarchies();
+
+            Logger.LogInformation("Configuration loaded: {ModelCount} models, {ProjectCount} projects, {ExampleCount} examples",
+                _availableModels.Count, _projects.Count, _exampleHierarchies.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load configuration");
+            _errorMessage = $"Configuration error: {ex.Message}";
+        }
+        finally
+        {
+            _isLoadingConfig = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadExampleHierarchies()
+    {
+        try
+        {
+            var trainingDir = "/app/data/training-material/hierarchies";
+
+            if (!Directory.Exists(trainingDir))
+            {
+                Logger.LogWarning("Training material hierarchies directory not found: {Dir}", trainingDir);
+                _exampleHierarchies = new List<ExampleHierarchy>();
+                return;
+            }
+
+            var hierarchyFiles = Directory.GetFiles(trainingDir, "*.xml", SearchOption.AllDirectories)
+                .OrderBy(f => f)
+                .ToList();
+
+            _exampleHierarchies = hierarchyFiles.Select(path =>
+            {
+                // Extract relative path from training dir for display
+                var relativePath = path.Replace(trainingDir + "/", "");
+
+                // Create friendly display name: "optiver/ar24 - hierarchy-ar-pdf-en.xml"
+                var parts = relativePath.Split('/');
+                var organization = parts.Length > 0 ? parts[0] : "unknown";
+                var project = parts.Length > 1 ? parts[1] : "unknown";
+                var filename = Path.GetFileName(path);
+
+                var displayName = $"{organization}/{project} - {filename}";
+
+                return new ExampleHierarchy
+                {
+                    Path = path,
+                    DisplayName = displayName,
+                    IsSelected = false,
+                    Content = null
+                };
+            }).ToList();
+
+            Logger.LogInformation("Loaded {Count} training hierarchies from {Dir}",
+                _exampleHierarchies.Count, trainingDir);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load training hierarchies");
+            _exampleHierarchies = new List<ExampleHierarchy>();
+        }
+
+        await Task.CompletedTask;
+    }
+
+    private async Task OnProjectSelected()
+    {
+        _availableSourceFiles.Clear();
+        _availableXsltFiles.Clear();
+        _selectedSourceFile = "";
+        _selectedXsltFile = "/app/xslt/transformation.xslt"; // Reset to default
+        _transformedXmlPreview = null;
+        _transformationError = null;
+        _errorMessage = null;
+
+        if (string.IsNullOrEmpty(_selectedProjectId))
+            return;
+
+        try
+        {
+            // Get INPUT directory for this project (NOT output!)
+            var parts = _selectedProjectId.Split('/');
+            if (parts.Length == 2)
+            {
+                var inputDir = Path.Combine("/app/data/input", parts[0], "projects", parts[1]);
+                if (Directory.Exists(inputDir))
+                {
+                    _availableSourceFiles = Directory.GetFiles(inputDir, "*.xml", SearchOption.TopDirectoryOnly)
+                        .Where(f => !f.Contains("/metadata/"))
+                        .ToList();
+
+                    // Auto-select input.xml if it exists
+                    var inputXml = _availableSourceFiles.FirstOrDefault(f => Path.GetFileName(f) == "input.xml");
+                    if (inputXml != null)
+                    {
+                        _selectedSourceFile = inputXml;
+                    }
+                }
+            }
+
+            // Load available XSLT files
+            var xsltDir = "/app/xslt";
+            if (Directory.Exists(xsltDir))
+            {
+                _availableXsltFiles = Directory.GetFiles(xsltDir, "*.xslt", SearchOption.AllDirectories).ToList();
+            }
+
+            Logger.LogInformation("Project selected: {ProjectId}, found {SourceCount} source files, {XsltCount} XSLT files",
+                _selectedProjectId, _availableSourceFiles.Count, _availableXsltFiles.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load files for project {ProjectId}", _selectedProjectId);
+            _errorMessage = $"Failed to load files: {ex.Message}";
+        }
+
+        await Task.CompletedTask;
+    }
+
+
+    private void ToggleExample(ExampleHierarchy example)
+    {
+        example.IsSelected = !example.IsSelected;
+
+        // Load content if selecting
+        if (example.IsSelected && example.Content == null)
+        {
+            try
+            {
+                example.Content = File.ReadAllText(example.Path);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to load example hierarchy: {Path}", example.Path);
+                example.IsSelected = false;
+            }
+        }
+    }
+
+    private async Task GenerateHierarchy()
+    {
+        if (!CanGenerate)
+            return;
+
+        _isGenerating = true;
+        _generationProgress = 0;
+        _errorMessage = null;
+        _transformationError = null;
+        _generatedProposal = null;
+        StateHasChanged();
+
+        try
+        {
+            var startTime = DateTime.UtcNow;
+
+            Logger.LogInformation("Starting hierarchy generation with live XSLT transformation");
+
+            // Step 1: Read source XML content
+            _generationProgress = 5;
+            StateHasChanged();
+
+            var sourceXmlContent = await File.ReadAllTextAsync(_selectedSourceFile);
+            Logger.LogInformation("Loaded source XML: {Length} characters", sourceXmlContent.Length);
+
+            // Step 2: Read XSLT content
+            _generationProgress = 10;
+            StateHasChanged();
+
+            var xsltContent = await File.ReadAllTextAsync(_selectedXsltFile);
+            Logger.LogInformation("Loaded XSLT: {Length} characters from {File}", xsltContent.Length, _selectedXsltFile);
+
+            // Step 3: Perform XSLT transformation
+            _generationProgress = 20;
+            StateHasChanged();
+
+            var transformResult = await XsltService.TransformAsync(
+                sourceXmlContent,
+                xsltContent,
+                new TransformationOptions { UseXslt3Service = true },
+                _selectedXsltFile
+            );
+
+            if (!transformResult.IsSuccess)
+            {
+                _transformationError = transformResult.ErrorMessage;
+                _errorMessage = $"XSLT transformation failed: {transformResult.ErrorMessage}";
+                Logger.LogError("XSLT transformation failed: {Error}", transformResult.ErrorMessage);
+                return;
+            }
+
+            Logger.LogInformation("XSLT transformation succeeded: {Length} characters in {Ms}ms",
+                transformResult.OutputContent.Length, transformResult.ProcessingTimeMs);
+
+            // Step 4: Get transformed (normalized) XML
+            var normalizedXml = transformResult.OutputContent;
+            _transformedXmlPreview = normalizedXml.Length > 1000
+                ? normalizedXml.Substring(0, 1000) + "..."
+                : normalizedXml;
+
+            // Step 5: Get selected example hierarchies
+            _generationProgress = 30;
+            StateHasChanged();
+
+            var exampleContents = _exampleHierarchies
+                .Where(e => e.IsSelected && e.Content != null)
+                .Select(e => e.Content!)
+                .ToList();
+
+            Logger.LogInformation("Starting AI hierarchy generation with {ExampleCount} examples", exampleContents.Count);
+
+            // Step 6: Generate hierarchy using AI
+            _generationProgress = 40;
+            StateHasChanged();
+
+            _generatedProposal = await HierarchyGenerator.GenerateHierarchyAsync(
+                normalizedXml: normalizedXml,  // Use live transformation result
+                exampleHierarchies: exampleContents,
+                modelName: _selectedModel,
+                cancellationToken: CancellationToken.None
+            );
+
+            _generationProgress = 100;
+            _generationTime = (DateTime.UtcNow - startTime).TotalSeconds;
+
+            // Generate XML representation
+            _hierarchyXml = ConvertProposalToXml();
+
+            Logger.LogInformation("Hierarchy generation completed: {Items} items, {Confidence}% confidence, {Time}s",
+                _generatedProposal.TotalItems, _generatedProposal.OverallConfidence, _generationTime);
+
+            // Switch to summary tab
+            _resultsTab = "summary";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Hierarchy generation failed");
+
+            // Capture full exception details including inner exceptions
+            var fullError = ex.ToString();
+
+            // For UI display, show a more concise but complete message
+            if (ex.InnerException != null)
+            {
+                _errorMessage = $"{ex.Message}\n\nDetails: {ex.InnerException.Message}";
+            }
+            else
+            {
+                _errorMessage = ex.Message;
+            }
+
+            // Log to JavaScript console for debugging
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("console.error", "Hierarchy generation failed:", fullError);
+            }
+            catch
+            {
+                // Ignore JSRuntime errors
+            }
+        }
+        finally
+        {
+            _isGenerating = false;
+            StateHasChanged();
+        }
+    }
+
+    private string GetDocumentHeadersPreview()
+    {
+        if (string.IsNullOrEmpty(_selectedSourceFile))
+            return "";
+
+        try
+        {
+            var sourceContent = File.ReadAllText(_selectedSourceFile);
+            var lines = sourceContent.Split('\n')
+                .Where(l => l.Contains("<H1") || l.Contains("<H2") || l.Contains("<H3") ||
+                           l.Contains("<h1") || l.Contains("<h2") || l.Contains("<h3"))
+                .Take(50)
+                .Select(l => l.Trim());
+
+            return string.Join("\n", lines);
+        }
+        catch
+        {
+            return "Error parsing headers";
+        }
+    }
+
+    private string GetPromptPreview()
+    {
+        // This is a simplified preview - actual prompt is built by HierarchyGeneratorService
+        var sourceLength = 0;
+        if (!string.IsNullOrEmpty(_selectedSourceFile) && File.Exists(_selectedSourceFile))
+        {
+            try
+            {
+                sourceLength = File.ReadAllText(_selectedSourceFile).Length;
+            }
+            catch { }
+        }
+
+        return $"Source XML File: {Path.GetFileName(_selectedSourceFile)}\n" +
+               $"Source Length: {sourceLength} characters\n" +
+               $"XSLT File: {_selectedXsltFile.Replace("/app/xslt/", "")}\n" +
+               $"Example Hierarchies: {_exampleHierarchies.Count(e => e.IsSelected)}\n" +
+               $"Model: {_selectedModel}\n" +
+               $"Temperature: {_temperature}\n\n" +
+               $"Note: XSLT transformation will be performed before sending to AI\n" +
+               $"(Estimated prompt size: ~{sourceLength / 4} tokens)";
+    }
+
+    private RenderFragment RenderHierarchyItem(HierarchyItem item, int depth) => builder =>
+    {
+        var indent = new string(' ', depth * 2);
+
+        // Build CSS classes
+        var cssClasses = new List<string> { "hierarchy-item", $"level-{item.Level}" };
+        if (item.IsHallucinated)
+            cssClasses.Add("hallucinated");
+        if (item.IsUncertain)
+            cssClasses.Add("uncertain");
+
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", string.Join(" ", cssClasses));
+
+        // Item header
+        builder.OpenElement(2, "div");
+        builder.AddAttribute(3, "class", "item-header");
+
+        // Icon indicator
+        builder.OpenElement(4, "i");
+        builder.AddAttribute(5, "class", $"bi {GetItemIcon(item)} me-2");
+        builder.CloseElement();
+
+        builder.OpenElement(6, "span");
+        builder.AddAttribute(7, "class", "item-name");
+        builder.AddContent(8, $"{indent}└─ {item.LinkName}");
+        builder.CloseElement();
+
+        if (item.IsHallucinated)
+        {
+            builder.OpenElement(9, "span");
+            builder.AddAttribute(10, "class", "badge bg-danger ms-2");
+            builder.AddAttribute(11, "title", "Not found in source document");
+            builder.AddContent(12, "Hallucination");
+            builder.CloseElement();
+        }
+
+        if (item.Confidence.HasValue)
+        {
+            builder.OpenElement(13, "span");
+            builder.AddAttribute(14, "class", $"badge {GetConfidenceBadgeClass(item.Confidence.Value)} ms-2");
+            builder.AddAttribute(15, "title", item.Reasoning ?? "Confidence score");
+            builder.AddContent(16, $"{item.Confidence}%");
+            builder.CloseElement();
+        }
+
+        builder.CloseElement(); // item-header
+
+        // Item details
+        builder.OpenElement(10, "div");
+        builder.AddAttribute(11, "class", "item-details small text-muted");
+        builder.AddContent(12, $"Level {item.Level} • ID: {item.Id} • File: {item.DataRef}");
+        if (!string.IsNullOrEmpty(item.TocNumber))
+        {
+            builder.AddContent(13, $" • TOC: {item.TocNumber}");
+        }
+        builder.CloseElement();
+
+        if (!string.IsNullOrEmpty(item.Reasoning))
+        {
+            builder.OpenElement(14, "div");
+            builder.AddAttribute(15, "class", "item-reasoning small text-info mt-1");
+            builder.AddContent(16, $"💭 {item.Reasoning}");
+            builder.CloseElement();
+        }
+
+        builder.CloseElement(); // hierarchy-item
+
+        // Render children
+        foreach (var child in item.SubItems)
+        {
+            builder.AddContent(17, RenderHierarchyItem(child, depth + 1));
+        }
+    };
+
+    private string GetItemIcon(HierarchyItem item)
+    {
+        if (item.IsHallucinated)
+            return "bi-exclamation-circle-fill text-danger";
+
+        if (item.IsUncertain)
+            return "bi-question-circle-fill text-warning";
+
+        return "bi-check-circle-fill text-success";
+    }
+
+    private string GetConfidenceBadgeClass(int confidence)
+    {
+        if (confidence >= 90) return "bg-success";
+        if (confidence >= 70) return "bg-info";
+        if (confidence >= 50) return "bg-warning";
+        return "bg-danger";
+    }
+
+    private string GetConfidenceLabel(int confidence)
+    {
+        if (confidence >= 90) return "High";
+        if (confidence >= 70) return "Medium";
+        if (confidence >= 50) return "Low";
+        return "Very Low";
+    }
+
+    private string GetProposalJson()
+    {
+        if (_generatedProposal == null)
+            return "";
+
+        try
+        {
+            var options = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            };
+            return JsonSerializer.Serialize(_generatedProposal, options);
+        }
+        catch (Exception ex)
+        {
+            return $"Error serializing: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Converts the generated HierarchyProposal to XML format matching HierarchyService output
+    /// </summary>
+    private string ConvertProposalToXml()
+    {
+        if (_generatedProposal == null)
+            return string.Empty;
+
+        try
+        {
+            // Build XML document following HierarchyService.SaveHierarchyAsync() format
+            var doc = new XDocument(
+                new XElement("items",
+                    new XElement("structured",
+                        BuildItemElement(_generatedProposal.Root)
+                    )
+                )
+            );
+
+            return doc.ToString();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to convert proposal to XML");
+            return $"<!-- Error converting to XML: {ex.Message} -->";
+        }
+    }
+
+    /// <summary>
+    /// Recursively builds XML elements for hierarchy items (matches HierarchyService.BuildItemElement)
+    /// </summary>
+    private XElement BuildItemElement(HierarchyItem item)
+    {
+        var element = new XElement("item",
+            new XAttribute("id", item.Id),
+            new XAttribute("level", item.Level),
+            new XAttribute("data-ref", item.DataRef)
+        );
+
+        // Add optional confidence attributes (AI-specific)
+        if (item.Confidence.HasValue)
+        {
+            element.Add(new XAttribute("confidence", item.Confidence.Value));
+        }
+
+        if (item.IsUncertain)
+        {
+            element.Add(new XAttribute("is-uncertain", true));
+        }
+
+        if (!string.IsNullOrEmpty(item.Reasoning))
+        {
+            element.Add(new XAttribute("reasoning", item.Reasoning));
+        }
+
+        // Add optional TOC attributes
+        if (item.TocStart)
+        {
+            element.Add(new XAttribute("data-tocstart", "true"));
+        }
+
+        if (item.TocEnd)
+        {
+            element.Add(new XAttribute("data-tocend", "true"));
+        }
+
+        if (!string.IsNullOrEmpty(item.TocNumber))
+        {
+            element.Add(new XAttribute("data-tocnumber", item.TocNumber));
+        }
+
+        if (!string.IsNullOrEmpty(item.TocStyle))
+        {
+            element.Add(new XAttribute("data-tocstyle", item.TocStyle));
+        }
+
+        if (item.TocHide)
+        {
+            element.Add(new XAttribute("data-tochide", "true"));
+        }
+
+        // Add web_page element
+        element.Add(new XElement("web_page",
+            new XElement("path", item.Path),
+            new XElement("linkname", item.LinkName)
+        ));
+
+        // Add sub_items if any
+        if (item.SubItems.Any())
+        {
+            var subItemsElement = new XElement("sub_items");
+            foreach (var subItem in item.SubItems)
+            {
+                subItemsElement.Add(BuildItemElement(subItem));
+            }
+            element.Add(subItemsElement);
+        }
+
+        return element;
+    }
+
+    /// <summary>
+    /// Copies the hierarchy XML to clipboard using JavaScript interop
+    /// </summary>
+    private async Task CopyHierarchyXml()
+    {
+        if (string.IsNullOrEmpty(_hierarchyXml))
+            return;
+
+        try
+        {
+            // Use JavaScript to copy to clipboard
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", _hierarchyXml);
+            Logger.LogInformation("Hierarchy XML copied to clipboard ({Length} chars)", _hierarchyXml.Length);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to copy to clipboard");
+        }
+    }
+
+    private async Task LoadDebugFiles()
+    {
+        try
+        {
+            var debugDir = "/app/data/debug/ollama-responses";
+            if (!Directory.Exists(debugDir))
+            {
+                _debugFiles = new List<DebugFileInfo>();
+                return;
+            }
+
+            var responseFiles = Directory.GetFiles(debugDir, "response-*.json")
+                .OrderByDescending(f => File.GetLastWriteTime(f))
+                .ToList();
+
+            _debugFiles = responseFiles.Select(responseFile =>
+            {
+                var timestamp = Path.GetFileNameWithoutExtension(responseFile)
+                    .Replace("response-", "");
+                var promptFile = Path.Combine(debugDir, $"prompt-{timestamp}.txt");
+
+                return new DebugFileInfo
+                {
+                    Timestamp = DateTime.ParseExact(timestamp, "yyyy-MM-dd-HH-mm-ss", null),
+                    ResponsePath = responseFile,
+                    PromptPath = promptFile,
+                    ResponseSize = new FileInfo(responseFile).Length,
+                    PromptSize = File.Exists(promptFile) ? new FileInfo(promptFile).Length : 0
+                };
+            }).ToList();
+
+            Logger.LogInformation("Loaded {Count} debug file sets", _debugFiles.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load debug files");
+            _debugFiles = new List<DebugFileInfo>();
+        }
+
+        await Task.CompletedTask;
+    }
+
+    private async Task ViewDebugFile(string filePath)
+    {
+        try
+        {
+            _debugFileName = Path.GetFileName(filePath);
+            var content = await File.ReadAllTextAsync(filePath);
+
+            // Limit to first 10000 lines for performance
+            var lines = content.Split('\n');
+            if (lines.Length > 10000)
+            {
+                _debugFileContent = string.Join('\n', lines.Take(10000)) +
+                    $"\n\n... ({lines.Length - 10000} more lines not shown)";
+            }
+            else
+            {
+                _debugFileContent = content;
+            }
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load debug file {File}", filePath);
+            _debugFileContent = $"Error loading file: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private void CloseDebugFileViewer()
+    {
+        _debugFileContent = null;
+        _debugFileName = null;
+        StateHasChanged();
+    }
+
+    private void DownloadDebugFile(string filePath)
+    {
+        // For now, just show the file path (download would require JSInterop)
+        Logger.LogInformation("Download requested for {File}", filePath);
+        // TODO: Implement JSInterop download if needed
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        double len = bytes;
+        int order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+
+    private class DebugFileInfo
+    {
+        public DateTime Timestamp { get; set; }
+        public string ResponsePath { get; set; } = string.Empty;
+        public string PromptPath { get; set; } = string.Empty;
+        public long ResponseSize { get; set; }
+        public long PromptSize { get; set; }
+    }
+
+    private class ExampleHierarchy
+    {
+        public string Path { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public bool IsSelected { get; set; }
+        public string? Content { get; set; }
+    }
+}

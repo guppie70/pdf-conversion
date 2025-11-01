@@ -5,20 +5,32 @@
 @inject IProjectDirectoryWatcherService ProjectDirectoryWatcherService
 @inject ProjectMetadataService MetadataService
 @inject IXslt3ServiceClient Xslt3Client
+@inject IOllamaService OllamaService
+@inject IProjectDeletionService ProjectDeletionService
+@inject IPatternReindexingService PatternReindexingService
+@inject HttpClient Http
 @inject IJSRuntime JSRuntime
+@inject ILogger<Home> Logger
 @implements IDisposable
 
 <PageTitle>Projects</PageTitle>
 
 <div class="home-container">
     <div class="home-header">
-        <h1>Projects</h1>
-        @if (LastUpdated.HasValue)
-        {
-            <p class="last-updated">
-                <i class="oi oi-clock"></i> Last updated: @GetTimeAgo(LastUpdated.Value)
-            </p>
-        }
+        <div class="header-left">
+            <h1>Projects</h1>
+            @if (LastUpdated.HasValue)
+            {
+                <p class="last-updated">
+                    <i class="oi oi-clock"></i> Last updated: @GetTimeAgo(LastUpdated.Value)
+                </p>
+            }
+        </div>
+        <div class="header-right">
+            <button class="btn-add-project" @onclick="ShowAddProjectModal" aria-label="Add Project" title="Add Project">
+                +
+            </button>
+        </div>
     </div>
 
     <div class="row">
@@ -56,16 +68,17 @@
                         </div>
 
                         <div class="table-responsive">
-                            <table class="projects-table">
+                            <table class="projects-table table-sm">
                                 <thead>
                                     <tr>
                                         <th class="col-project-id">Project ID</th>
                                         <th class="col-display">Project Name</th>
                                         <th class="col-status">Status</th>
+                                        <th class="col-actions">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @foreach (var project in customerGroup.Value.OrderBy(p => p.ProjectId))
+                                    @foreach (var project in SortProjects(customerGroup.Value))
                                     {
                                         var editKey = GetEditKey(project.Customer, project.ProjectId);
                                         var statusKey = GetStatusKey(project.Customer, project.ProjectId);
@@ -74,10 +87,10 @@
                                         var projectStatus = GetProjectStatus(project.Customer, project.ProjectId);
 
                                         <tr class="project-row status-@projectStatus.ToString().ToLower()">
-                                            <td class="project-id-cell">
+                                            <td class="project-id-cell col-project-id">
                                                 <code>@project.ProjectId</code>
                                             </td>
-                                            <td class="display-cell">
+                                            <td class="display-cell col-display">
                                                 @if (isEditing)
                                                 {
                                                     <input
@@ -100,7 +113,7 @@
                                                     </span>
                                                 }
                                             </td>
-                                            <td class="status-cell" @ondblclick="@(() => StartEditingStatus(project.Customer, project.ProjectId))">
+                                            <td class="status-cell col-status" @ondblclick="@(() => StartEditingStatus(project.Customer, project.ProjectId))">
                                                 @if (isEditingStatus)
                                                 {
                                                     <select class="status-select"
@@ -120,6 +133,18 @@
                                                     <span class="status-text">@GetStatusDisplayText(projectStatus)</span>
                                                 }
                                             </td>
+                                            <td class="actions-cell col-actions">
+                                                <button class="btn-files"
+                                                        @onclick="@(() => ShowProjectFilesModal(project.Customer, project.ProjectId, project.DisplayString))"
+                                                        title="Manage files">
+                                                    <i class="bi bi-folder"></i>
+                                                </button>
+                                                <button class="btn-delete"
+                                                        @onclick="@(() => ShowDeleteConfirmation(project.Customer, project.ProjectId, project.DisplayString))"
+                                                        title="Delete project">
+                                                    <i class="bi bi-trash3-fill"></i>
+                                                </button>
+                                            </td>
                                         </tr>
                                     }
                                 </tbody>
@@ -131,32 +156,213 @@
         </div>
 
         <div class="col-lg-4">
+            <!-- Sort Controls -->
+            <div class="card sort-controls-card">
+                <div class="card-header">
+                    <h5 class="mb-0">Sort Projects</h5>
+                </div>
+                <div class="card-body">
+                    <select id="sortOrder" class="sort-select" @bind="SelectedSortOrder" @bind:after="OnSortOrderChanged">
+                        <option value="@SortOrder.LastModifiedDesc">Last Modified (Newest First)</option>
+                        <option value="@SortOrder.LastModifiedAsc">Last Modified (Oldest First)</option>
+                        <option value="@SortOrder.NameAsc">Name (A-Z)</option>
+                        <option value="@SortOrder.NameDesc">Name (Z-A)</option>
+                        <option value="@SortOrder.ProjectStatusDesc">Project Status</option>
+                        <option value="@SortOrder.ProjectIdAsc">Project ID (A-Z)</option>
+                        <option value="@SortOrder.ProjectIdDesc">Project ID (Z-A)</option>
+                    </select>
+                </div>
+            </div>
+
             <div class="card system-status-card">
                 <div class="card-header">
                     <h5 class="mb-0">System Status</h5>
                 </div>
                 <div class="card-body">
-                    <p class="mb-2"><strong>Environment:</strong> @Environment</p>
-                    <p class="mb-2">
-                        <strong>XSLT Service: </strong>
-                        @if (IsCheckingService)
+                    <table class="table table-sm status-table mb-0">
+                        <tbody>
+                            <tr>
+                                <td class="info-label">Environment:</td>
+                                <td class="text-end">
+                                    <span class="env-value">@Environment</span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <hr/>
+                    <table class="table table-sm status-table mb-0">
+                        <tbody>
+                            <tr>
+                                <td class="service-name">XSLT Service:</td>
+                                <td class="text-end">
+                                    @if (IsCheckingService)
+                                    {
+                                        <span class="badge bg-secondary">Checking...</span>
+                                    }
+                                    else if (ServiceStatus == ServiceConnectionStatus.Connected)
+                                    {
+                                        <span class="badge bg-success">✓ Connected</span>
+                                    }
+                                    else if (ServiceStatus == ServiceConnectionStatus.Error)
+                                    {
+                                        <span class="badge bg-warning">Error</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-danger">🔴 Offline</span>
+                                    }
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="service-name">Docling Service:</td>
+                                <td class="text-end">
+                                    @if (IsCheckingDoclingService)
+                                    {
+                                        <span class="badge bg-secondary">Checking...</span>
+                                    }
+                                    else if (DoclingServiceStatus == ServiceConnectionStatus.Connected)
+                                    {
+                                        <span class="badge bg-success">✓ Connected</span>
+                                    }
+                                    else if (DoclingServiceStatus == ServiceConnectionStatus.Error)
+                                    {
+                                        <span class="badge bg-warning">Error</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-danger">🔴 Offline</span>
+                                    }
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="service-name">Ollama Service:</td>
+                                <td class="text-end">
+                                    @if (IsCheckingOllamaService)
+                                    {
+                                        <span class="badge bg-secondary">Checking...</span>
+                                    }
+                                    else if (OllamaServiceStatus == ServiceConnectionStatus.Connected)
+                                    {
+                                        <span class="badge bg-success">✓ Connected</span>
+                                    }
+                                    else if (OllamaServiceStatus == ServiceConnectionStatus.Error)
+                                    {
+                                        <span class="badge bg-warning">Error</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-danger">🔴 Offline</span>
+                                    }
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <hr/>
+                    <table class="table table-sm status-table mb-0">
+                        <tbody>
+                            <tr>
+                                <td class="info-label">Projects Available:</td>
+                                <td class="text-end">
+                                    <span class="badge bg-@(ProjectCount > 0 ? "success" : "secondary")">@ProjectCount</span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card mt-4 ollama-card">
+                <div class="card-header">
+                    <h5 class="mb-0">Ollama (Local LLM)</h5>
+                </div>
+                <div class="card-body">
+                    @if (OllamaServiceStatus == ServiceConnectionStatus.Connected)
+                    {
+                        <p class="mb-2">
+                            <strong>Endpoint:</strong> <code>http://host.docker.internal:11434</code>
+                        </p>
+
+                        @if (OllamaModels != null && OllamaModels.Any())
                         {
-                            <span class="badge bg-secondary">Checking...</span>
-                        }
-                        else if (ServiceStatus == ServiceConnectionStatus.Connected)
-                        {
-                            <span class="badge bg-success">✓ Connected</span>
-                        }
-                        else if (ServiceStatus == ServiceConnectionStatus.Error)
-                        {
-                            <span class="badge bg-warning">Error</span>
+                            <p class="mb-2"><strong>Available Models:</strong></p>
+                            <table class="table table-sm models-table mb-0">
+                                <tbody>
+                                    @foreach (var model in OllamaModels)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <span class="badge bg-info">@model.Name</span>
+                                            </td>
+                                            <td class="text-muted">
+                                                @FormatFileSize(model.Size)
+                                            </td>
+                                            <td class="text-muted">
+                                                @(model.Details?.ParameterSize ?? "unknown") parameters
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
                         }
                         else
                         {
-                            <span class="badge bg-danger">✗ Not Connected</span>
+                            <div class="alert alert-warning mb-0">
+                                <p class="mb-0">
+                                    ⚠️ No models installed. Run: <code>ollama pull llama3.1:70b</code>
+                                </p>
+                            </div>
                         }
-                    </p>
-                    <p class="mb-0"><strong>Projects Available:</strong> <span class="badge bg-@(ProjectCount > 0 ? "success" : "secondary")">@ProjectCount</span></p>
+                    }
+                    else
+                    {
+                        <div class="alert alert-warning mb-0">
+                            <p class="mb-2"><strong>Ollama service is not running.</strong></p>
+                            <p class="mb-0">
+                                To start: <code>ollama serve</code><br/>
+                                To install model: <code>ollama pull llama3.1:70b</code>
+                            </p>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="card mt-4 tools-card">
+                <div class="card-header">
+                    <h5 class="mb-0">Tools</h5>
+                </div>
+                <div class="card-body">
+                    <button class="btn btn-primary w-100 mb-3"
+                            @onclick="StartReindexing"
+                            disabled="@IsReindexing">
+                        @if (IsReindexing)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                            <span>Re-indexing...</span>
+                        }
+                        else
+                        {
+                            <i class="oi oi-reload me-2"></i>
+                            <span>Re-index Training Material</span>
+                        }
+                    </button>
+
+                    @if (ReindexingLogs.Any())
+                    {
+                        <div class="reindexing-log-panel">
+                            <div class="log-header">
+                                <span>Progress Log</span>
+                                <button class="btn-clear-log" @onclick="ClearReindexingLogs" title="Clear log">
+                                    <i class="oi oi-x"></i>
+                                </button>
+                            </div>
+                            <div class="log-content" @ref="logContainerRef">
+                                @foreach (var log in ReindexingLogs)
+                                {
+                                    <div class="log-entry @GetLogClass(log)">@log</div>
+                                }
+                            </div>
+                        </div>
+                    }
                 </div>
             </div>
         </div>
@@ -177,6 +383,29 @@
             <span>Failed to save label: @NotificationError</span>
         </div>
     }
+
+    <ConfirmationModal
+        IsVisible="@showDeleteConfirmation"
+        Title="Delete Project"
+        Message="@deleteConfirmationMessage"
+        ConfirmButtonText="Delete"
+        OnConfirm="@ConfirmDelete"
+        OnCancel="@CancelDelete" />
+
+    <AddProjectModal
+        IsVisible="@showAddProjectModal"
+        OnProjectCreated="@OnProjectCreated"
+        OnCancel="@CloseAddProjectModal" />
+
+    <ProjectFilesModal
+        IsVisible="@showProjectFilesModal"
+        Customer="@selectedProjectCustomer"
+        ProjectId="@selectedProjectId"
+        ProjectDisplayString="@selectedProjectDisplayString"
+        OnClose="@(() => CloseProjectFilesModal())"
+        OnFilesUploaded="@(() => OnFilesUploaded())" />
+
+    <ToastNotification @ref="toastNotification" />
 </div>
 
 @code {
@@ -188,10 +417,25 @@
         Error
     }
 
+    private enum SortOrder
+    {
+        LastModifiedDesc,
+        LastModifiedAsc,
+        NameAsc,
+        NameDesc,
+        ProjectStatusDesc,
+        ProjectIdAsc,
+        ProjectIdDesc
+    }
+
     private Dictionary<string, List<ProjectInfo>> ProjectsByCustomer { get; set; } = new();
     private bool IsLoading { get; set; } = true;
     private string? ErrorMessage { get; set; }
     private DateTime? LastUpdated { get; set; }
+
+    // Sort state
+    private SortOrder SelectedSortOrder { get; set; } = SortOrder.LastModifiedDesc;
+    private const string SortOrderStorageKey = "dev_projectSortOrder";
 
     // Edit state management
     private Dictionary<string, string> _editingProjects = new(); // key: "customer:projectId", value: current edit value
@@ -219,11 +463,19 @@
     private int ProjectCount { get; set; } = 0;
     private ServiceConnectionStatus ServiceStatus { get; set; } = ServiceConnectionStatus.Checking;
     private bool IsCheckingService => ServiceStatus == ServiceConnectionStatus.Checking;
+    private ServiceConnectionStatus DoclingServiceStatus { get; set; } = ServiceConnectionStatus.Checking;
+    private bool IsCheckingDoclingService => DoclingServiceStatus == ServiceConnectionStatus.Checking;
+    private ServiceConnectionStatus OllamaServiceStatus { get; set; } = ServiceConnectionStatus.Checking;
+    private bool IsCheckingOllamaService => OllamaServiceStatus == ServiceConnectionStatus.Checking;
+    private List<OllamaModel>? OllamaModels { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
+            // Load sort order from localStorage
+            await LoadSortOrderFromStorage();
+
             // Subscribe to project directory changes
             ProjectDirectoryWatcherService.ProjectsChanged += OnProjectsChangedAsync;
 
@@ -236,8 +488,10 @@
             // Load initial projects (will merge metadata labels)
             await LoadProjectsAsync();
 
-            // Check XSLT service status
+            // Check service statuses
             await CheckXsltServiceStatusAsync();
+            await CheckDoclingServiceStatusAsync();
+            await CheckOllamaServiceStatusAsync();
 
             // Set project count
             ProjectCount = ProjectsByCustomer.Values.Sum(list => list.Count);
@@ -260,6 +514,60 @@
         catch (Exception)
         {
             ServiceStatus = ServiceConnectionStatus.Error;
+        }
+    }
+
+    private async Task CheckDoclingServiceStatusAsync()
+    {
+        try
+        {
+            DoclingServiceStatus = ServiceConnectionStatus.Checking;
+            var response = await Http.GetAsync("http://docling-service:4808/health");
+            DoclingServiceStatus = response.IsSuccessStatusCode ? ServiceConnectionStatus.Connected : ServiceConnectionStatus.NotConnected;
+        }
+        catch (Exception)
+        {
+            DoclingServiceStatus = ServiceConnectionStatus.NotConnected;
+        }
+    }
+
+    private async Task CheckOllamaServiceStatusAsync()
+    {
+        try
+        {
+            OllamaServiceStatus = ServiceConnectionStatus.Checking;
+            StateHasChanged();
+
+            var isHealthy = await OllamaService.CheckHealthAsync();
+
+            if (isHealthy)
+            {
+                try
+                {
+                    OllamaModels = await OllamaService.GetAvailableModelsAsync();
+                    OllamaServiceStatus = ServiceConnectionStatus.Connected;
+                    Console.WriteLine($"[Home.razor] Ollama connected, {OllamaModels.Count} models found");
+                }
+                catch (Exception ex)
+                {
+                    // Service is up but couldn't get models
+                    OllamaModels = new List<OllamaModel>();
+                    OllamaServiceStatus = ServiceConnectionStatus.Connected;
+                    Console.WriteLine($"[Home.razor] Could not fetch Ollama models: {ex.Message}");
+                }
+            }
+            else
+            {
+                OllamaModels = null;
+                OllamaServiceStatus = ServiceConnectionStatus.NotConnected;
+                Console.WriteLine("[Home.razor] Ollama service not connected");
+            }
+        }
+        catch (Exception ex)
+        {
+            OllamaModels = null;
+            OllamaServiceStatus = ServiceConnectionStatus.Error;
+            Console.WriteLine($"[Home.razor] Ollama health check failed: {ex.Message}");
         }
     }
 
@@ -414,6 +722,19 @@
         return $"{(int)elapsed.TotalDays} day{((int)elapsed.TotalDays == 1 ? "" : "s")} ago";
     }
 
+    private string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+        double len = bytes;
+        int order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+
     // Edit mode helper methods
     private string GetEditKey(string customer, string projectId) => $"{customer}:{projectId}";
 
@@ -556,6 +877,354 @@
         };
     }
 
+    // Project deletion state
+    private bool showDeleteConfirmation = false;
+    private string deleteConfirmationMessage = string.Empty;
+    private string? pendingDeleteCustomer = null;
+    private string? pendingDeleteProjectId = null;
+    private string? pendingDeleteDisplayString = null;
+    private ToastNotification? toastNotification;
+
+    private void ShowDeleteConfirmation(string customer, string projectId, string displayString)
+    {
+        pendingDeleteCustomer = customer;
+        pendingDeleteProjectId = projectId;
+        pendingDeleteDisplayString = displayString;
+        deleteConfirmationMessage = $"Are you sure you want to delete '{displayString}'? This action cannot be undone.";
+        showDeleteConfirmation = true;
+    }
+
+    private void CancelDelete()
+    {
+        showDeleteConfirmation = false;
+        pendingDeleteCustomer = null;
+        pendingDeleteProjectId = null;
+        pendingDeleteDisplayString = null;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        showDeleteConfirmation = false;
+
+        if (string.IsNullOrEmpty(pendingDeleteCustomer) || string.IsNullOrEmpty(pendingDeleteProjectId))
+        {
+            return;
+        }
+
+        try
+        {
+            // Store info before deletion for auto-selection logic
+            var deletedCustomer = pendingDeleteCustomer;
+            var deletedProjectId = pendingDeleteProjectId;
+            var deletedDisplayString = pendingDeleteDisplayString ?? deletedProjectId;
+
+            Logger.LogInformation("Deleting project {Customer}/{ProjectId}", deletedCustomer, deletedProjectId);
+
+            // Call the service directly
+            var result = await ProjectDeletionService.DeleteProjectAsync(deletedCustomer, deletedProjectId);
+
+            if (result?.Success == true)
+            {
+                if (result.HasWarnings)
+                {
+                    // Partial success
+                    var warnings = result.Details?.GetWarningsSummary() ?? "Some operations failed";
+                    ToastNotification.ShowWarning($"Project deleted with warnings: {warnings}");
+                }
+                else
+                {
+                    // Full success
+                    ToastNotification.ShowSuccess($"Project '{deletedDisplayString}' deleted successfully");
+                }
+
+                // Auto-select next project
+                await AutoSelectNextProjectAsync(deletedCustomer, deletedProjectId);
+
+                // Reload project list
+                await LoadProjectsAsync();
+
+                // Update project count
+                ProjectCount = ProjectsByCustomer.Values.Sum(list => list.Count);
+            }
+            else
+            {
+                var errorMessage = result?.Message ?? "Unknown error occurred";
+                ToastNotification.ShowError($"Failed to delete project: {errorMessage}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error deleting project {Customer}/{ProjectId}", pendingDeleteCustomer, pendingDeleteProjectId);
+            ToastNotification.ShowError($"Error deleting project: {ex.Message}");
+        }
+        finally
+        {
+            pendingDeleteCustomer = null;
+            pendingDeleteProjectId = null;
+            pendingDeleteDisplayString = null;
+        }
+    }
+
+    private async Task AutoSelectNextProjectAsync(string deletedCustomer, string deletedProjectId)
+    {
+        try
+        {
+            // Get all projects for the customer
+            if (ProjectsByCustomer.TryGetValue(deletedCustomer, out var projects))
+            {
+                var projectList = projects.OrderBy(p => p.ProjectId).ToList();
+                var deletedIndex = projectList.FindIndex(p => p.ProjectId == deletedProjectId);
+
+                if (deletedIndex >= 0)
+                {
+                    // Select next project in the list, or previous if deleted was last
+                    ProjectInfo? nextProject = null;
+
+                    if (deletedIndex < projectList.Count - 1)
+                    {
+                        // Select next project
+                        nextProject = projectList[deletedIndex + 1];
+                    }
+                    else if (deletedIndex > 0)
+                    {
+                        // Select previous project (deleted was last)
+                        nextProject = projectList[deletedIndex - 1];
+                    }
+
+                    if (nextProject != null)
+                    {
+                        Logger.LogInformation("Auto-selecting next project: {Customer}/{ProjectId}",
+                            nextProject.Customer, nextProject.ProjectId);
+
+                        // Update user selections (this will be used by other pages like Transform)
+                        // You may need to call IUserSelectionService here if you want to persist the selection
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to auto-select next project after deletion");
+        }
+    }
+
+    // Sort-related methods
+    private async Task LoadSortOrderFromStorage()
+    {
+        try
+        {
+            var storedValue = await JSRuntime.InvokeAsync<string?>("localStorage.getItem", SortOrderStorageKey);
+            if (!string.IsNullOrEmpty(storedValue) && Enum.TryParse<SortOrder>(storedValue, out var sortOrder))
+            {
+                SelectedSortOrder = sortOrder;
+                Console.WriteLine($"[Home.razor] Loaded sort order from storage: {SelectedSortOrder}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Home.razor] Failed to load sort order from storage: {ex.Message}");
+        }
+    }
+
+    private async Task OnSortOrderChanged()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", SortOrderStorageKey, SelectedSortOrder.ToString());
+            Console.WriteLine($"[Home.razor] Saved sort order to storage: {SelectedSortOrder}");
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Home.razor] Failed to save sort order to storage: {ex.Message}");
+        }
+    }
+
+    private IEnumerable<ProjectInfo> SortProjects(List<ProjectInfo> projects)
+    {
+        return SelectedSortOrder switch
+        {
+            SortOrder.LastModifiedDesc => projects.OrderByDescending(p => GetProjectLastModified(p.Customer, p.ProjectId)),
+            SortOrder.LastModifiedAsc => projects.OrderBy(p => GetProjectLastModified(p.Customer, p.ProjectId)),
+            SortOrder.NameAsc => projects.OrderBy(p => p.DisplayString),
+            SortOrder.NameDesc => projects.OrderByDescending(p => p.DisplayString),
+            SortOrder.ProjectStatusDesc => projects
+                .OrderBy(p => GetProjectStatusPriority(p.Customer, p.ProjectId))
+                .ThenByDescending(p => GetProjectLastModified(p.Customer, p.ProjectId)),
+            SortOrder.ProjectIdAsc => projects.OrderBy(p => p.ProjectId, StringComparer.OrdinalIgnoreCase),
+            SortOrder.ProjectIdDesc => projects.OrderByDescending(p => p.ProjectId, StringComparer.OrdinalIgnoreCase),
+            _ => projects.OrderByDescending(p => GetProjectLastModified(p.Customer, p.ProjectId))
+        };
+    }
+
+    private int GetProjectStatusPriority(string customer, string projectId)
+    {
+        // Lower number = higher priority (sorts first)
+        // Priority: Ready -> InProgress -> Open -> Parked
+        var status = GetProjectStatus(customer, projectId);
+        return status switch
+        {
+            ProjectLifecycleStatus.Ready => 0,
+            ProjectLifecycleStatus.InProgress => 1,
+            ProjectLifecycleStatus.Open => 2,
+            ProjectLifecycleStatus.Parked => 3,
+            _ => 4
+        };
+    }
+
+    private DateTime GetProjectLastModified(string customer, string projectId)
+    {
+        try
+        {
+            var projectPath = Path.Combine("data/input", customer, "projects", projectId);
+            if (Directory.Exists(projectPath))
+            {
+                var dirInfo = new DirectoryInfo(projectPath);
+                return dirInfo.LastWriteTime;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Home.razor] Failed to get LastModified for {customer}/{projectId}: {ex.Message}");
+        }
+        return DateTime.MinValue;
+    }
+
+    // Pattern re-indexing
+    private bool IsReindexing { get; set; }
+    private List<string> ReindexingLogs { get; set; } = new();
+    private ElementReference logContainerRef;
+    private CancellationTokenSource? _reindexingCts;
+
+    private async Task StartReindexing()
+    {
+        if (IsReindexing) return;
+
+        try
+        {
+            IsReindexing = true;
+            ReindexingLogs.Clear();
+            _reindexingCts = new CancellationTokenSource();
+
+            var progress = new Progress<string>(message =>
+            {
+                ReindexingLogs.Add(message);
+                InvokeAsync(async () =>
+                {
+                    StateHasChanged();
+                    await ScrollToBottomAsync();
+                });
+            });
+
+            var result = await PatternReindexingService.ReindexPatternsAsync(progress, _reindexingCts.Token);
+
+            if (!result.Success && !string.IsNullOrEmpty(result.ErrorMessage))
+            {
+                Logger.LogError("Pattern re-indexing failed: {Error}", result.ErrorMessage);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during pattern re-indexing");
+            ReindexingLogs.Add($"[{DateTime.Now:HH:mm:ss}] ERROR: {ex.Message}");
+        }
+        finally
+        {
+            IsReindexing = false;
+            _reindexingCts?.Dispose();
+            _reindexingCts = null;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void ClearReindexingLogs()
+    {
+        ReindexingLogs.Clear();
+        StateHasChanged();
+    }
+
+    private string GetLogClass(string log)
+    {
+        if (log.Contains("ERROR:"))
+            return "log-error";
+        if (log.Contains("WARNING:"))
+            return "log-warning";
+        if (log.Contains("✓") || log.Contains("complete"))
+            return "log-success";
+        return "log-info";
+    }
+
+    private async Task ScrollToBottomAsync()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("eval",
+                "setTimeout(() => { const el = document.querySelector('.log-content'); if (el) el.scrollTop = el.scrollHeight; }, 50)");
+        }
+        catch
+        {
+            // Ignore JS interop errors
+        }
+    }
+
+    // Add Project Modal state
+    private bool showAddProjectModal = false;
+
+    private void ShowAddProjectModal()
+    {
+        showAddProjectModal = true;
+    }
+
+    private void CloseAddProjectModal()
+    {
+        showAddProjectModal = false;
+    }
+
+    private async Task OnProjectCreated()
+    {
+        showAddProjectModal = false;
+
+        // Reload projects to show the new project
+        await LoadProjectsAsync();
+
+        // Update project count
+        ProjectCount = ProjectsByCustomer.Values.Sum(list => list.Count);
+
+        // Show success toast
+        ToastNotification.ShowSuccess("Project created successfully");
+    }
+
+    // Project Files Modal state
+    private bool showProjectFilesModal = false;
+    private string selectedProjectCustomer = string.Empty;
+    private string selectedProjectId = string.Empty;
+    private string selectedProjectDisplayString = string.Empty;
+
+    private void ShowProjectFilesModal(string customer, string projectId, string displayString)
+    {
+        selectedProjectCustomer = customer;
+        selectedProjectId = projectId;
+        selectedProjectDisplayString = displayString;
+        showProjectFilesModal = true;
+    }
+
+    private void CloseProjectFilesModal()
+    {
+        showProjectFilesModal = false;
+        selectedProjectCustomer = string.Empty;
+        selectedProjectId = string.Empty;
+        selectedProjectDisplayString = string.Empty;
+    }
+
+    private async Task OnFilesUploaded()
+    {
+        // Optionally reload projects or show notification
+        Logger.LogInformation("Files uploaded for {Customer}/{ProjectId}", selectedProjectCustomer, selectedProjectId);
+
+        // Reload projects to update last modified time
+        await LoadProjectsAsync();
+    }
+
     public void Dispose()
     {
         // Unsubscribe from events
@@ -571,5 +1240,9 @@
             timer.Dispose();
         }
         _debounceTimers.Clear();
+
+        // Cancel re-indexing if in progress
+        _reindexingCts?.Cancel();
+        _reindexingCts?.Dispose();
     }
 }

@@ -174,6 +174,39 @@ public class HeaderNormalizationServiceTests
     }
 
     [Fact]
+    public void NormalizeHeaders_MultipleSameLevelHeaders_FirstBecomesH1_OthersH2()
+    {
+        // Arrange
+        var content = XDocument.Parse(@"
+            <div>
+                <h3>Financial Results</h3>
+                <p>Some content</p>
+                <h3>Revenue Details</h3>
+                <p>More content</p>
+                <h3>Expenses</h3>
+            </div>");
+
+        // Act
+        var result = _service.NormalizeHeaders(content);
+
+        // Assert
+        var headers = result.Descendants().Where(e => e.Name.LocalName.StartsWith("h")).ToList();
+        Assert.Equal(3, headers.Count);
+
+        // First h3 becomes h1
+        Assert.Equal("h1", headers[0].Name.LocalName);
+        Assert.Equal("Financial Results", headers[0].Value);
+
+        // Second h3 becomes h2 (same-level sibling)
+        Assert.Equal("h2", headers[1].Name.LocalName);
+        Assert.Equal("Revenue Details", headers[1].Value);
+
+        // Third h3 becomes h2 (same-level sibling)
+        Assert.Equal("h2", headers[2].Name.LocalName);
+        Assert.Equal("Expenses", headers[2].Value);
+    }
+
+    [Fact]
     public void NormalizeHeaders_MultipleHeaderLevels_MaintainsHierarchy()
     {
         // Arrange
@@ -192,16 +225,73 @@ public class HeaderNormalizationServiceTests
         // Assert
         var headers = result.Descendants().Where(e => e.Name.LocalName.StartsWith("h")).ToList();
         Assert.Equal(5, headers.Count);
+
+        // First h3 becomes h1
         Assert.Equal("h1", headers[0].Name.LocalName);
         Assert.Equal("Level 3", headers[0].Value);
+
+        // h4 under first h3 becomes h2 (nested under h1)
         Assert.Equal("h2", headers[1].Name.LocalName);
         Assert.Equal("Level 4", headers[1].Value);
+
+        // h5 under h4 becomes h3 (nested under h2)
         Assert.Equal("h3", headers[2].Name.LocalName);
         Assert.Equal("Level 5", headers[2].Value);
+
+        // Second h4 becomes h2 (relative to last output level)
         Assert.Equal("h2", headers[3].Name.LocalName);
         Assert.Equal("Level 4 Again", headers[3].Value);
-        Assert.Equal("h1", headers[4].Name.LocalName);
+
+        // Second h3 becomes h2 (same-level sibling of first h3)
+        Assert.Equal("h2", headers[4].Name.LocalName);
         Assert.Equal("Level 3 Again", headers[4].Value);
+    }
+
+    [Fact]
+    public void NormalizeHeaders_SameLevelWithNestedChildren_MaintainsRelativeHierarchy()
+    {
+        // Arrange
+        var content = XDocument.Parse(@"
+            <div>
+                <h3>First Section</h3>
+                <h4>Subsection 1A</h4>
+                <p>Content</p>
+                <h3>Second Section</h3>
+                <h4>Subsection 2A</h4>
+                <h5>Deep subsection 2A-1</h5>
+                <h3>Third Section</h3>
+            </div>");
+
+        // Act
+        var result = _service.NormalizeHeaders(content);
+
+        // Assert
+        var headers = result.Descendants().Where(e => e.Name.LocalName.StartsWith("h")).ToList();
+        Assert.Equal(6, headers.Count);
+
+        // First h3 becomes h1
+        Assert.Equal("h1", headers[0].Name.LocalName);
+        Assert.Equal("First Section", headers[0].Value);
+
+        // h4 under first h3 becomes h2
+        Assert.Equal("h2", headers[1].Name.LocalName);
+        Assert.Equal("Subsection 1A", headers[1].Value);
+
+        // Second h3 becomes h2 (same-level sibling)
+        Assert.Equal("h2", headers[2].Name.LocalName);
+        Assert.Equal("Second Section", headers[2].Value);
+
+        // h4 under second h3 becomes h3 (nested under h2)
+        Assert.Equal("h3", headers[3].Name.LocalName);
+        Assert.Equal("Subsection 2A", headers[3].Value);
+
+        // h5 under h4 becomes h4 (nested under h3)
+        Assert.Equal("h4", headers[4].Name.LocalName);
+        Assert.Equal("Deep subsection 2A-1", headers[4].Value);
+
+        // Third h3 becomes h2 (same-level sibling)
+        Assert.Equal("h2", headers[5].Name.LocalName);
+        Assert.Equal("Third Section", headers[5].Value);
     }
 
     [Fact]

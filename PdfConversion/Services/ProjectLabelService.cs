@@ -19,7 +19,7 @@ public class ProjectLabelService : IProjectLabelService
     public ProjectLabelService(ILogger<ProjectLabelService> logger)
     {
         _logger = logger;
-        _labelsFilePath = "/app/data/project-labels.json";
+        _labelsFilePath = "/app/data/project-metadata.json";
     }
 
     public async Task<List<ProjectInfo>> GetAllProjectsAsync(string basePath = "/app/data/input")
@@ -118,14 +118,19 @@ public class ProjectLabelService : IProjectLabelService
             var labelsData = await LoadLabelsAsync();
 
             // Ensure customer dictionary exists
-            if (!labelsData.Labels.ContainsKey(customer))
+            if (!labelsData.Projects.ContainsKey(customer))
             {
-                labelsData.Labels[customer] = new Dictionary<string, string>();
+                labelsData.Projects[customer] = new Dictionary<string, ProjectMetadata>();
                 _logger.LogDebug("Created new customer entry for: {Customer}", customer);
             }
 
             // Set or update label
-            labelsData.Labels[customer][projectId] = label;
+            if (!labelsData.Projects[customer].ContainsKey(projectId))
+            {
+                labelsData.Projects[customer][projectId] = new ProjectMetadata();
+            }
+            labelsData.Projects[customer][projectId].Label = label;
+            labelsData.Projects[customer][projectId].LastModified = DateTime.UtcNow;
             labelsData.LastModified = DateTime.UtcNow;
 
             // Save to file
@@ -154,10 +159,10 @@ public class ProjectLabelService : IProjectLabelService
             var labelsData = await LoadLabelsAsync();
 
             // Check if customer exists
-            if (labelsData.Labels.ContainsKey(customer))
+            if (labelsData.Projects.ContainsKey(customer))
             {
                 // Remove label
-                if (labelsData.Labels[customer].Remove(projectId))
+                if (labelsData.Projects[customer].Remove(projectId))
                 {
                     labelsData.LastModified = DateTime.UtcNow;
                     await SaveLabelsAsync(labelsData);
@@ -253,15 +258,15 @@ public class ProjectLabelService : IProjectLabelService
 
             _logger.LogInformation("Loaded labels data from {Path}: {CustomerCount} customers, {TotalLabels} total labels",
                 _labelsFilePath,
-                data.Labels.Count,
-                data.Labels.Values.Sum(d => d.Count));
+                data.Projects.Count,
+                data.Projects.Values.Sum(d => d.Count));
 
             // Log details about loaded labels for debugging
-            foreach (var (customer, projects) in data.Labels)
+            foreach (var (customer, projects) in data.Projects)
             {
-                foreach (var (projectId, label) in projects)
+                foreach (var (projectId, metadata) in projects)
                 {
-                    _logger.LogDebug("Loaded label: {Customer}/{ProjectId} = '{Label}'", customer, projectId, label);
+                    _logger.LogDebug("Loaded label: {Customer}/{ProjectId} = '{Label}'", customer, projectId, metadata.Label);
                 }
             }
 
@@ -321,14 +326,32 @@ public class ProjectLabelService : IProjectLabelService
     /// </summary>
     private static string? GetLabelFromData(ProjectLabelsData data, string customer, string projectId)
     {
-        if (data.Labels.TryGetValue(customer, out var customerLabels))
+        if (data.Projects.TryGetValue(customer, out var customerProjects))
         {
-            if (customerLabels.TryGetValue(projectId, out var label))
+            if (customerProjects.TryGetValue(projectId, out var metadata))
             {
-                return label;
+                return metadata.Label;
             }
         }
 
         return null;
+    }
+
+    public async Task<ProjectLabelsData> GetProjectLabelsDataAsync()
+    {
+        return await LoadLabelsAsync();
+    }
+
+    public async Task SaveProjectLabelsDataAsync(ProjectLabelsData data)
+    {
+        await _fileLock.WaitAsync();
+        try
+        {
+            await SaveLabelsAsync(data);
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
     }
 }

@@ -1,0 +1,85 @@
+@using PdfConversion.Models
+@using PdfConversion.Utils
+
+<select class="@CssClass"
+        value="@SelectedValue"
+        @onchange="HandleSelectionChange"
+        disabled="@IsDisabled">
+    <option value="">@PlaceholderText</option>
+    @if (FileGroups != null && FileGroups.Any())
+    {
+        @foreach (var group in FileGroups
+            .OrderBy(g => FilenameUtils.FormatCustomerDisplayName(g.Customer))
+            .ThenBy(g => g.ProjectName))
+        {
+            <optgroup label="@GetGroupLabel(group)">
+                @if (group.Files != null && group.Files.Any())
+                {
+                    @foreach (var file in group.Files.OrderBy(f => f.FileName))
+                    {
+                        <option value="@file.FullPath" selected="@(SelectedValue == file.FullPath)">
+                            @file.FileName
+                        </option>
+                    }
+                }
+            </optgroup>
+        }
+    }
+</select>
+
+@code {
+    /// <summary>
+    /// List of file groups to display in the dropdown
+    /// </summary>
+    [Parameter]
+    public List<ProjectFileGroup>? FileGroups { get; set; }
+
+    /// <summary>
+    /// Currently selected file path
+    /// </summary>
+    [Parameter]
+    public string? SelectedValue { get; set; }
+
+    /// <summary>
+    /// Event callback when selection changes
+    /// </summary>
+    [Parameter]
+    public EventCallback<string> OnSelectionChanged { get; set; }
+
+    /// <summary>
+    /// Placeholder text for the default option
+    /// </summary>
+    [Parameter]
+    public string PlaceholderText { get; set; } = "Select a file...";
+
+    /// <summary>
+    /// CSS class(es) to apply to the select element
+    /// </summary>
+    [Parameter]
+    public string CssClass { get; set; } = "form-select";
+
+    /// <summary>
+    /// Whether the dropdown is disabled
+    /// </summary>
+    [Parameter]
+    public bool IsDisabled { get; set; } = false;
+
+
+    /// <summary>
+    /// Generates the optgroup label in format: "Customer / Project Name (project-id)"
+    /// </summary>
+    private string GetGroupLabel(ProjectFileGroup group)
+    {
+        var customerDisplay = FilenameUtils.FormatCustomerDisplayName(group.Customer);
+        return $"{customerDisplay} / {group.ProjectName} ({group.ProjectId})";
+    }
+
+    /// <summary>
+    /// Handles selection change and invokes the callback
+    /// </summary>
+    private async Task HandleSelectionChange(ChangeEventArgs e)
+    {
+        var selectedValue = e.Value?.ToString() ?? string.Empty;
+        await OnSelectionChanged.InvokeAsync(selectedValue);
+    }
+}

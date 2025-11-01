@@ -44,4 +44,16 @@ public interface IProjectLabelService
     /// <param name="projectId">Project identifier</param>
     /// <returns>Formatted display string</returns>
     Task<string> GetDisplayStringAsync(string customer, string projectId);
+
+    /// <summary>
+    /// Get entire project metadata structure
+    /// </summary>
+    /// <returns>Complete project metadata data structure</returns>
+    Task<ProjectLabelsData> GetProjectLabelsDataAsync();
+
+    /// <summary>
+    /// Save entire project metadata structure
+    /// </summary>
+    /// <param name="data">Project metadata data to save</param>
+    Task SaveProjectLabelsDataAsync(ProjectLabelsData data);
 }

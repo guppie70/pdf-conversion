@@ -21,7 +21,7 @@ public interface IUserSelectionService
     /// <summary>
     /// Update specific fields in user selection
     /// </summary>
-    Task UpdateSelectionAsync(string? projectId = null, string? sourceXml = null, string? xslt = null, string? hierarchyXml = null);
+    Task UpdateSelectionAsync(string? projectId = null, string? sourceXml = null, string? xslt = null, string? hierarchyXml = null, List<string>? trainingHierarchies = null);
 
     /// <summary>
     /// Update validation modal position
@@ -111,7 +111,7 @@ public class UserSelectionService : IUserSelectionService
         }
     }
 
-    public async Task UpdateSelectionAsync(string? projectId = null, string? sourceXml = null, string? xslt = null, string? hierarchyXml = null)
+    public async Task UpdateSelectionAsync(string? projectId = null, string? sourceXml = null, string? xslt = null, string? hierarchyXml = null, List<string>? trainingHierarchies = null)
     {
         var current = await GetSelectionAsync();
 
@@ -119,6 +119,7 @@ public class UserSelectionService : IUserSelectionService
         if (sourceXml != null) current.LastSelectedSourceXml = sourceXml;
         if (xslt != null) current.LastSelectedXslt = xslt;
         if (hierarchyXml != null) current.LastSelectedHierarchyXml = hierarchyXml;
+        if (trainingHierarchies != null) current.LastSelectedTrainingHierarchies = trainingHierarchies;
 
         await SaveSelectionAsync(current);
     }

@@ -2,6 +2,7 @@
 @using PdfConversion.Services
 @using PdfConversion.Models
 @using PdfConversion.Shared
+@using PdfConversion.Utils
 @using Microsoft.JSInterop
 @using static PdfConversion.Shared.LoadingSkeleton
 @implements IAsyncDisposable
@@ -17,6 +18,7 @@
 @inject IXhtmlValidationService ValidationService
 @inject IUserSelectionService UserSelectionService
 @inject ProjectMetadataService MetadataService
+@inject IFileGroupBuilderService FileGroupBuilder
 
 <PageTitle>Transform</PageTitle>
 
@@ -87,6 +89,57 @@
                 <p class="lead">
                     Steering attributes allow you to control transformation behavior by adding special attributes to your input XML elements.
                 </p>
+
+                <div class="attribute-section">
+                    <h6 class="attribute-title">
+                        <i class="bi bi-scissors me-2"></i>Content Stripping
+                    </h6>
+
+                    <div class="attribute-details">
+                        <div class="attribute-name">
+                            <code>data-strip</code>
+                        </div>
+                        <p class="attribute-description">
+                            Excludes content ranges from the transformation output. Elements marked with data-strip="true" start the exclusion range, and data-strip="false" ends it (inclusive).
+                        </p>
+
+                        <div class="attribute-usage">
+                            <strong>Applied to:</strong> <code>&lt;p&gt;</code>, <code>&lt;h1&gt;</code>, <code>&lt;h2&gt;</code>, <code>&lt;h3&gt;</code>, <code>&lt;h4&gt;</code>, <code>&lt;h5&gt;</code>, <code>&lt;h6&gt;</code>, <code>&lt;img&gt;</code>, <code>&lt;table&gt;</code> elements
+                        </div>
+
+                        <div class="attribute-values">
+                            <strong>Values:</strong>
+                            <ul>
+                                <li><code>true</code> - Start stripping content (this element and all following elements are excluded)</li>
+                                <li><code>false</code> - Stop stripping content (this element is excluded, but following elements are included)</li>
+                            </ul>
+                        </div>
+
+                        <div class="attribute-example">
+                            <strong>Example:</strong>
+                            <pre><code>&lt;p&gt;This content will be kept&lt;/p&gt;
+&lt;p data-strip="true"&gt;This will be REMOVED&lt;/p&gt;
+&lt;h2&gt;This will also be REMOVED&lt;/h2&gt;
+&lt;img src="removed.jpg" /&gt;
+&lt;p data-strip="false"&gt;This will also be REMOVED&lt;/p&gt;
+&lt;p&gt;This content will be kept again&lt;/p&gt;</code></pre>
+                        </div>
+
+                        <div class="attribute-effect">
+                            <strong>Effect:</strong>
+                            <p>
+                                All elements between data-strip="true" and data-strip="false" (inclusive) are removed from the output. This is useful for excluding cover pages, table of contents, or other sections that should not appear in the final document. Multiple strip ranges can be used in the same document.
+                            </p>
+                        </div>
+
+                        <div class="attribute-use-case">
+                            <strong>Use case:</strong>
+                            <p>
+                                When PDF documents contain sections that should be excluded from the final output (such as disclaimers, cover pages, or appendices), use data-strip to mark the start and end of content ranges to remove. The attribute is processed in the final transformation pass and completely removes the marked content.
+                            </p>
+                        </div>
+                    </div>
+                </div>
 
                 <div class="attribute-section">
                     <h6 class="attribute-title">
@@ -517,28 +570,12 @@
                 <div class="panel-header-left">
                     @if (Projects != null && Projects.Any())
                     {
-                        <select class="form-select form-select-sm xslt-file-select" @onchange="OnFilePathChangedFromDropdown" @onfocus="OnFileDropdownFocusedAsync">
-                            <option value="">Select a file...</option>
-                            @foreach (var project in Projects)
-                            {
-                                <optgroup label="@project.Name">
-                                    @if (project.Files != null && project.Files.Any())
-                                    {
-                                        @foreach (var file in project.Files)
-                                        {
-                                            var fullPath = $"{project.Organization}/{project.ProjectId}/{file}";
-                                            var isSelected = !string.IsNullOrEmpty(SelectedProjectId) &&
-                                                           !string.IsNullOrEmpty(SelectedFileName) &&
-                                                           SelectedProjectId == $"{project.Organization}/{project.ProjectId}" &&
-                                                           SelectedFileName == file;
-                                            <option value="@fullPath" selected="@isSelected">
-                                                @file
-                                            </option>
-                                        }
-                                    }
-                                </optgroup>
-                            }
-                        </select>
+                        <ProjectFileSelector
+                            FileGroups="@ProjectFileGroups"
+                            SelectedValue="@GetSelectedFilePath()"
+                            OnSelectionChanged="@OnFilePathChangedFromComponent"
+                            CssClass="form-select form-select-sm xslt-file-select"
+                            PlaceholderText="Select a file..." />
                     }
                     else
                     {
@@ -877,6 +914,22 @@
                              && !string.IsNullOrEmpty(SelectedProjectId)
                              && !string.IsNullOrEmpty(SelectedFileName);
 
+    // ProjectFileSelector helper properties
+    private List<ProjectFileGroup> ProjectFileGroups { get; set; } = new();
+
+    private string GetSelectedFilePath()
+    {
+        if (string.IsNullOrEmpty(SelectedProjectId) || string.IsNullOrEmpty(SelectedFileName))
+            return string.Empty;
+
+        var parts = SelectedProjectId.Split('/', 2);
+        if (parts.Length != 2) return string.Empty;
+
+        // Return absolute path to match dropdown values from FileGroupBuilder
+        // Try input directory first (most common for transformation)
+        return $"/app/data/input/{parts[0]}/projects/{parts[1]}/{SelectedFileName}";
+    }
+
     private async Task OnRenderedToggled()
     {
         // ShowRendered is already updated by @bind-value
@@ -1021,6 +1074,12 @@
                 project.Files = (await ProjectService.GetProjectFilesAsync(fullProjectId)).ToList();
             }
 
+            // Use the service to build file groups for dropdowns
+            ProjectFileGroups = await FileGroupBuilder.BuildXmlFileGroupsAsync(
+                includeInputFiles: true,
+                includeOutputFiles: true,  // Transform needs both
+                onlyActiveProjects: true);
+
             Logger.LogInformation("Loaded {Count} active projects with files", Projects.Count);
         }
         catch (Exception ex)
@@ -1113,28 +1172,87 @@
         }
     }
 
+    private async Task OnFilePathChangedFromComponent(string filePath)
+    {
+        if (!string.IsNullOrEmpty(filePath))
+        {
+            await OnFilePathChanged(filePath);
+        }
+    }
+
     private async Task OnFilePathChanged(string filePath)
     {
         try
         {
-            // Parse: "org/project/file.xml" -> org, project, file
-            var parts = filePath.Split('/', 3);
-            if (parts.Length != 3) return;
+            // Parse absolute path: "/app/data/input/customer/projects/project-id/filename.xml"
+            var match = System.Text.RegularExpressions.Regex.Match(
+                filePath,
+                @"/app/data/(input|output)/([^/]+)/projects/([^/]+)/(.+)$"
+            );
 
-            var organization = parts[0];
-            var projectId = parts[1];
-            var fileName = parts[2];
+            if (!match.Success)
+            {
+                Logger.LogWarning("Failed to parse file path: {Path}", filePath);
+                return;
+            }
+
+            var organization = match.Groups[2].Value;  // customer
+            var projectId = match.Groups[3].Value;     // project-id
+            var fileName = match.Groups[4].Value;       // filename.xml
 
             SelectedProjectId = $"{organization}/{projectId}";
             SelectedFileName = fileName;
             XmlContent = null;
             OutputContent = null;
 
+            // Auto-select XSLT file based on source XML filename pattern
+            if (fileName.Contains("docling", StringComparison.OrdinalIgnoreCase))
+            {
+                var desiredXslt = "docling/transformation.xslt";
+                if (XsltFiles != null && XsltFiles.Contains(desiredXslt) && SelectedXsltFile != desiredXslt)
+                {
+                    Logger.LogInformation("Auto-selecting XSLT file '{Xslt}' based on source XML filename pattern '{FileName}'", desiredXslt, fileName);
+                    SelectedXsltFile = desiredXslt;
+
+                    // Load the XSLT content immediately
+                    try
+                    {
+                        var xsltPath = $"/app/xslt/{SelectedXsltFile}";
+                        if (File.Exists(xsltPath))
+                        {
+                            XsltContent = await File.ReadAllTextAsync(xsltPath);
+                            Logger.LogInformation("Auto-loaded XSLT file from {Path}", xsltPath);
+
+                            // Update Monaco editor if initialized
+                            if (monacoInitialized)
+                            {
+                                await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.setValue", XsltContent);
+                            }
+
+                            // Update file watcher
+                            try
+                            {
+                                XsltFileWatcher.StartWatching(xsltPath);
+                            }
+                            catch (Exception watchEx)
+                            {
+                                Logger.LogError(watchEx, "Failed to start XSLT file watcher during auto-selection");
+                            }
+                        }
+                    }
+                    catch (Exception xsltEx)
+                    {
+                        Logger.LogError(xsltEx, "Error auto-loading XSLT file during source XML selection");
+                    }
+                }
+            }
+
             IsLoadingXml = true;
             UpdateToolbarState();
             StateHasChanged();
 
-            var xmlFilePath = Path.Combine("/app/data/input", organization, "projects", projectId, fileName);
+            // Use the provided absolute path directly (no need to construct)
+            var xmlFilePath = filePath;
             XmlContent = await ProjectService.ReadInputFileAsync(SelectedProjectId, fileName);
             Logger.LogInformation("Loaded file {FileName} from project {ProjectId}", fileName, SelectedProjectId);
 
@@ -1218,16 +1336,12 @@
                 Logger.LogWarning("OnFilePathChanged: XmlContent is empty, skipping Source XML editor initialization");
             }
 
-            // Save selection to localStorage
+            // Save selection to server-side UserSelectionService
             if (!isRestoringFromStorage)
             {
-                await JSRuntime.InvokeVoidAsync("developmentStorage.saveSelection", SelectedProjectId, SelectedFileName, SelectedXsltFile);
-
-                // Save to server-side UserSelectionService
-                // Extract project ID from "optiver/ar24-3" format
-                var projectIdOnly = SelectedProjectId?.Split('/').LastOrDefault();
+                // SelectedProjectId is already in "customer/project-id" format
                 await UserSelectionService.UpdateSelectionAsync(
-                    projectId: projectIdOnly,
+                    projectId: SelectedProjectId,
                     sourceXml: SelectedFileName,
                     xslt: SelectedXsltFile
                 );
@@ -1271,10 +1385,9 @@
                 await JSRuntime.InvokeVoidAsync("developmentStorage.saveSelection", SelectedProjectId, SelectedFileName, SelectedXsltFile);
 
                 // Save to server-side UserSelectionService
-                // Extract project ID from "optiver/ar24-3" format
-                var projectIdOnly = SelectedProjectId?.Split('/').LastOrDefault();
+                // SelectedProjectId is already in "customer/project-id" format
                 await UserSelectionService.UpdateSelectionAsync(
-                    projectId: projectIdOnly,
+                    projectId: SelectedProjectId,
                     sourceXml: SelectedFileName,
                     xslt: SelectedXsltFile
                 );
@@ -1392,10 +1505,9 @@
                 await JSRuntime.InvokeVoidAsync("developmentStorage.saveSelection", SelectedProjectId, SelectedFileName, SelectedXsltFile);
 
                 // Save to server-side UserSelectionService
-                // Extract project ID from "optiver/ar24-3" format
-                var projectIdOnly = SelectedProjectId?.Split('/').LastOrDefault();
+                // SelectedProjectId is already in "customer/project-id" format
                 await UserSelectionService.UpdateSelectionAsync(
-                    projectId: projectIdOnly,
+                    projectId: SelectedProjectId,
                     sourceXml: SelectedFileName,
                     xslt: SelectedXsltFile
                 );
@@ -1435,14 +1547,10 @@
                     Logger.LogError(watchEx, "Failed to start XSLT file watcher");
                 }
 
-                // Save selection to localStorage
-                await JSRuntime.InvokeVoidAsync("developmentStorage.saveSelection", SelectedProjectId, SelectedFileName, SelectedXsltFile);
-
-                // Save to server-side UserSelectionService
-                // Extract project ID from "optiver/ar24-3" format
-                var projectIdOnly = SelectedProjectId?.Split('/').LastOrDefault();
+                // Save selection to server-side UserSelectionService
+                // SelectedProjectId is already in "customer/project-id" format
                 await UserSelectionService.UpdateSelectionAsync(
-                    projectId: projectIdOnly,
+                    projectId: SelectedProjectId,
                     sourceXml: SelectedFileName,
                     xslt: SelectedXsltFile
                 );
@@ -1638,19 +1746,45 @@
             SavedNormalizedXmlPath = null; // Clear saved path
             UpdateToolbarState();
 
-            // ALWAYS use transformation.xslt as the main XSLT file for transformations
-            var transformationXsltPath = "/app/xslt/transformation.xslt";
+            // Determine root XSLT file based on selected file path
+            string rootXsltFile;
+            if (!string.IsNullOrEmpty(SelectedXsltFile))
+            {
+                if (SelectedXsltFile.StartsWith("adobe/", StringComparison.OrdinalIgnoreCase))
+                {
+                    rootXsltFile = "adobe/transformation.xslt";
+                }
+                else if (SelectedXsltFile.StartsWith("docling/", StringComparison.OrdinalIgnoreCase))
+                {
+                    rootXsltFile = "docling/transformation.xslt";
+                }
+                else
+                {
+                    // Fallback: assume it's a module file, look for root in same directory
+                    var directory = Path.GetDirectoryName(SelectedXsltFile)?.Replace("\\", "/");
+                    rootXsltFile = !string.IsNullOrEmpty(directory)
+                        ? $"{directory}/transformation.xslt"
+                        : "transformation.xslt";
+                }
+            }
+            else
+            {
+                // Default to adobe pipeline (most common)
+                rootXsltFile = "adobe/transformation.xslt";
+            }
+
+            var transformationXsltPath = Path.Combine("/app/xslt", rootXsltFile);
             string transformationXsltContent;
 
             if (File.Exists(transformationXsltPath))
             {
                 transformationXsltContent = await File.ReadAllTextAsync(transformationXsltPath);
-                Logger.LogInformation("Loaded transformation.xslt for transformation (length: {Length})", transformationXsltContent?.Length ?? 0);
+                Logger.LogInformation("Loaded {RootXsltFile} for transformation (length: {Length})", rootXsltFile, transformationXsltContent?.Length ?? 0);
             }
             else
             {
-                Logger.LogError("transformation.xslt not found at {Path}", transformationXsltPath);
-                TransformationError = "transformation.xslt not found. Cannot perform transformation.";
+                Logger.LogError("{RootXsltFile} not found at {Path}", rootXsltFile, transformationXsltPath);
+                TransformationError = $"{rootXsltFile} not found. Cannot perform transformation.";
                 return;
             }
 
@@ -1660,9 +1794,9 @@
                 NormalizeHeaders = NormalizeHeaders
             };
 
-            // Check if we're editing a module file (not transformation.xslt)
+            // Check if we're editing a module file (not the root transformation.xslt)
             var isEditingModule = !string.IsNullOrEmpty(SelectedXsltFile) &&
-                                  !SelectedXsltFile.Equals("transformation.xslt", StringComparison.OrdinalIgnoreCase);
+                                  !SelectedXsltFile.Equals(rootXsltFile, StringComparison.OrdinalIgnoreCase);
 
             TransformationResult result;
 
@@ -1675,13 +1809,14 @@
                     transformationXsltContent,
                     SelectedXsltFile,
                     XsltContent,
-                    options);
+                    options,
+                    transformationXsltPath);
             }
             else
             {
-                // Standard transformation (either transformation.xslt is selected, or no module editing)
-                Logger.LogInformation("Standard transformation using transformation.xslt");
-                result = await XsltService.TransformAsync(XmlContent!, transformationXsltContent, options);
+                // Standard transformation (root XSLT file is selected, or no module editing)
+                Logger.LogInformation("Standard transformation using {RootXsltFile}", rootXsltFile);
+                result = await XsltService.TransformAsync(XmlContent!, transformationXsltContent, options, transformationXsltPath);
             }
 
             if (result.IsSuccess)
@@ -1725,6 +1860,24 @@
                             await File.WriteAllTextAsync(normalizedXmlPath, OutputContent);
                             SavedNormalizedXmlPath = normalizedXmlPath;
                             Logger.LogInformation("Saved normalized XML to {Path}", normalizedXmlPath);
+
+                            // Also write to _work directory for development context
+                            try
+                            {
+                                var workPath = "/app/data/_work";
+                                if (!Directory.Exists(workPath))
+                                {
+                                    Directory.CreateDirectory(workPath);
+                                }
+                                var contextNormalizedPath = Path.Combine(workPath, "_normalized.xml");
+                                await File.WriteAllTextAsync(contextNormalizedPath, OutputContent);
+                                Logger.LogInformation("Saved context normalized XML to {Path}", contextNormalizedPath);
+                            }
+                            catch (Exception workEx)
+                            {
+                                Logger.LogWarning(workEx, "Failed to save context normalized XML to _work folder");
+                                // Non-critical, continue
+                            }
                         }
                     }
                     catch (Exception ex)
@@ -1887,7 +2040,7 @@
             var xsltPath = $"/app/xslt/{SelectedXsltFile}";
             await File.WriteAllTextAsync(xsltPath, XsltContent!);
 
-            ToastNotification.ShowSuccess($"XSLT file saved successfully: {SelectedXsltFile}");
+            // Success toast removed - file save is logged
             Logger.LogInformation("XSLT file saved to {Path}", xsltPath);
         }
         catch (Exception ex)
@@ -1931,7 +2084,7 @@
 
             await File.WriteAllTextAsync(xmlFilePath, XmlContent!);
 
-            ToastNotification.ShowSuccess($"Source XML saved: {SelectedFileName}");
+            // Success toast removed - file save is logged
             Logger.LogInformation("Source XML saved to {Path}, waiting 2 seconds for file watcher...", xmlFilePath);
 
             // Wait longer to ensure file watcher processes the change with flag set
@@ -1979,7 +2132,7 @@
 
             if (success)
             {
-                ToastNotification.ShowSuccess(message);
+                // Success toast removed - success indicated by FixCharactersSuccess flag and alert message
                 Logger.LogInformation("Fix Characters completed: {Message}", message);
 
                 // Reload XML content to reflect changes
@@ -2039,7 +2192,7 @@
 
             if (success)
             {
-                ToastNotification.ShowSuccess(message);
+                // Success toast removed - success indicated by SanitizeSuccess flag and alert message
                 Logger.LogInformation("Sanitize completed: {Message}", message);
 
                 // Brief delay to ensure file is written to disk
@@ -2156,7 +2309,7 @@
             if (!string.IsNullOrEmpty(OutputContent))
             {
                 await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", OutputContent);
-                ToastNotification.ShowSuccess("Output copied to clipboard");
+                // Success toast removed - clipboard operation is instant
                 Logger.LogInformation("Output copied to clipboard");
             }
         }
@@ -2175,7 +2328,7 @@
             if (!string.IsNullOrEmpty(path))
             {
                 await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", path);
-                ToastNotification.ShowSuccess("Path copied to clipboard");
+                // Success toast removed - clipboard operation is instant
                 Logger.LogInformation("File path copied to clipboard: {Path}", path);
             }
         }
@@ -2194,7 +2347,7 @@
             if (!string.IsNullOrEmpty(text))
             {
                 await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", text);
-                ToastNotification.ShowSuccess("XPath copied to clipboard");
+                // Success toast removed - clipboard operation is instant
                 Logger.LogInformation("XPath copied to clipboard");
             }
         }
@@ -2428,7 +2581,7 @@
                 var base64 = System.Convert.ToBase64String(bytes);
 
                 await JSRuntime.InvokeVoidAsync("downloadFile", fileName, "application/xhtml+xml", base64);
-                ToastNotification.ShowSuccess($"Downloaded {fileName}");
+                // Success toast removed - browser download notification is sufficient
                 Logger.LogInformation("Downloaded output as {FileName}", fileName);
             }
         }
@@ -2585,27 +2738,26 @@
                     Logger.LogInformation("Loading selection from UserSelectionService JSON: Project={Project}, SourceXml={SourceXml}, Xslt={Xslt}",
                         selection.LastSelectedProject, selection.LastSelectedSourceXml, selection.LastSelectedXslt);
 
-                    // Convert from UserSelection format to SavedSelection format
-                    // UserSelection uses just project name (e.g., "ar24-3")
-                    // Transform page needs full path format (e.g., "optiver/ar24-3")
+                    // Validate ProjectId format (should be "customer/project-id")
+                    if (!selection.LastSelectedProject.Contains('/'))
+                    {
+                        Logger.LogWarning("⚠️ Invalid ProjectId format in user-selections.json: '{ProjectId}' (expected 'customer/project-id' format). Selections may not restore correctly.",
+                            selection.LastSelectedProject);
+                        ToastNotification.ShowWarning($"Invalid project format in saved selections: '{selection.LastSelectedProject}'. Please select your files manually.");
+                    }
+
+                    // UserSelection now stores full path format (e.g., "customer/project-id")
+                    // Transform page uses the same format, so use it directly
                     savedSelection = new SavedSelection
                     {
-                        ProjectId = $"optiver/{selection.LastSelectedProject}",
+                        ProjectId = selection.LastSelectedProject,
                         FileName = selection.LastSelectedSourceXml ?? string.Empty,
                         XsltFile = selection.LastSelectedXslt ?? "transformation.xslt"
                     };
                 }
                 else
                 {
-                    // Fallback to localStorage if UserSelectionService has no data
-                    Logger.LogInformation("No selection found in UserSelectionService JSON, falling back to localStorage");
-                    savedSelection = await JSRuntime.InvokeAsync<SavedSelection>("developmentStorage.loadSelection");
-
-                    if (savedSelection != null && !string.IsNullOrEmpty(savedSelection.ProjectId))
-                    {
-                        Logger.LogInformation("Loaded selection from localStorage: Project={Project}, File={File}, XsltFile={XsltFile}",
-                            savedSelection.ProjectId, savedSelection.FileName, savedSelection.XsltFile);
-                    }
+                    Logger.LogInformation("No selection found in UserSelectionService JSON");
                 }
 
                 if (savedSelection != null && !string.IsNullOrEmpty(savedSelection.ProjectId))
@@ -2626,13 +2778,43 @@
                             await LoadXsltAsync();
                         }
 
-                        // Restore file selection if available (using the new combined path approach)
+                        // Restore source XML file selection if available - reconstruct full path
                         if (!string.IsNullOrEmpty(savedSelection.ProjectId) && !string.IsNullOrEmpty(savedSelection.FileName))
                         {
-                            // Wait for projects to load
-                            await Task.Delay(800);
-                            var filePath = $"{savedSelection.ProjectId}/{savedSelection.FileName}";
-                            await OnFilePathChanged(filePath);
+                            var sourceXmlFilename = savedSelection.FileName;
+                            var parts = savedSelection.ProjectId.Split('/');
+                            if (parts.Length == 2)
+                            {
+                                var customer = parts[0];
+                                var projectId = parts[1];
+
+                                // Wait for projects to load
+                                await Task.Delay(800);
+
+                                // Transform page only uses input directory
+                                var inputPath = $"/app/data/input/{customer}/projects/{projectId}/{sourceXmlFilename}";
+                                if (File.Exists(inputPath))
+                                {
+                                    Logger.LogInformation("Restored source XML from input: {File}", inputPath);
+                                    await OnFilePathChanged(inputPath);
+                                }
+                                else
+                                {
+                                    Logger.LogWarning("Source XML file not found: {File}", inputPath);
+                                    ToastNotification.ShowWarning($"Previously selected file not found: {sourceXmlFilename}. Please select a file.");
+                                }
+                            }
+                            else
+                            {
+                                Logger.LogWarning("Invalid ProjectId format: '{ProjectId}' (expected 'customer/project-id')", savedSelection.ProjectId);
+                                ToastNotification.ShowWarning("Invalid project format in saved selections. Please select a file.");
+                            }
+                        }
+                        else
+                        {
+                            Logger.LogInformation("No source XML file to restore (ProjectId: '{Project}', FileName: '{File}')",
+                                savedSelection.ProjectId ?? "(empty)",
+                                savedSelection.FileName ?? "(empty)");
                         }
                     }
                     finally
@@ -2648,7 +2830,8 @@
             }
             catch (Exception ex)
             {
-                Logger.LogWarning(ex, "Could not restore saved selection");
+                Logger.LogError(ex, "❌ Error loading saved selection from UserSelectionService");
+                ToastNotification.ShowWarning("Could not restore previous selections. Please select your files manually.");
                 isRestoringFromStorage = false;
             }
         }

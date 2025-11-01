@@ -1,0 +1,268 @@
+/* Modal backdrop - VS Code Dark Modern: #1F1F1F with opacity */
+.modal-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    z-index: 1040;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Modal dialog container */
+.modal-dialog {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1050;
+    width: 90%;
+    max-width: 550px;
+    animation: modal-fade-in 0.2s ease-out;
+}
+
+@keyframes modal-fade-in {
+    from {
+        opacity: 0;
+        transform: translate(-50%, -48%);
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, -50%);
+    }
+}
+
+/* Modal content - VS Code Dark Modern: panel background */
+.modal-content {
+    background: #1F1F1F; /* --editor-bg */
+    border: 1px solid #2B2B2B; /* --border-primary */
+    border-radius: 6px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    max-height: 90vh;
+    overflow: hidden;
+}
+
+/* Modal header */
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid #2B2B2B; /* --border-primary */
+}
+
+.modal-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #FFFFFF; /* --text-bright */
+}
+
+/* Close button */
+.btn-close {
+    background: transparent;
+    border: none;
+    color: #CCCCCC; /* --text-primary */
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.7;
+    transition: opacity 0.15s ease;
+}
+
+.btn-close:hover {
+    opacity: 1;
+}
+
+.btn-close::before {
+    content: '×';
+}
+
+/* Modal body */
+.modal-body {
+    padding: 20px;
+    color: #CCCCCC; /* --text-primary */
+    font-size: 14px;
+    line-height: 1.5;
+    overflow-y: auto;
+}
+
+/* Form groups */
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 500;
+    color: #CCCCCC; /* --text-primary */
+    font-size: 13px;
+}
+
+/* Form controls - Use !important to override global site.css rules */
+.form-control,
+.form-select {
+    width: 100%;
+    padding: 8px 12px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #CCCCCC !important; /* --text-primary */
+    background: #313131 !important; /* --input-bg (VS Code Dark Modern) */
+    border: 1px solid #3C3C3C !important; /* --input-border */
+    border-radius: 4px;
+    transition: border-color 0.15s ease;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+.form-control:focus,
+.form-select:focus {
+    outline: none;
+    border-color: #0078D4 !important; /* --accent-blue */
+    background: #313131 !important; /* Keep same dark background on focus */
+    color: #FFFFFF !important; /* Brighter text on focus */
+    box-shadow: 0 0 0 0.2rem rgba(0, 122, 204, 0.25) !important;
+}
+
+.form-control::placeholder {
+    color: #989898 !important; /* --text-input-placeholder (VS Code Dark Modern) */
+}
+
+/* Form text helper */
+.form-text {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: #8C8C8C; /* --text-secondary */
+}
+
+/* Alert */
+.alert {
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.alert-danger {
+    background: rgba(248, 81, 73, 0.1); /* --error-red with opacity */
+    border: 1px solid #F85149; /* --error-red */
+    color: #F85149;
+}
+
+/* Text link button */
+.btn-text-link {
+    background: transparent;
+    border: none;
+    color: #4FC1FF; /* --link-blue */
+    font-size: 12px;
+    padding: 4px 0;
+    margin-top: 4px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: color 0.15s ease;
+}
+
+.btn-text-link:hover {
+    color: #75BEFF; /* --link-blue-hover */
+    text-decoration: underline;
+}
+
+/* Modal footer */
+.modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 16px 20px;
+    border-top: 1px solid #2B2B2B; /* --border-primary */
+}
+
+/* Buttons - VS Code Dark Modern colors */
+.btn {
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Secondary button (Cancel) */
+.btn-secondary {
+    background: #313131; /* --button-secondary-bg */
+    color: #CCCCCC; /* --button-secondary-fg */
+    border-color: #3C3C3C; /* --input-border */
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background: #3C3C3C; /* --button-secondary-hover */
+}
+
+/* Primary button (Create) */
+.btn-primary {
+    background: #0078D4; /* --accent-blue */
+    color: #FFFFFF; /* --button-fg */
+    border-color: #0078D4;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: #026EC1; /* Darker blue on hover */
+    border-color: #026EC1;
+}
+
+/* Spinner in button */
+.spinner-border {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: spinner-rotate 0.75s linear infinite;
+}
+
+.spinner-border-sm {
+    width: 12px;
+    height: 12px;
+    border-width: 2px;
+}
+
+@keyframes spinner-rotate {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Focus styles for accessibility */
+.btn:focus-visible {
+    outline: 2px solid #0078D4; /* --accent-blue */
+    outline-offset: 2px;
+}
+
+.btn-close:focus-visible {
+    outline: 2px solid #0078D4; /* --accent-blue */
+    outline-offset: 2px;
+}
+
+.form-control:focus-visible {
+    outline: none;
+}

@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="9.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.0" />
     <PackageReference Include="System.Xml.ReaderWriter" Version="4.3.1" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="Polly" Version="8.5.0" />
@@ -23,6 +24,8 @@
     <PackageReference Include="System.Threading.Channels" Version="9.0.0" />
     <!-- Diff comparison package -->
     <PackageReference Include="DiffPlex" Version="1.7.2" />
+    <!-- HTML to XML conversion -->
+    <PackageReference Include="HtmlAgilityPack" Version="1.11.71" />
   </ItemGroup>
 
   <ItemGroup>
