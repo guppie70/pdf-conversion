@@ -27,15 +27,16 @@
             <span class="tree-spacer"></span>
         }
 
-        @if (Item.SequentialOrder.HasValue)
-        {
-            <span class="order-badge">@Item.SequentialOrder</span>
-        }
+        @* Always show sequential order badge (falls back to "?" if null) *@
+        <span class="order-badge">@(Item.SequentialOrder?.ToString() ?? "?")</span>
 
-        @if (!string.IsNullOrEmpty(Item.HeaderType))
-        {
-            <span class="header-type-badge header-type-@Item.HeaderType.ToLower()">@Item.HeaderType.ToUpper()</span>
+        @* Always show header type badge (infer from Level if null) *@
+        @{
+            var headerType = !string.IsNullOrEmpty(Item.HeaderType)
+                ? Item.HeaderType
+                : $"H{Math.Min(Item.Level + 1, 6)}"; // Infer from Level (0-based to h1-h6)
         }
+        <span class="header-type-badge header-type-@headerType.ToLower()">@headerType.ToUpper()</span>
 
         <span class="tree-item-label">@Item.LinkName</span>
         <button class="btn btn-sm btn-link tree-edit-icon"
@@ -112,6 +113,19 @@
 
     [Parameter]
     public HierarchyItem? RootItem { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+
+        // Diagnostic logging for badge rendering
+        if (Item != null)
+        {
+            var sequentialOrder = Item.SequentialOrder?.ToString() ?? "NULL";
+            var headerType = Item.HeaderType ?? "NULL";
+            Console.WriteLine($"[Badge] Item '{Item.LinkName}': SequentialOrder={sequentialOrder}, HeaderType={headerType}, Level={Item.Level}");
+        }
+    }
 
     // Drag-drop state (static to share across instances)
     private static HierarchyItem? DraggedItem { get; set; }
