@@ -20,16 +20,19 @@ public class ProjectArchiveService : IProjectArchiveService
         _outputBasePath = "/app/data/output";
     }
 
-    public async Task<byte[]?> CreateProjectArchiveAsync(string customer, string projectId)
+    public async Task<byte[]?> CreateProjectArchiveAsync(string customer, string projectId, string hierarchyFileName)
     {
         try
         {
-            _logger.LogInformation("Creating archive for project {Customer}/{ProjectId}", customer, projectId);
+            _logger.LogInformation("Creating archive for {Customer}/{ProjectId} with hierarchy: {Hierarchy}",
+                customer, projectId, hierarchyFileName);
+
+            var manifestData = new ManifestData();
 
             using var memoryStream = new MemoryStream();
             using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, leaveOpen: true))
             {
-                // Add section files from output/data
+                // 1. Add section XML files from output/data
                 var dataPath = Path.Combine(_outputBasePath, customer, "projects", projectId, "data");
                 if (Directory.Exists(dataPath))
                 {
@@ -37,73 +40,51 @@ public class ProjectArchiveService : IProjectArchiveService
                     foreach (var filePath in sectionFiles)
                     {
                         var fileName = Path.GetFileName(filePath);
-                        var entry = archive.CreateEntry($"data/{fileName}", CompressionLevel.Optimal);
-
-                        using var entryStream = entry.Open();
-                        using var fileStream = File.OpenRead(filePath);
-                        await fileStream.CopyToAsync(entryStream);
-
+                        var entryName = $"data/{fileName}";
+                        await AddFileToArchiveAsync(archive, filePath, entryName);
+                        manifestData.AddSection(entryName);
                         _logger.LogDebug("Added section file: {FileName}", fileName);
                     }
                 }
 
-                // Add all images from input/images
+                // 2. Add selected hierarchy file from input/metadata
+                var hierarchyPath = Path.Combine(_inputBasePath, customer, "projects", projectId, "metadata", hierarchyFileName);
+                if (File.Exists(hierarchyPath))
+                {
+                    var entryName = $"metadata/{hierarchyFileName}";
+                    await AddFileToArchiveAsync(archive, hierarchyPath, entryName);
+                    manifestData.SetHierarchy(entryName);
+                    _logger.LogDebug("Added hierarchy file: {FileName}", hierarchyFileName);
+                }
+                else
+                {
+                    _logger.LogWarning("Hierarchy file not found: {Path}", hierarchyPath);
+                }
+
+                // 3. Add all images recursively
                 var imagesPath = Path.Combine(_inputBasePath, customer, "projects", projectId, "images");
                 if (Directory.Exists(imagesPath))
                 {
-                    await AddDirectoryToArchiveAsync(archive, imagesPath, "images");
+                    await AddDirectoryToArchiveAsync(archive, imagesPath, "images", manifestData);
+                    _logger.LogDebug("Added {Count} images", manifestData.Images.Count);
                 }
 
-                // Add hierarchy files from input/metadata (if exists)
-                var metadataPath = Path.Combine(_inputBasePath, customer, "projects", projectId, "metadata");
-                if (Directory.Exists(metadataPath))
+                // 4. Generate and add manifest.yml
+                var manifestYml = GenerateManifestYml(manifestData);
+                var manifestEntry = archive.CreateEntry("manifest.yml", CompressionLevel.Optimal);
+                using (var entryStream = manifestEntry.Open())
+                using (var writer = new StreamWriter(entryStream))
                 {
-                    var hierarchyFiles = Directory.GetFiles(metadataPath, "*.xml");
-                    foreach (var filePath in hierarchyFiles)
-                    {
-                        var fileName = Path.GetFileName(filePath);
-                        var entry = archive.CreateEntry($"metadata/{fileName}", CompressionLevel.Optimal);
-
-                        using var entryStream = entry.Open();
-                        using var fileStream = File.OpenRead(filePath);
-                        await fileStream.CopyToAsync(entryStream);
-
-                        _logger.LogDebug("Added metadata file: {FileName}", fileName);
-                    }
+                    await writer.WriteAsync(manifestYml);
                 }
-
-                // Add hierarchy.xml from output directory (if exists)
-                var hierarchyFilePath = Path.Combine(_outputBasePath, customer, "projects", projectId, "hierarchy.xml");
-                if (File.Exists(hierarchyFilePath))
-                {
-                    var entry = archive.CreateEntry("hierarchy.xml", CompressionLevel.Optimal);
-
-                    using var entryStream = entry.Open();
-                    using var fileStream = File.OpenRead(hierarchyFilePath);
-                    await fileStream.CopyToAsync(entryStream);
-
-                    _logger.LogDebug("Added hierarchy.xml");
-                }
-
-                // Add normalized.xml from output directory (if exists)
-                var normalizedFilePath = Path.Combine(_outputBasePath, customer, "projects", projectId, "normalized.xml");
-                if (File.Exists(normalizedFilePath))
-                {
-                    var entry = archive.CreateEntry("normalized.xml", CompressionLevel.Optimal);
-
-                    using var entryStream = entry.Open();
-                    using var fileStream = File.OpenRead(normalizedFilePath);
-                    await fileStream.CopyToAsync(entryStream);
-
-                    _logger.LogDebug("Added normalized.xml");
-                }
+                _logger.LogDebug("Added manifest.yml");
             }
 
             memoryStream.Position = 0;
             var zipBytes = memoryStream.ToArray();
 
-            _logger.LogInformation("Created archive for {Customer}/{ProjectId}: {Size} bytes",
-                customer, projectId, zipBytes.Length);
+            _logger.LogInformation("Created archive for {Customer}/{ProjectId}: {Size} bytes, {Sections} sections, {Images} images",
+                customer, projectId, zipBytes.Length, manifestData.Sections.Count, manifestData.Images.Count);
 
             return zipBytes;
         }
