@@ -163,4 +163,18 @@ public class ProjectArchiveService : IProjectArchiveService
             _logger.LogDebug("Added file: {EntryName}", entryName);
         }
     }
+
+    /// <summary>
+    /// Helper class to track files for manifest generation
+    /// </summary>
+    private class ManifestData
+    {
+        public List<string> Sections { get; } = new();
+        public List<string> Images { get; } = new();
+        public string? Hierarchy { get; private set; }
+
+        public void AddSection(string path) => Sections.Add(path);
+        public void AddImage(string path) => Images.Add(path);
+        public void SetHierarchy(string path) => Hierarchy = path;
+    }
 }
