@@ -184,11 +184,16 @@
         }
     }
 
-    private void SetActiveTab(string tab)
+    private async Task SetActiveTab(string tab)
     {
         ActiveTab = tab;
         ErrorMessage = null;
         SuccessMessage = null;
+
+        if (tab == "download")
+        {
+            await LoadHierarchyFilesAsync();
+        }
     }
 
     private async Task HandleXmlUpload(InputFileChangeEventArgs e)
