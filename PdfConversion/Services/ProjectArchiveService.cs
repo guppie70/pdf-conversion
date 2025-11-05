@@ -144,6 +144,20 @@ public class ProjectArchiveService : IProjectArchiveService
     }
 
     /// <summary>
+    /// Add a single file to the ZIP archive
+    /// </summary>
+    private async Task AddFileToArchiveAsync(ZipArchive archive, string filePath, string entryName)
+    {
+        var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
+
+        using var entryStream = entry.Open();
+        using var fileStream = File.OpenRead(filePath);
+        await fileStream.CopyToAsync(entryStream);
+
+        _logger.LogDebug("Added file: {EntryName}", entryName);
+    }
+
+    /// <summary>
     /// Generate manifest.yml content from tracked files
     /// </summary>
     private string GenerateManifestYml(ManifestData data)
