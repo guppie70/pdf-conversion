@@ -100,17 +100,53 @@
                         <p class="download-description">
                             Download a ZIP archive containing all project output files:
                         </p>
+
+                        <!-- Hierarchy File Selector -->
+                        <div class="form-group mb-3">
+                            <label class="form-label fw-bold">Hierarchy XML File</label>
+                            @if (IsLoadingHierarchyFiles)
+                            {
+                                <div class="text-muted">
+                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                    Loading hierarchy files...
+                                </div>
+                            }
+                            else if (!AvailableHierarchyFiles.Any())
+                            {
+                                <div class="alert alert-warning">
+                                    <i class="oi oi-warning"></i> No hierarchy files found in metadata folder.
+                                </div>
+                            }
+                            else
+                            {
+                                <select class="form-select" @bind="SelectedHierarchy" required>
+                                    @if (AvailableHierarchyFiles.Count > 1 && string.IsNullOrEmpty(SelectedHierarchy))
+                                    {
+                                        <option value="">-- Select hierarchy file --</option>
+                                    }
+                                    @foreach (var file in AvailableHierarchyFiles)
+                                    {
+                                        <option value="@file">@file</option>
+                                    }
+                                </select>
+                                <small class="form-text text-muted">
+                                    @AvailableHierarchyFiles.Count file(s) available
+                                </small>
+                            }
+                        </div>
+
+                        <!-- Package Contents -->
                         <ul class="download-contents">
+                            <li>Selected hierarchy XML: <strong>@(SelectedHierarchy ?? "none selected")</strong></li>
                             <li>Section XML files (data/*.xml)</li>
                             <li>All images (images/*)</li>
-                            <li>Hierarchy files (metadata/*.xml, hierarchy.xml)</li>
-                            <li>Normalized XML (normalized.xml)</li>
+                            <li>Package manifest (manifest.yml)</li>
                         </ul>
 
                         <button type="button"
                                 class="btn btn-primary btn-download"
                                 @onclick="DownloadArchive"
-                                disabled="@IsDownloading">
+                                disabled="@(IsDownloading || string.IsNullOrEmpty(SelectedHierarchy))">
                             @if (IsDownloading)
                             {
                                 <span class="spinner-border spinner-border-sm me-2"></span>
