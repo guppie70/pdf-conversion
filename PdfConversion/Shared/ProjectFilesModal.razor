@@ -379,9 +379,16 @@
             IsDownloading = true;
             ErrorMessage = null;
 
-            Logger.LogInformation("Creating archive for download: {Customer}/{ProjectId}", Customer, ProjectId);
+            if (string.IsNullOrEmpty(SelectedHierarchy))
+            {
+                ErrorMessage = "Please select a hierarchy file first.";
+                return;
+            }
 
-            var zipBytes = await ArchiveService.CreateProjectArchiveAsync(Customer, ProjectId);
+            Logger.LogInformation("Creating archive for download: {Customer}/{ProjectId} with hierarchy: {Hierarchy}",
+                Customer, ProjectId, SelectedHierarchy);
+
+            var zipBytes = await ArchiveService.CreateProjectArchiveAsync(Customer, ProjectId, SelectedHierarchy);
 
             if (zipBytes == null || zipBytes.Length == 0)
             {
