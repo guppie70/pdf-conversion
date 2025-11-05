@@ -209,9 +209,9 @@ public class ProjectArchiveService : IProjectArchiveService
     }
 
     /// <summary>
-    /// Recursively add directory contents to ZIP archive
+    /// Recursively add directory contents to ZIP archive and track in manifest
     /// </summary>
-    private async Task AddDirectoryToArchiveAsync(ZipArchive archive, string sourcePath, string archivePath)
+    private async Task AddDirectoryToArchiveAsync(ZipArchive archive, string sourcePath, string archivePath, ManifestData manifestData)
     {
         var files = Directory.GetFiles(sourcePath, "*.*", SearchOption.AllDirectories);
 
@@ -220,13 +220,8 @@ public class ProjectArchiveService : IProjectArchiveService
             var relativePath = Path.GetRelativePath(sourcePath, filePath);
             var entryName = Path.Combine(archivePath, relativePath).Replace('\\', '/');
 
-            var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
-
-            using var entryStream = entry.Open();
-            using var fileStream = File.OpenRead(filePath);
-            await fileStream.CopyToAsync(entryStream);
-
-            _logger.LogDebug("Added file: {EntryName}", entryName);
+            await AddFileToArchiveAsync(archive, filePath, entryName);
+            manifestData.AddImage(entryName);
         }
     }
 
