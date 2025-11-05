@@ -10,8 +10,9 @@ public interface IProjectArchiveService
     /// </summary>
     /// <param name="customer">Customer identifier</param>
     /// <param name="projectId">Project identifier</param>
+    /// <param name="hierarchyFileName">Selected hierarchy XML filename from metadata folder</param>
     /// <returns>ZIP file bytes, or null if creation failed</returns>
-    Task<byte[]?> CreateProjectArchiveAsync(string customer, string projectId);
+    Task<byte[]?> CreateProjectArchiveAsync(string customer, string projectId, string hierarchyFileName);
 
     /// <summary>
     /// Get the suggested filename for the ZIP archive
