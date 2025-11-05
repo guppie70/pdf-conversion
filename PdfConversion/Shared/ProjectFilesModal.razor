@@ -447,4 +447,54 @@
                    document.body.removeChild(a);
                    URL.revokeObjectURL(url);";
     }
+
+    private async Task LoadHierarchyFilesAsync()
+    {
+        IsLoadingHierarchyFiles = true;
+        ErrorMessage = null;
+
+        try
+        {
+            var metadataPath = Path.Combine("/app/data/input", Customer, "projects", ProjectId, "metadata");
+
+            if (Directory.Exists(metadataPath))
+            {
+                AvailableHierarchyFiles = Directory.GetFiles(metadataPath, "*.xml")
+                    .Select(Path.GetFileName)
+                    .Where(f => f != null)
+                    .Cast<string>()
+                    .OrderBy(f => f)
+                    .ToList();
+
+                // Auto-select if only one file
+                if (AvailableHierarchyFiles.Count == 1)
+                {
+                    SelectedHierarchy = AvailableHierarchyFiles[0];
+                }
+                else if (AvailableHierarchyFiles.Count == 0)
+                {
+                    ErrorMessage = "No hierarchy files found in metadata folder.";
+                }
+
+                Logger.LogInformation("Found {Count} hierarchy files for {Customer}/{ProjectId}",
+                    AvailableHierarchyFiles.Count, Customer, ProjectId);
+            }
+            else
+            {
+                AvailableHierarchyFiles.Clear();
+                ErrorMessage = $"Metadata folder not found: {metadataPath}";
+                Logger.LogWarning("Metadata folder not found: {Path}", metadataPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to load hierarchy files: {ex.Message}";
+            Logger.LogError(ex, "Error loading hierarchy files for {Customer}/{ProjectId}", Customer, ProjectId);
+        }
+        finally
+        {
+            IsLoadingHierarchyFiles = false;
+            StateHasChanged();
+        }
+    }
 }
