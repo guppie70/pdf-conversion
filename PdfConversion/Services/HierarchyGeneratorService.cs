@@ -436,7 +436,8 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
         {
             var header = whitelistHeaders[i];
             var lineNumber = i + 1;
-            var headerText = header.Text;
+            // Use OriginalText for display in examples (shows complete header with years)
+            var headerText = header.OriginalText ?? header.Text;
 
             // Truncate long headers for readability
             var displayText = headerText.Length > 80
@@ -444,7 +445,8 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
                 : headerText;
 
             // Check if this header was selected in the reference hierarchy
-            if (selectedItems.TryGetValue(headerText, out var level))
+            // Use normalized Text for matching (year-independent)
+            if (selectedItems.TryGetValue(header.Text, out var level))
             {
                 // Format level description
                 var levelDesc = level switch
@@ -600,10 +602,15 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
                 if (string.IsNullOrWhiteSpace(text))
                     continue; // Skip empty headers
 
+                // ARCHITECTURE FIX: Store original text BEFORE any pattern extraction
+                var originalText = text;
+
                 // Check for data-number attribute first
                 var dataNumber = element.Attribute("data-number")?.Value;
 
-                // TEMPORARY: If no data-number attribute, try to extract from LEADING prefix
+                // TEMPORARY: If no data-number attribute, try to extract from text prefix/suffix
+                // IMPORTANT: Only extract from text if data-number is NOT already present
+                // This preserves the full header text when XSLT has already set data-number
                 if (string.IsNullOrEmpty(dataNumber))
                 {
                     // Try pattern 1: "1. Text" or "1.2. Text"
@@ -611,7 +618,7 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
                     if (match.Success)
                     {
                         dataNumber = match.Groups[1].Value;  // e.g., "1." or "1.2."
-                        text = match.Groups[2].Value.Trim(); // Clean header text
+                        text = match.Groups[2].Value.Trim(); // Clean header text (for matching)
                     }
                     else
                     {
@@ -620,7 +627,7 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
                         if (match.Success)
                         {
                             dataNumber = match.Groups[1].Value;  // e.g., "(i)" or "(a)"
-                            text = match.Groups[2].Value.Trim(); // Clean header text
+                            text = match.Groups[2].Value.Trim(); // Clean header text (for matching)
                         }
                         else
                         {
@@ -629,25 +636,40 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
                             if (match.Success)
                             {
                                 dataNumber = match.Groups[1].Value;  // e.g., "a." or "i."
-                                text = match.Groups[2].Value.Trim(); // Clean header text
+                                text = match.Groups[2].Value.Trim(); // Clean header text (for matching)
                             }
                             else
                             {
-                                // Try pattern 4: trailing numbers (original logic)
+                                // Try pattern 4: trailing numbers (but exclude years)
                                 match = trailingNumberPattern.Match(text);
                                 if (match.Success)
                                 {
-                                    text = match.Groups[1].Value.Trim();  // Clean header text
-                                    dataNumber = match.Groups[2].Value;   // Extracted number
+                                    var trailingNumber = match.Groups[2].Value;
+                                    // Check if it looks like a year (4 digits, 1900-2099)
+                                    if (trailingNumber.Length == 4 &&
+                                        int.TryParse(trailingNumber, out int year) &&
+                                        year >= 1900 && year <= 2099)
+                                    {
+                                        // It's likely a year, don't extract it
+                                        // Keep original text as-is (don't modify text or dataNumber)
+                                    }
+                                    else
+                                    {
+                                        // It's likely a section number, extract it
+                                        text = match.Groups[1].Value.Trim();  // Clean header text (for matching)
+                                        dataNumber = trailingNumber;   // Extracted number
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                // ELSE: data-number already exists from XML attribute - preserve original text as-is!
 
                 var info = new HeaderInfo
                 {
-                    Text = text,
+                    OriginalText = originalText,  // ALWAYS the unmodified text from XML
+                    Text = text,                  // Pattern-normalized for matching similar sections
                     DataNumber = dataNumber,
                     Level = element.Name.LocalName.ToLower()
                 };
@@ -1240,8 +1262,22 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
     /// </summary>
     public class HeaderInfo
     {
-        // Existing fields
+        // ARCHITECTURE FIX: Separate display text from matching text
+        // OriginalText: The unmodified header text from XML (used for LinkName display)
+        // Text: Pattern-normalized text for matching similar sections (years/numbers removed)
+
+        /// <summary>
+        /// Original, unmodified header text from XML - used for display (LinkName)
+        /// Example: "Financial Report 2023" stays as-is
+        /// </summary>
+        public string OriginalText { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Pattern-normalized text for matching similar sections
+        /// Example: "Financial Report 2023" → "Financial Report" (year removed for matching)
+        /// </summary>
         public string Text { get; set; } = string.Empty;
+
         public string? DataNumber { get; set; }
         public string Level { get; set; } = string.Empty; // "h1", "h2", etc.
 
@@ -1447,14 +1483,16 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
             }
 
             var header = headers[lineNumber - 1]; // Convert 1-based to 0-based
-            var headerText = header.Text;
+            // Use normalized Text for ID generation (year-independent filenames)
+            var normalizedId = FilenameUtils.NormalizeFileName(header.Text);
+            // Use OriginalText for display (shows complete header with years)
+            var displayText = header.OriginalText ?? header.Text;
             var dataNumber = header.DataNumber;
-            var normalizedId = FilenameUtils.NormalizeFileName(headerText);
 
             var item = new HierarchyItem
             {
                 Id = normalizedId,
-                LinkName = headerText,
+                LinkName = displayText,
                 DataRef = $"{normalizedId}.xml",
                 Confidence = 100, // Full confidence with lookup approach
                 SubItems = new List<HierarchyItem>()

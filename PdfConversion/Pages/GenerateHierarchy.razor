@@ -3164,35 +3164,32 @@
         }
     }
 
-    private void IncludeAllHeaders()
+    private async void IncludeAllHeaders()
     {
-        if (_manualHeaders == null)
+        if (string.IsNullOrEmpty(SelectedSourceXml))
+        {
+            ShowAlert("warning", "Please select a source XML file first");
             return;
+        }
 
         try
         {
-            // Sync current tree state to _manualHeaders to preserve indent/outdent changes
-            UpdateManualHeadersFromTree(_manualHierarchyItems);
-
-            ManualHierarchyBuilder.IncludeAllItems(_manualHeaders);
-            _manualHierarchyItems = ManualHierarchyBuilder.ConvertToHierarchy(_manualHeaders);
-
-            // Assign sequential order for display badges
-            AssignSequentialOrderToTree(_manualHierarchyItems);
+            // Reload headers fresh from the source XML to ensure correct LinkNames
+            await LoadFlatHeaderListAsync();
 
             // Sync to CurrentHierarchy for saving
             SyncManualHierarchyToCurrentHierarchy();
 
             _selectedManualItemIds.Clear();
-
             HasChanges = true;
-            StateHasChanged();
-            Logger.LogInformation("Reset all headers to flat list");
+
+            ShowAlert("success", "Reset to flat list from source document");
+            Logger.LogInformation("Reset all headers to flat list from source XML");
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to reset headers");
-            ToastNotification.ShowError($"Failed to reset: {ex.Message}");
+            ShowAlert("danger", $"Failed to reset: {ex.Message}");
         }
     }
 

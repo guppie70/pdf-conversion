@@ -1155,7 +1155,9 @@ public class RuleBasedHierarchyGenerator
         {
             Id = normalizedId,
             Level = level,
-            LinkName = header.Text.Trim(),
+            // ARCHITECTURE FIX: Use OriginalText (unmodified header) for display
+            // Falls back to Text if OriginalText is empty (backward compatibility)
+            LinkName = !string.IsNullOrEmpty(header.OriginalText) ? header.OriginalText.Trim() : header.Text.Trim(),
             DataRef = $"{normalizedId}.xml",
             Path = parent.Path,
             SubItems = new List<HierarchyItem>(),
