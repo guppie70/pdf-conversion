@@ -21,74 +21,7 @@
 <PageTitle>Generate Hierarchy</PageTitle>
 
 <div class="generate-hierarchy-page">
-    <div class="generation-mode-bar">
-        <div class="mode-buttons">
-            <button class="btn btn-sm @(_currentMode == HierarchyMode.LoadExisting ? "btn-primary" : "btn-outline-secondary")"
-                    @onclick="() => ChangeMode(HierarchyMode.LoadExisting)"
-                    disabled="@(string.IsNullOrEmpty(SelectedProject))">
-                <i class="bi bi-folder-open"></i> Load Existing
-            </button>
 
-            <button class="btn btn-sm @(_currentMode == HierarchyMode.Manual ? "btn-primary" : "btn-outline-secondary")"
-                    @onclick="() => ChangeMode(HierarchyMode.Manual)"
-                    disabled="@(string.IsNullOrEmpty(SelectedSourceXml))">
-                <i class="bi bi-hand-index"></i> Manual Mode
-            </button>
-
-            <button class="btn btn-sm btn-outline-secondary"
-                    @onclick="ShowRuleBasedModal"
-                    disabled="@(string.IsNullOrEmpty(SelectedSourceXml))">
-                <i class="bi bi-gear"></i> Generate with Rules
-            </button>
-
-            <button class="btn btn-sm btn-outline-secondary"
-                    @onclick="ShowAiGenerationModal"
-                    disabled="@(string.IsNullOrEmpty(SelectedSourceXml) || !_ollamaHealthy)">
-                <i class="bi bi-robot"></i> Generate with AI
-            </button>
-        </div>
-    </div>
-
-    <div class="settings-panel">
-        <div>
-            <label>Source XML:</label>
-            <ProjectFileSelector
-                FileGroups="@ProjectFileGroups"
-                SelectedValue="@GetSelectedFilePath()"
-                OnSelectionChanged="@OnFilePathChangedFromComponent"
-                CssClass="form-select"
-                PlaceholderText="Select XML..." />
-        </div>
-
-        <div class="hierarchy-selector-wrapper">
-            <label>Hierarchy XML:</label>
-            <div class="hierarchy-selector-controls">
-                <select class="form-select"
-                        @bind="SelectedHierarchyXml"
-                        @bind:after="OnHierarchyXmlSelectionChanged"
-                        disabled="@string.IsNullOrEmpty(SelectedSourceXml)">
-                    <option value="">Select hierarchy...</option>
-                    @foreach (var file in HierarchyXmlFiles)
-                    {
-                        <option value="@file">@Path.GetFileName(file)</option>
-                    }
-                </select>
-                <button class="btn btn-primary btn-load-hierarchy"
-                        @onclick="OnLoadHierarchyClickedAsync"
-                        disabled="@(string.IsNullOrEmpty(SelectedHierarchyXml) || IsLoadingHierarchy)">
-                    @if (IsLoadingHierarchy)
-                    {
-                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
-                    }
-                    else
-                    {
-                        <i class="bi bi-folder-open me-1"></i>
-                    }
-                    Load
-                </button>
-            </div>
-        </div>
-    </div>
 
     @if (!string.IsNullOrEmpty(AlertMessage))
     {
@@ -133,20 +66,46 @@
     <div class="hierarchy-workspace">
         <div class="left-panel">
             <div class="panel-header">
-                <h5>
-                    @if (_currentMode == HierarchyMode.Manual)
-                    {
-                        <text>Manual Hierarchy Builder</text>
-                    }
-                    else
-                    {
-                        <text>Hierarchy Tree</text>
-                    }
-                </h5>
+                <div class="mode-tabs">
+                    <button class="mode-tab @(_currentMode == HierarchyMode.Restricted ? "active" : "")"
+                            @onclick="() => ChangeModeAsync(HierarchyMode.Restricted)">
+                        Restricted Mode
+                    </button>
+                    <button class="mode-tab @(_currentMode == HierarchyMode.Free ? "active" : "")"
+                            @onclick="() => ChangeModeAsync(HierarchyMode.Free)">
+                        Free Mode
+                    </button>
+                </div>
 
-                @if (_currentMode == HierarchyMode.Manual)
+                <div class="hierarchy-selector-group">
+                    <select class="form-select form-select-sm"
+                            value="@SelectedHierarchyXml"
+                            @onchange="OnHierarchySelectionChangedAsync"
+                            disabled="@string.IsNullOrEmpty(SelectedSourceXml)">
+                        <option value="">Select hierarchy...</option>
+                        @foreach (var file in HierarchyXmlFiles)
+                        {
+                            <option value="@file">@Path.GetFileName(file)</option>
+                        }
+                    </select>
+                    <button class="btn btn-sm btn-outline-secondary reload-btn"
+                            @onclick="OnLoadHierarchyClickedAsync"
+                            disabled="@(string.IsNullOrEmpty(SelectedHierarchyXml) || IsLoadingHierarchy)"
+                            title="Load selected hierarchy">
+                        @if (IsLoadingHierarchy)
+                        {
+                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-arrow-clockwise"></i>
+                        }
+                    </button>
+                </div>
+
+                @if (_currentMode == HierarchyMode.Restricted)
                 {
-                    <div class="panel-header-toolbar">
+                    <div class="primary-actions">
                         <button class="btn btn-sm btn-outline-secondary"
                                 @onclick="OutdentSelectedHeaders"
                                 disabled="@(!CanOutdentCurrentSelection())"
@@ -164,51 +123,81 @@
                         <button class="btn btn-sm btn-outline-secondary"
                                 @onclick="ExcludeSelectedHeaders"
                                 disabled="@(!_selectedManualItemIds.Any())"
-                                title="Delete selected headers (Delete)">
+                                title="Remove selected headers (Delete)">
                             <i class="bi bi-trash"></i>
                         </button>
+                    </div>
 
-                        <button class="btn btn-sm btn-outline-secondary"
-                                @onclick="ExpandAllItems"
-                                disabled="@(_manualHierarchyItems == null || !_manualHierarchyItems.Any())"
-                                title="Expand all items">
-                            <i class="bi bi-arrows-expand"></i>
-                        </button>
-
-                        <button class="btn btn-sm btn-outline-secondary"
-                                @onclick="CollapseAllItems"
-                                disabled="@(_manualHierarchyItems == null || !_manualHierarchyItems.Any())"
-                                title="Collapse all items">
-                            <i class="bi bi-arrows-collapse"></i>
-                        </button>
-
-                        <button class="btn btn-sm btn-outline-secondary"
-                                @onclick="IncludeAllHeaders"
-                                disabled="@(_manualHeaders == null || !_manualHeaders.Any())"
-                                title="Reset all headers to flat list">
-                            <i class="bi bi-arrow-counterclockwise"></i>
-                        </button>
-
-                        <button class="btn btn-sm btn-outline-secondary"
-                                @onclick="DeselectAllHeaders"
-                                disabled="@(!_selectedManualItemIds.Any())"
-                                title="Clear selection (Esc)">
-                            <i class="bi bi-x-square"></i>
-                        </button>
+                    <div class="overflow-menu">
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
+                                    type="button"
+                                    id="overflowMenuButton"
+                                    data-bs-toggle="dropdown"
+                                    aria-expanded="false"
+                                    title="More options">
+                                <i class="bi bi-three-dots"></i>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="overflowMenuButton">
+                                <li>
+                                    <button class="dropdown-item"
+                                            @onclick="ShowRuleBasedModal"
+                                            disabled="@(string.IsNullOrEmpty(SelectedSourceXml))">
+                                        <i class="bi bi-gear me-2"></i> Generate with Rules
+                                    </button>
+                                </li>
+                                <li>
+                                    <button class="dropdown-item"
+                                            @onclick="ShowAiGenerationModal"
+                                            disabled="@(string.IsNullOrEmpty(SelectedSourceXml) || !_ollamaHealthy)">
+                                        <i class="bi bi-robot me-2"></i> Generate with AI
+                                    </button>
+                                </li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li>
+                                    <button class="dropdown-item"
+                                            @onclick="ExpandAllItems"
+                                            disabled="@(_manualHierarchyItems == null || !_manualHierarchyItems.Any())">
+                                        <i class="bi bi-arrows-expand me-2"></i> Expand All
+                                    </button>
+                                </li>
+                                <li>
+                                    <button class="dropdown-item"
+                                            @onclick="CollapseAllItems"
+                                            disabled="@(_manualHierarchyItems == null || !_manualHierarchyItems.Any())">
+                                        <i class="bi bi-arrows-collapse me-2"></i> Collapse All
+                                    </button>
+                                </li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li>
+                                    <button class="dropdown-item"
+                                            @onclick="IncludeAllHeaders"
+                                            disabled="@(_manualHeaders == null || !_manualHeaders.Any())">
+                                        <i class="bi bi-arrow-counterclockwise me-2"></i> Reset to Flat List
+                                    </button>
+                                </li>
+                                <li>
+                                    <button class="dropdown-item"
+                                            @onclick="DeselectAllHeaders"
+                                            disabled="@(!_selectedManualItemIds.Any())">
+                                        <i class="bi bi-x-square me-2"></i> Clear Selection
+                                    </button>
+                                </li>
+                            </ul>
+                        </div>
                     </div>
                 }
 
                 <div class="header-buttons">
-                    @if (_currentMode == HierarchyMode.Manual && _selectedManualItemIds.Any())
+                    @if (_currentMode == HierarchyMode.Restricted && _selectedManualItemIds.Any())
                     {
-                        <span class="selection-info">@_selectedManualItemIds.Count selected</span>
+                        <span class="selection-counter">@_selectedManualItemIds.Count selected</span>
                     }
-                    @* Change tracking status indicator *@
-                    <span class="change-status @(HasChanges ? "has-changes" : "no-changes")"
-                          title="@(HasChanges ? "You have unsaved changes" : "No unsaved changes")">
-                        <i class="bi @(HasChanges ? "bi-exclamation-circle" : "bi-check-circle")"></i>
-                        <span class="status-text">@(HasChanges ? "Unsaved changes" : "No unsaved changes")</span>
+
+                    <span class="status-dot @(HasChanges ? "has-changes" : "")"
+                          title="@(HasChanges ? "Unsaved changes" : "No changes")">
                     </span>
+
                     <button class="btn btn-success btn-sm"
                             @onclick="SaveHierarchyAsync"
                             disabled="@(!HasChanges || string.IsNullOrEmpty(SelectedProject))"
@@ -224,7 +213,7 @@
                 </div>
             </div>
             <div class="panel-content" tabindex="0" @onkeydown="HandleKeyDown" @onkeydown:preventDefault="false">
-                @if (_currentMode == HierarchyMode.Manual)
+                @if (_currentMode == HierarchyMode.Restricted)
                 {
                     <!-- Manual Mode: Tree View -->
                     @if (_manualHierarchyItems != null && _manualHierarchyItems.Any())
@@ -238,7 +227,7 @@
                                                   OnItemSelectedWithModifiers="HandleManualItemSelectedWithModifiers"
                                                   OnItemEdited="HandleManualItemEdited"
                                                   OnEditRequest="HandleEditRequest"
-                                                  AllowDragDrop="true"
+                                                  AllowDragDrop="false"
                                                   SelectedItemIds="_selectedManualItemIds" />
                             }
                         </div>
@@ -280,10 +269,36 @@
         </div>
 
         <div class="right-panel">
-            <AvailableHeadersPanel @ref="HeadersPanel"
-                                  NormalizedXmlPath="@NormalizedXmlPath"
-                                  HierarchyXmlPath="@HierarchyXmlPath"
-                                  OnHeadersChanged="HandleHeadersChanged" />
+            <div class="panel-header">
+                <h5 class="panel-title">Available Headers</h5>
+                <div class="source-selector-group">
+                    <ProjectFileSelector
+                        FileGroups="@ProjectFileGroups"
+                        SelectedValue="@GetSelectedFilePath()"
+                        OnSelectionChanged="@OnFilePathChangedFromComponent"
+                        CssClass="form-select form-select-sm"
+                        PlaceholderText="Select source XML..." />
+                    <button class="btn btn-sm btn-outline-secondary reload-btn"
+                            @onclick="OnReloadSourceXmlClickedAsync"
+                            disabled="@(string.IsNullOrEmpty(SelectedSourceXml) || IsLoadingDocument)"
+                            title="Reload headers from source XML">
+                        @if (IsLoadingDocument)
+                        {
+                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-arrow-clockwise"></i>
+                        }
+                    </button>
+                </div>
+            </div>
+            <div class="panel-content">
+                <AvailableHeadersPanel @ref="HeadersPanel"
+                                      NormalizedXmlPath="@NormalizedXmlPath"
+                                      HierarchyXmlPath="@HierarchyXmlPath"
+                                      OnHeadersChanged="HandleHeadersChanged" />
+            </div>
         </div>
     </div>
 
@@ -292,6 +307,50 @@
         <HierarchyItemEditor SelectedItem="EditingItem"
                             OnItemUpdated="HandleItemUpdated"
                             OnClosed="CloseEditor" />
+    }
+
+    @if (_showModeChangeConfirmation)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Unsaved Changes</h5>
+                        <button type="button" class="btn-close" @onclick="CancelModeChange" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>You have unsaved changes. Save before switching modes?</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CancelModeChange">Cancel</button>
+                        <button type="button" class="btn btn-outline-danger" @onclick="DiscardAndChangeMode">Discard</button>
+                        <button type="button" class="btn btn-primary" @onclick="SaveAndChangeMode">Save</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_showReloadConfirmation)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Unsaved Changes</h5>
+                        <button type="button" class="btn-close" @onclick="CancelReload" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>You have unsaved changes. Save before reloading?</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CancelReload">Cancel</button>
+                        <button type="button" class="btn btn-outline-danger" @onclick="DiscardAndReload">Discard</button>
+                        <button type="button" class="btn btn-primary" @onclick="SaveAndReload">Save</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     }
 
     @if (_showAiModal)
@@ -609,8 +668,16 @@
     private ElementReference _logScrollContainer;
 
     // Manual Mode fields
-    private enum HierarchyMode { LoadExisting, Manual }
-    private HierarchyMode _currentMode = HierarchyMode.LoadExisting;
+    private enum HierarchyMode
+    {
+        Restricted,  // Default mode - indent/outdent/remove, preserves order
+        Free        // Full drag-drop reordering
+    }
+    private HierarchyMode _currentMode = HierarchyMode.Restricted; // Default to Restricted
+    private bool _showModeChangeConfirmation = false;
+    private HierarchyMode _pendingMode = HierarchyMode.Restricted;
+    private bool _showReloadConfirmation = false;
+    private Func<Task>? _pendingAction;
     private List<DocumentHeader>? _manualHeaders;
     private HashSet<int> _selectedHeaderOrders = new();
     private int? _lastClickedOrder = null;  // Anchor point for range selection
@@ -733,7 +800,36 @@
         }
     }
 
+    private async Task OnHierarchySelectionChangedAsync(ChangeEventArgs e)
+    {
+        var newValue = e.Value?.ToString();
+        if (!string.IsNullOrEmpty(newValue) && newValue != SelectedHierarchyXml)
+        {
+            SelectedHierarchyXml = newValue;
+
+            // Save to user selections (save just the filename for portability)
+            var filename = Path.GetFileName(SelectedHierarchyXml);
+            await UserSelectionService.UpdateSelectionAsync(hierarchyXml: filename);
+            Logger.LogInformation("Saved hierarchy XML selection: {File}", filename);
+
+            await OnLoadHierarchyClickedAsync();
+        }
+    }
+
     private async Task OnLoadHierarchyClickedAsync()
+    {
+        if (HasChanges)
+        {
+            _pendingAction = async () => await LoadHierarchyWithoutCheckAsync();
+            _showReloadConfirmation = true;
+            StateHasChanged();
+            return;
+        }
+
+        await LoadHierarchyWithoutCheckAsync();
+    }
+
+    private async Task LoadHierarchyWithoutCheckAsync()
     {
 
         if (string.IsNullOrEmpty(SelectedHierarchyXml))
@@ -744,11 +840,11 @@
 
         try
         {
-            if (_currentMode == HierarchyMode.LoadExisting)
+            if (_currentMode == HierarchyMode.Free)
             {
                 await LoadExistingHierarchyAsync();
             }
-            else if (_currentMode == HierarchyMode.Manual)
+            else if (_currentMode == HierarchyMode.Restricted)
             {
 
                 // Load the saved hierarchy file
@@ -967,6 +1063,19 @@
                         else
                         {
                             Logger.LogWarning("[OnInitializedAsync] Hierarchy file not found: {File}", hierarchyFilename);
+                            // No hierarchy file found, load flat list in Restricted Mode
+                            if (_currentMode == HierarchyMode.Restricted)
+                            {
+                                await LoadFlatHeaderListAsync();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // No saved hierarchy selection, load flat list in Restricted Mode
+                        if (_currentMode == HierarchyMode.Restricted)
+                        {
+                            await LoadFlatHeaderListAsync();
                         }
                     }
                 }
@@ -990,6 +1099,21 @@
             Logger.LogError(ex, "[OnInitializedAsync] Error during initialization");
             ToastNotification.ShowError($"Initialization error: {ex.Message}");
         }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JSRuntime.InvokeVoidAsync("setupBeforeUnload", DotNetObjectReference.Create(this));
+        }
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    [JSInvokable]
+    public bool ShouldWarnBeforeUnload()
+    {
+        return HasChanges;
     }
 
     private async Task OnSourceXmlChangedAsync()
@@ -1116,7 +1240,7 @@
         try
         {
             // Normalize hierarchy before saving (ensure unique IDs, DataRefs, and proper paths)
-            if (_currentMode == HierarchyMode.Manual && CurrentHierarchy?.Root != null)
+            if (_currentMode == HierarchyMode.Restricted && CurrentHierarchy?.Root != null)
             {
                 Logger.LogInformation("Normalizing Manual Mode hierarchy before save...");
                 NormalizeHierarchyTree(CurrentHierarchy.Root);
@@ -1126,7 +1250,7 @@
             string filePath;
 
             // Manual mode hierarchies go to metadata folder with specific name
-            if (_currentMode == HierarchyMode.Manual)
+            if (_currentMode == HierarchyMode.Restricted)
             {
                 var parts = SelectedProject.Split('/');
                 if (parts.Length != 2)
@@ -1934,7 +2058,7 @@
             _showTestApiButton = false;
 
             // Switch to Manual mode to show the generated hierarchy in editor
-            _currentMode = HierarchyMode.Manual;
+            _currentMode = HierarchyMode.Restricted;
             // Don't call LoadManualModeHeadersAsync() - it would overwrite the generated hierarchy!
             // The generated hierarchy is already in CurrentHierarchy, ready for editing.
 
@@ -1943,10 +2067,21 @@
             {
                 _manualHierarchyItems = CurrentHierarchy.Root.SubItems.ToList();
                 AssignSequentialOrderToTree(_manualHierarchyItems);
+
+                // Populate _manualHeaders from the generated hierarchy for indent/outdent operations
+                _manualHeaders = FlattenHierarchyToHeaders(_manualHierarchyItems);
+                _selectedManualItemIds.Clear(); // Clear stale selections
+
+                Logger.LogInformation("Rule-based generation complete: _manualHierarchyItems={HierarchyCount}, _manualHeaders={HeadersCount}",
+                    _manualHierarchyItems.Count, _manualHeaders.Count);
+                Logger.LogDebug("First few headers: {Headers}",
+                    string.Join(", ", _manualHeaders.Take(5).Select(h => $"{h.Id}:{h.Title}")));
             }
             else
             {
                 _manualHierarchyItems = new List<HierarchyItem>();
+                _manualHeaders = new List<DocumentHeader>();
+                Logger.LogWarning("Rule-based generation resulted in empty hierarchy");
             }
 
             // DON'T close modal - let user see the logs and stats
@@ -2010,20 +2145,118 @@
 
     // Manual Mode Methods
 
-    private async Task ChangeMode(HierarchyMode newMode)
+    private async Task ChangeModeAsync(HierarchyMode newMode)
     {
-        _currentMode = newMode;
-        _lastClickedOrder = null;  // Reset anchor when changing modes
+        if (_currentMode == newMode) return;
 
-        // Save the selected mode to localStorage
-        await SaveModeToLocalStorage(newMode);
-
-        if (newMode == HierarchyMode.Manual)
+        if (HasChanges)
         {
-            await LoadManualModeHeadersAsync();
+            _pendingMode = newMode;
+            _showModeChangeConfirmation = true;
+            StateHasChanged();
+            return;
+        }
+
+        await CompleteModeChangeAsync(newMode);
+    }
+
+    private void CancelModeChange()
+    {
+        _showModeChangeConfirmation = false;
+        _pendingMode = _currentMode; // Reset
+        StateHasChanged();
+    }
+
+    private async Task DiscardAndChangeMode()
+    {
+        _showModeChangeConfirmation = false;
+        HasChanges = false;
+        await CompleteModeChangeAsync(_pendingMode);
+    }
+
+    private async Task SaveAndChangeMode()
+    {
+        _showModeChangeConfirmation = false;
+        await SaveHierarchyAsync();
+        await CompleteModeChangeAsync(_pendingMode);
+    }
+
+    private void CancelReload()
+    {
+        _showReloadConfirmation = false;
+        _pendingAction = null;
+        StateHasChanged();
+    }
+
+    private async Task DiscardAndReload()
+    {
+        _showReloadConfirmation = false;
+        HasChanges = false;
+        if (_pendingAction != null)
+        {
+            await _pendingAction();
+        }
+        _pendingAction = null;
+    }
+
+    private async Task SaveAndReload()
+    {
+        _showReloadConfirmation = false;
+        await SaveHierarchyAsync();
+        if (_pendingAction != null)
+        {
+            await _pendingAction();
+        }
+        _pendingAction = null;
+    }
+
+    private async Task CompleteModeChangeAsync(HierarchyMode newMode)
+    {
+        var oldMode = _currentMode;
+        _currentMode = newMode;
+
+        // Clear hierarchy state
+        CurrentHierarchy = null;
+        _manualHierarchyItems = null;
+        _selectedManualItemIds.Clear();
+        HasChanges = false;
+
+        // Load appropriate content based on new mode
+        if (newMode == HierarchyMode.Restricted)
+        {
+            // Restricted Mode: Load flat header list if source XML selected
+            if (!string.IsNullOrEmpty(SelectedSourceXml))
+            {
+                await LoadFlatHeaderListAsync();
+            }
+        }
+        else // Free Mode
+        {
+            // Free Mode: Show empty state, require explicit hierarchy load
+            // User must select and load a hierarchy XML file
         }
 
         StateHasChanged();
+    }
+
+    private async Task LoadFlatHeaderListAsync()
+    {
+        try
+        {
+            var headers = await HeaderExtractionService.ExtractHeadersAsync(SelectedSourceXml);
+            if (headers != null && headers.Any())
+            {
+                _manualHeaders = headers.ToList();
+                _manualHierarchyItems = ManualHierarchyBuilder.ConvertToHierarchy(_manualHeaders);
+                AssignSequentialOrderToTree(_manualHierarchyItems);
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load flat header list");
+            ShowAlert("danger", "Failed to load headers: " + ex.Message);
+        }
     }
 
     private async Task LoadManualModeHeadersAsync()
@@ -2262,6 +2495,14 @@
                 _lastSelectedManualItemId = item.Id;
             }
         }
+
+        // Log final selection state and button enablement
+        Logger.LogDebug("Selection updated: {Count} items selected, IDs={Ids}",
+            _selectedManualItemIds.Count,
+            string.Join(", ", _selectedManualItemIds));
+        Logger.LogDebug("Button states - CanIndent={Indent}, CanOutdent={Outdent}",
+            CanIndentCurrentSelection(),
+            CanOutdentCurrentSelection());
 
         StateHasChanged();
         await Task.CompletedTask;
@@ -2746,13 +2987,28 @@
     /// </summary>
     private bool CanIndentCurrentSelection()
     {
-        if (_manualHeaders == null || !_selectedManualItemIds.Any())
+        if (_manualHeaders == null)
         {
+            Logger.LogDebug("CanIndent: _manualHeaders is null");
             return false;
         }
 
+        if (!_selectedManualItemIds.Any())
+        {
+            Logger.LogDebug("CanIndent: No items selected");
+            return false;
+        }
+
+        Logger.LogDebug("CanIndent: _manualHeaders count={Count}, selected count={Selected}",
+            _manualHeaders.Count, _selectedManualItemIds.Count);
+
         var selectedOrders = GetOrdersFromTreeSelection(_selectedManualItemIds);
-        return ManualHierarchyBuilder.CanIndentItems(_manualHeaders, selectedOrders);
+        Logger.LogDebug("CanIndent: selectedOrders={Orders}", string.Join(", ", selectedOrders));
+
+        var canIndent = ManualHierarchyBuilder.CanIndentItems(_manualHeaders, selectedOrders);
+        Logger.LogDebug("CanIndent: result={Result}", canIndent);
+
+        return canIndent;
     }
 
     /// <summary>
@@ -2760,13 +3016,28 @@
     /// </summary>
     private bool CanOutdentCurrentSelection()
     {
-        if (_manualHeaders == null || !_selectedManualItemIds.Any())
+        if (_manualHeaders == null)
         {
+            Logger.LogDebug("CanOutdent: _manualHeaders is null");
             return false;
         }
 
+        if (!_selectedManualItemIds.Any())
+        {
+            Logger.LogDebug("CanOutdent: No items selected");
+            return false;
+        }
+
+        Logger.LogDebug("CanOutdent: _manualHeaders count={Count}, selected count={Selected}",
+            _manualHeaders.Count, _selectedManualItemIds.Count);
+
         var selectedOrders = GetOrdersFromTreeSelection(_selectedManualItemIds);
-        return ManualHierarchyBuilder.CanOutdentItems(_manualHeaders, selectedOrders);
+        Logger.LogDebug("CanOutdent: selectedOrders={Orders}", string.Join(", ", selectedOrders));
+
+        var canOutdent = ManualHierarchyBuilder.CanOutdentItems(_manualHeaders, selectedOrders);
+        Logger.LogDebug("CanOutdent: result={Result}", canOutdent);
+
+        return canOutdent;
     }
 
     private void IndentSelectedHeaders()
@@ -3015,7 +3286,7 @@
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
     {
-        if (_currentMode != HierarchyMode.Manual || !_selectedManualItemIds.Any())
+        if (_currentMode != HierarchyMode.Restricted || !_selectedManualItemIds.Any())
             return;
 
         // Tab = Indent
@@ -3061,7 +3332,7 @@
     /// </summary>
     private bool IsDataRefUniqueInCurrentTree(string dataRef, string excludeItemId)
     {
-        if (_currentMode == HierarchyMode.Manual)
+        if (_currentMode == HierarchyMode.Restricted)
         {
             // Check Manual Mode tree
             if (_manualHierarchyItems != null)
@@ -3177,7 +3448,8 @@
                     Logger.LogInformation("Restored hierarchy mode from localStorage: {Mode}", savedMode);
 
                     // If Manual mode was restored and we have source XML, load the headers
-                    if (savedMode == HierarchyMode.Manual && !string.IsNullOrEmpty(SelectedSourceXml))
+                    // BUT only if no hierarchy was already loaded from saved selections
+                    if (savedMode == HierarchyMode.Restricted && !string.IsNullOrEmpty(SelectedSourceXml) && CurrentHierarchy == null && (_manualHierarchyItems == null || !_manualHierarchyItems.Any()))
                     {
                         await LoadManualModeHeadersAsync();
                     }
@@ -3196,5 +3468,78 @@
         {
             Logger.LogWarning(ex, "Failed to restore mode from localStorage");
         }
+    }
+
+    /// <summary>
+    /// Handles reload button click for source XML selector.
+    /// Shows confirmation dialog if there are unsaved changes.
+    /// </summary>
+    private async Task OnReloadSourceXmlClickedAsync()
+    {
+        if (HasChanges)
+        {
+            _pendingAction = async () => await ReloadSourceXmlWithoutCheckAsync();
+            _showReloadConfirmation = true;
+            StateHasChanged();
+            return;
+        }
+
+        await ReloadSourceXmlWithoutCheckAsync();
+    }
+
+    /// <summary>
+    /// Reloads headers from source XML without checking for unsaved changes.
+    /// Used after user confirms they want to discard changes.
+    /// </summary>
+    private async Task ReloadSourceXmlWithoutCheckAsync()
+    {
+        if (!string.IsNullOrEmpty(SelectedSourceXml))
+        {
+            // Reload headers from source XML
+            if (_currentMode == HierarchyMode.Restricted)
+            {
+                await LoadFlatHeaderListAsync();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Flattens a hierarchy tree into a flat list of DocumentHeader objects.
+    /// Used to enable indent/outdent operations after generation.
+    /// </summary>
+    private List<DocumentHeader> FlattenHierarchyToHeaders(List<HierarchyItem> items)
+    {
+        var headers = new List<DocumentHeader>();
+
+        void Flatten(List<HierarchyItem> currentItems, int indentLevel = 0)
+        {
+            foreach (var item in currentItems)
+            {
+                // Map HeaderType to Level string (h1, h2, etc.)
+                var headerLevel = item.HeaderType ?? $"h{Math.Min(indentLevel + 1, 6)}";
+
+                headers.Add(new DocumentHeader
+                {
+                    Id = item.Id,
+                    Title = item.LinkName,
+                    Level = headerLevel,
+                    OriginalOrder = item.SequentialOrder ?? headers.Count,
+                    IndentLevel = indentLevel,
+                    XPath = "",
+                    Context = "",
+                    IsUsed = true,
+                    IsExcluded = false,
+                    DataNumber = item.TocNumber
+                });
+
+                if (item.SubItems.Any())
+                {
+                    Flatten(item.SubItems, indentLevel + 1);
+                }
+            }
+        }
+
+        Flatten(items);
+        return headers;
     }
 }

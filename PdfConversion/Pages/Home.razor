@@ -22,13 +22,13 @@
             @if (LastUpdated.HasValue)
             {
                 <p class="last-updated">
-                    <i class="oi oi-clock"></i> Last updated: @GetTimeAgo(LastUpdated.Value)
+                    <i class="bi bi-clock"></i> Last updated: @GetTimeAgo(LastUpdated.Value)
                 </p>
             }
         </div>
         <div class="header-right">
             <button class="btn-add-project" @onclick="ShowAddProjectModal" aria-label="Add Project" title="Add Project">
-                +
+                <i class="bi bi-plus-lg"></i>
             </button>
         </div>
     </div>
@@ -137,7 +137,7 @@
                                                 <button class="btn-files"
                                                         @onclick="@(() => ShowProjectFilesModal(project.Customer, project.ProjectId, project.DisplayString))"
                                                         title="Manage files">
-                                                    <i class="bi bi-folder"></i>
+                                                    <i class="bi bi-folder-fill"></i>
                                                 </button>
                                                 <button class="btn-delete"
                                                         @onclick="@(() => ShowDeleteConfirmation(project.Customer, project.ProjectId, project.DisplayString))"
@@ -201,7 +201,7 @@
                                     }
                                     else if (ServiceStatus == ServiceConnectionStatus.Connected)
                                     {
-                                        <span class="badge bg-success">✓ Connected</span>
+                                        <span class="badge bg-success">✓</span>
                                     }
                                     else if (ServiceStatus == ServiceConnectionStatus.Error)
                                     {
@@ -222,7 +222,7 @@
                                     }
                                     else if (DoclingServiceStatus == ServiceConnectionStatus.Connected)
                                     {
-                                        <span class="badge bg-success">✓ Connected</span>
+                                        <span class="badge bg-success">✓</span>
                                     }
                                     else if (DoclingServiceStatus == ServiceConnectionStatus.Error)
                                     {
@@ -243,7 +243,7 @@
                                     }
                                     else if (OllamaServiceStatus == ServiceConnectionStatus.Connected)
                                     {
-                                        <span class="badge bg-success">✓ Connected</span>
+                                        <span class="badge bg-success">✓</span>
                                     }
                                     else if (OllamaServiceStatus == ServiceConnectionStatus.Error)
                                     {
@@ -290,8 +290,8 @@
                                     @foreach (var model in OllamaModels)
                                     {
                                         <tr>
-                                            <td>
-                                                <span class="badge bg-info">@model.Name</span>
+                                            <td class="text-muted">
+                                                @model.Name
                                             </td>
                                             <td class="text-muted">
                                                 @FormatFileSize(model.Size)
