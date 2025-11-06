@@ -166,7 +166,7 @@
 
 .hierarchy-workspace {
     display: grid;
-    grid-template-columns: 1fr 400px;
+    grid-template-columns: 1fr 600px;
     gap: 1rem;
     flex: 1;
     overflow: hidden;
@@ -297,6 +297,12 @@
     border-bottom: 1px solid #3e3e42;
 }
 
+.panel-title-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .right-panel .panel-title {
     margin: 0;
     font-size: 14px;
@@ -304,7 +310,18 @@
     color: #cccccc;
 }
 
+.header-count {
+    font-size: 12px;
+    color: #858585;
+    background: #3e3e42;
+    padding: 2px 8px;
+    border-radius: 10px;
+}
+
 .source-selector-group {
+    display: flex;
+    gap: 4px;
+    align-items: center;
     flex: 0 1 auto;
     min-width: 250px;
     max-width: 400px;

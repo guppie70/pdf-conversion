@@ -5,32 +5,6 @@
     flex-direction: column;
     height: 100%;
     background: #252526;
-    border-left: 1px solid #3e3e42;
-}
-
-/* Panel Header */
-.panel-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 16px;
-    background: #2d2d30;
-    border-bottom: 1px solid #3e3e42;
-}
-
-.panel-header h5 {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: #cccccc;
-}
-
-.header-count {
-    font-size: 12px;
-    color: #858585;
-    background: #3e3e42;
-    padding: 2px 8px;
-    border-radius: 10px;
 }
 
 /* Toolbar */

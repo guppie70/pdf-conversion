@@ -5,11 +5,6 @@
 @inject IJSRuntime JSRuntime
 
 <div class="headers-panel">
-    <div class="panel-header">
-        <h5>Available Headers</h5>
-        <span class="header-count">@FilteredHeaders.Count / @AllHeaders.Count</span>
-    </div>
-
     <div class="panel-toolbar">
         <div class="search-box">
             <i class="bi bi-search"></i>
@@ -274,4 +269,14 @@
             StateHasChanged();
         }
     }
+
+    /// <summary>
+    /// Gets the filtered header count for display in parent component
+    /// </summary>
+    public int FilteredCount => FilteredHeaders.Count;
+
+    /// <summary>
+    /// Gets the total header count for display in parent component
+    /// </summary>
+    public int TotalCount => AllHeaders.Count;
 }

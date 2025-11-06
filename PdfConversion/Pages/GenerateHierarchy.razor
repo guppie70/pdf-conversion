@@ -270,7 +270,13 @@
 
         <div class="right-panel">
             <div class="panel-header">
-                <h5 class="panel-title">Available Headers</h5>
+                <div class="panel-title-group">
+                    <h5 class="panel-title">Available Headers</h5>
+                    @if (HeadersPanel != null)
+                    {
+                        <span class="header-count">@HeadersPanel.FilteredCount / @HeadersPanel.TotalCount</span>
+                    }
+                </div>
                 <div class="source-selector-group">
                     <ProjectFileSelector
                         FileGroups="@ProjectFileGroups"
