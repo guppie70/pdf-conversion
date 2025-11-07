@@ -1,4 +1,6 @@
 using PdfConversion.Models;
+using PdfConversion.Utils;
+using Microsoft.Extensions.Options;
 
 namespace PdfConversion.Services;
 
@@ -71,11 +73,15 @@ public interface IManualHierarchyBuilder
 public class ManualHierarchyBuilder : IManualHierarchyBuilder
 {
     private readonly ILogger<ManualHierarchyBuilder> _logger;
+    private readonly IOptions<ConversionSettings> _conversionSettings;
     private const int MaxNestingDepth = 10;
 
-    public ManualHierarchyBuilder(ILogger<ManualHierarchyBuilder> logger)
+    public ManualHierarchyBuilder(
+        ILogger<ManualHierarchyBuilder> logger,
+        IOptions<ConversionSettings> conversionSettings)
     {
         _logger = logger;
+        _conversionSettings = conversionSettings;
     }
 
     /// <summary>
@@ -352,18 +358,42 @@ public class ManualHierarchyBuilder : IManualHierarchyBuilder
             return new List<HierarchyItem>();
         }
 
+        // Generate postfix once for all items in this hierarchy (same as HierarchyGeneratorService)
+        string? idPostfix = null;
+        if (_conversionSettings.Value.IdPostfixEnabled)
+        {
+            try
+            {
+                var timestamp = DateTime.Now.ToString(_conversionSettings.Value.IdPostfixFormat);
+                idPostfix = timestamp;
+                _logger.LogInformation("[ManualHierarchy] Using ID postfix: {Postfix}", idPostfix);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[ManualHierarchy] Invalid timestamp format '{Format}', disabling postfix",
+                    _conversionSettings.Value.IdPostfixFormat);
+                idPostfix = null;
+            }
+        }
+
         var rootItems = new List<HierarchyItem>();
         var parentStack = new Dictionary<int, HierarchyItem>();
 
+        // Track used IDs to prevent duplicates
+        var usedIds = new HashSet<string>();
+
         foreach (var header in includedHeaders)
         {
+            // Use FilenameUtils.NormalizeFileName() with postfix for consistent ID generation
+            var baseId = FilenameUtils.NormalizeFileName(header.Title, idPostfix);
+            var normalizedId = FilenameUtils.EnsureUniqueId(baseId, usedIds);
+
             var item = new HierarchyItem
             {
-                // Preserve the original ID if it exists, otherwise generate one
-                Id = !string.IsNullOrEmpty(header.Id) ? header.Id : $"manual_{header.OriginalOrder}",
+                Id = normalizedId,
                 LinkName = header.Title,
                 Level = header.IndentLevel + 1,  // HierarchyItem uses 1-based levels
-                DataRef = header.XPath,
+                DataRef = $"{normalizedId}.xml",  // DataRef now includes postfix in filename
                 Confidence = 100,  // Manual is always confident (100%)
                 HeaderType = header.Level.ToUpper(),  // Store header type (H2, H3, etc.)
                 SequentialOrder = header.OriginalOrder  // Store sequential order (1, 2, 3...)

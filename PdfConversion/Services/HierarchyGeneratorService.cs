@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using Microsoft.Extensions.Options;
 using PdfConversion.Models;
 using PdfConversion.Utils;
 
@@ -54,17 +55,20 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
     private readonly ILogger<HierarchyGeneratorService> _logger;
     private readonly RuleBasedHierarchyGenerator _ruleBasedGenerator;
     private readonly IConfiguration _configuration;
+    private readonly IOptions<ConversionSettings> _conversionSettings;
 
     public HierarchyGeneratorService(
         IOllamaService ollamaService,
         ILogger<HierarchyGeneratorService> logger,
         RuleBasedHierarchyGenerator ruleBasedGenerator,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IOptions<ConversionSettings> conversionSettings)
     {
         _ollamaService = ollamaService;
         _logger = logger;
         _ruleBasedGenerator = ruleBasedGenerator;
         _configuration = configuration;
+        _conversionSettings = conversionSettings;
     }
 
     public string BuildPromptForTesting(
@@ -1458,7 +1462,25 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
         List<int> boundaryLines,
         List<HeaderInfo> headers)
     {
-        // Create root
+        // Generate postfix once for all items in this hierarchy
+        string? idPostfix = null;
+        if (_conversionSettings.Value.IdPostfixEnabled)
+        {
+            try
+            {
+                var timestamp = DateTime.Now.ToString(_conversionSettings.Value.IdPostfixFormat);
+                idPostfix = timestamp;
+                _logger.LogInformation("[HierarchyGenerator] Using ID postfix: {Postfix}", idPostfix);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[HierarchyGenerator] Invalid timestamp format '{Format}', disabling postfix",
+                    _conversionSettings.Value.IdPostfixFormat);
+                idPostfix = null;
+            }
+        }
+
+        // Create root (root never gets postfix)
         var rootItem = new HierarchyItem
         {
             Id = "report-root",
@@ -1468,6 +1490,9 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
             Path = "/",
             SubItems = new List<HierarchyItem>()
         };
+
+        // Track used IDs to prevent duplicates
+        var usedIds = new HashSet<string> { "report-root" }; // Root ID always used
 
         // Build hierarchy items from boundary lines
         var sortedLines = boundaryLines.Distinct().OrderBy(x => x).ToList();
@@ -1484,7 +1509,8 @@ public class HierarchyGeneratorService : IHierarchyGeneratorService
 
             var header = headers[lineNumber - 1]; // Convert 1-based to 0-based
             // Use normalized Text for ID generation (year-independent filenames)
-            var normalizedId = FilenameUtils.NormalizeFileName(header.Text);
+            var baseId = FilenameUtils.NormalizeFileName(header.Text, idPostfix);
+            var normalizedId = FilenameUtils.EnsureUniqueId(baseId, usedIds);
             // Use OriginalText for display (shows complete header with years)
             var displayText = header.OriginalText ?? header.Text;
             var dataNumber = header.DataNumber;

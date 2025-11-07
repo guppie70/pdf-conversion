@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Moq;
 using PdfConversion.Models;
 using PdfConversion.Services;
@@ -13,12 +14,22 @@ namespace PdfConversion.Tests.Services;
 public class ManualHierarchyBuilderTests
 {
     private readonly Mock<ILogger<ManualHierarchyBuilder>> _loggerMock;
+    private readonly Mock<IOptions<ConversionSettings>> _conversionSettingsMock;
     private readonly ManualHierarchyBuilder _service;
 
     public ManualHierarchyBuilderTests()
     {
         _loggerMock = new Mock<ILogger<ManualHierarchyBuilder>>();
-        _service = new ManualHierarchyBuilder(_loggerMock.Object);
+        _conversionSettingsMock = new Mock<IOptions<ConversionSettings>>();
+
+        // Default: postfix disabled for backward compatibility with existing tests
+        _conversionSettingsMock.Setup(x => x.Value).Returns(new ConversionSettings
+        {
+            IdPostfixEnabled = false,
+            IdPostfixFormat = "yyyyMMdd-HHmmss"
+        });
+
+        _service = new ManualHierarchyBuilder(_loggerMock.Object, _conversionSettingsMock.Object);
     }
 
     #region Helper Methods
@@ -575,6 +586,67 @@ public class ManualHierarchyBuilderTests
         // Assert
         Assert.Equal(2, hierarchy.Count); // Orphan should be treated as root
         Assert.All(hierarchy, item => Assert.Empty(item.SubItems ?? new List<HierarchyItem>()));
+    }
+
+    [Fact]
+    public void ConvertToHierarchy_WithPostfixEnabled_AppliesTimestampToIds()
+    {
+        // Arrange
+        var settingsWithPostfix = new ConversionSettings
+        {
+            IdPostfixEnabled = true,
+            IdPostfixFormat = "HHmmss"
+        };
+
+        _conversionSettingsMock.Setup(x => x.Value).Returns(settingsWithPostfix);
+        var serviceWithPostfix = new ManualHierarchyBuilder(_loggerMock.Object, _conversionSettingsMock.Object);
+
+        var headers = new List<DocumentHeader>
+        {
+            new DocumentHeader { OriginalOrder = 1, Title = "Directors Report", IndentLevel = 0, Level = "h2", IsExcluded = false },
+            new DocumentHeader { OriginalOrder = 2, Title = "Financial Statements", IndentLevel = 0, Level = "h2", IsExcluded = false }
+        };
+
+        // Act
+        var hierarchy = serviceWithPostfix.ConvertToHierarchy(headers);
+
+        // Assert
+        Assert.Equal(2, hierarchy.Count);
+
+        // Verify IDs have postfix format: base-name-HHMMSS
+        var item1 = hierarchy[0];
+        Assert.Equal("Directors Report", item1.LinkName);
+        Assert.Matches(@"^directors-report-\d{6}$", item1.Id); // e.g., "directors-report-143025"
+        Assert.Matches(@"^directors-report-\d{6}\.xml$", item1.DataRef); // e.g., "directors-report-143025.xml"
+
+        var item2 = hierarchy[1];
+        Assert.Equal("Financial Statements", item2.LinkName);
+        Assert.Matches(@"^financial-statements-\d{6}$", item2.Id); // e.g., "financial-statements-143025"
+        Assert.Matches(@"^financial-statements-\d{6}\.xml$", item2.DataRef); // e.g., "financial-statements-143025.xml"
+
+        // Verify both items share the same postfix (same timestamp)
+        var postfix1 = item1.Id.Split('-').Last();
+        var postfix2 = item2.Id.Split('-').Last();
+        Assert.Equal(postfix1, postfix2);
+    }
+
+    [Fact]
+    public void ConvertToHierarchy_WithPostfixDisabled_GeneratesStandardIds()
+    {
+        // Arrange - Default settings have postfix disabled
+        var headers = new List<DocumentHeader>
+        {
+            new DocumentHeader { OriginalOrder = 1, Title = "Directors Report", IndentLevel = 0, Level = "h2", IsExcluded = false }
+        };
+
+        // Act
+        var hierarchy = _service.ConvertToHierarchy(headers);
+
+        // Assert
+        Assert.Single(hierarchy);
+        var item = hierarchy[0];
+        Assert.Equal("directors-report", item.Id); // No postfix
+        Assert.Equal("directors-report.xml", item.DataRef); // No postfix
     }
 
     #endregion

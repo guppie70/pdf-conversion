@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Moq;
+using PdfConversion.Configuration;
 using PdfConversion.Models;
 using PdfConversion.Services;
 using Xunit;
@@ -19,7 +21,13 @@ public class ManualModeWorkflowTests
 
     public ManualModeWorkflowTests()
     {
-        _manualHierarchyBuilder = new ManualHierarchyBuilder(Mock.Of<ILogger<ManualHierarchyBuilder>>());
+        var conversionSettings = Options.Create(new ConversionSettings
+        {
+            IdPostfixEnabled = false
+        });
+        _manualHierarchyBuilder = new ManualHierarchyBuilder(
+            Mock.Of<ILogger<ManualHierarchyBuilder>>(),
+            conversionSettings);
     }
 
     [Fact]

@@ -238,4 +238,238 @@ public class FilenameUtilsTests
         // Assert
         Assert.Equal(expected, result);
     }
+
+    #region Postfix Tests
+
+    [Fact]
+    public void NormalizeFileName_WithPostfix_AppendsCorrectly()
+    {
+        // Arrange
+        var input = "Directors Report";
+        var postfix = "20250107-143025";
+        var expected = "directors-report-20250107-143025";
+
+        // Act
+        var result = FilenameUtils.NormalizeFileName(input, postfix);
+
+        // Assert
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void NormalizeFileName_WithNullPostfix_BehavesAsNormal()
+    {
+        // Arrange
+        var input = "Directors Report";
+        string? postfix = null;
+        var expected = "directors-report";
+
+        // Act
+        var result = FilenameUtils.NormalizeFileName(input, postfix);
+
+        // Assert
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void NormalizeFileName_WithEmptyPostfix_BehavesAsNormal()
+    {
+        // Arrange
+        var input = "Directors Report";
+        var postfix = "";
+        var expected = "directors-report";
+
+        // Act
+        var result = FilenameUtils.NormalizeFileName(input, postfix);
+
+        // Assert
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void NormalizeFileName_WithWhitespacePostfix_BehavesAsNormal()
+    {
+        // Arrange
+        var input = "Directors Report";
+        var postfix = "   ";
+        var expected = "directors-report";
+
+        // Act
+        var result = FilenameUtils.NormalizeFileName(input, postfix);
+
+        // Assert
+        Assert.Equal(expected, result);
+    }
+
+    [Theory]
+    [InlineData("Statement of financial position", "20250107-143025", "statement-of-financial-position-20250107-143025")]
+    [InlineData("Note 1", "20250107-143025", "note-1-20250107-143025")]
+    [InlineData("Auditor's Report", "20250108-090000", "auditors-report-20250108-090000")]
+    public void NormalizeFileName_WithPostfix_HandlesVariousInputs(
+        string input,
+        string postfix,
+        string expected)
+    {
+        // Act
+        var result = FilenameUtils.NormalizeFileName(input, postfix);
+
+        // Assert
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void NormalizeFileName_WithPostfixAndLongInput_TruncatesBeforePostfix()
+    {
+        // Arrange
+        var input = new string('a', 100);
+        var postfix = "20250107-143025";
+        var expectedPrefix = new string('a', 50);
+        var expected = $"{expectedPrefix}-{postfix}";
+
+        // Act
+        var result = FilenameUtils.NormalizeFileName(input, postfix);
+
+        // Assert
+        Assert.Equal(expected, result);
+        Assert.True(result.EndsWith($"-{postfix}"), "Result should end with postfix");
+        Assert.StartsWith(expectedPrefix, result);
+    }
+
+    [Fact]
+    public void NormalizeFileName_WithPostfixAndSpecialCharacters_NormalizesAndAppendsPostfix()
+    {
+        // Arrange
+        var input = "Director's Report (2024)!";
+        var postfix = "20250107-143025";
+        var expected = "directors-report-2024-20250107-143025";
+
+        // Act
+        var result = FilenameUtils.NormalizeFileName(input, postfix);
+
+        // Assert
+        Assert.Equal(expected, result);
+    }
+
+    #endregion
+
+    #region EnsureUniqueId Tests
+
+    [Fact]
+    public void EnsureUniqueId_WithUniqueId_ReturnsOriginal()
+    {
+        // Arrange
+        var usedIds = new HashSet<string>();
+        var baseId = "directors-report-143025";
+
+        // Act
+        var result = FilenameUtils.EnsureUniqueId(baseId, usedIds);
+
+        // Assert
+        Assert.Equal("directors-report-143025", result);
+        Assert.Contains("directors-report-143025", usedIds);
+    }
+
+    [Fact]
+    public void EnsureUniqueId_WithDuplicateId_AppendsCounter()
+    {
+        // Arrange
+        var usedIds = new HashSet<string> { "lorem-ipsum-143025" };
+        var baseId = "lorem-ipsum-143025";
+
+        // Act
+        var result = FilenameUtils.EnsureUniqueId(baseId, usedIds);
+
+        // Assert
+        Assert.Equal("lorem-ipsum-143025-2", result);
+        Assert.Contains("lorem-ipsum-143025-2", usedIds);
+    }
+
+    [Fact]
+    public void EnsureUniqueId_WithMultipleDuplicates_IncrementsCounter()
+    {
+        // Arrange
+        var usedIds = new HashSet<string>
+        {
+            "lorem-ipsum-143025",
+            "lorem-ipsum-143025-2"
+        };
+        var baseId = "lorem-ipsum-143025";
+
+        // Act
+        var result = FilenameUtils.EnsureUniqueId(baseId, usedIds);
+
+        // Assert
+        Assert.Equal("lorem-ipsum-143025-3", result);
+        Assert.Contains("lorem-ipsum-143025-3", usedIds);
+    }
+
+    [Fact]
+    public void EnsureUniqueId_WithNullBaseId_ThrowsException()
+    {
+        // Arrange
+        var usedIds = new HashSet<string>();
+
+        // Act & Assert
+        Assert.Throws<ArgumentException>(() =>
+            FilenameUtils.EnsureUniqueId(null!, usedIds));
+    }
+
+    [Fact]
+    public void EnsureUniqueId_WithEmptyBaseId_ThrowsException()
+    {
+        // Arrange
+        var usedIds = new HashSet<string>();
+
+        // Act & Assert
+        Assert.Throws<ArgumentException>(() =>
+            FilenameUtils.EnsureUniqueId("", usedIds));
+    }
+
+    [Fact]
+    public void EnsureUniqueId_WithNullUsedIds_ThrowsException()
+    {
+        // Act & Assert
+        Assert.Throws<ArgumentNullException>(() =>
+            FilenameUtils.EnsureUniqueId("test-id", null!));
+    }
+
+    [Fact]
+    public void EnsureUniqueId_SequentialCalls_TracksAllIds()
+    {
+        // Arrange
+        var usedIds = new HashSet<string>();
+
+        // Act
+        var result1 = FilenameUtils.EnsureUniqueId("section-143025", usedIds);
+        var result2 = FilenameUtils.EnsureUniqueId("section-143025", usedIds);
+        var result3 = FilenameUtils.EnsureUniqueId("section-143025", usedIds);
+        var result4 = FilenameUtils.EnsureUniqueId("other-143025", usedIds);
+
+        // Assert
+        Assert.Equal("section-143025", result1);
+        Assert.Equal("section-143025-2", result2);
+        Assert.Equal("section-143025-3", result3);
+        Assert.Equal("other-143025", result4);
+        Assert.Equal(4, usedIds.Count);
+    }
+
+    [Fact]
+    public void EnsureUniqueId_WithExistingCounterPattern_HandlesCorrectly()
+    {
+        // Arrange
+        var usedIds = new HashSet<string>
+        {
+            "report-143025",
+            "report-143025-2"
+        };
+        var baseId = "report-143025";
+
+        // Act
+        var result = FilenameUtils.EnsureUniqueId(baseId, usedIds);
+
+        // Assert
+        Assert.Equal("report-143025-3", result);
+    }
+
+    #endregion
 }

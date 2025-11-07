@@ -69,8 +69,9 @@ public static class FilenameUtils
     /// Removes/replaces invalid characters, converts to lowercase, replaces spaces with hyphens.
     /// </summary>
     /// <param name="input">The input string to normalize</param>
+    /// <param name="postfix">Optional postfix to append (e.g., timestamp like "20250107-143025")</param>
     /// <returns>A normalized filename-safe string</returns>
-    public static string NormalizeFileName(string input)
+    public static string NormalizeFileName(string input, string? postfix = null)
     {
         if (string.IsNullOrWhiteSpace(input))
             return "unnamed";
@@ -104,7 +105,50 @@ public static class FilenameUtils
         if (normalized.Length > 50)
             normalized = normalized.Substring(0, 50).TrimEnd('-');
 
+        // Apply postfix BEFORE returning (if provided and not just whitespace)
+        if (!string.IsNullOrWhiteSpace(postfix))
+        {
+            normalized = $"{normalized}-{postfix}";
+        }
+
         return string.IsNullOrWhiteSpace(normalized) ? "unnamed" : normalized;
+    }
+
+    /// <summary>
+    /// Ensures the given ID is unique by appending a sequential counter if needed.
+    /// Uses the provided usedIds set to track already-used IDs.
+    /// </summary>
+    /// <param name="baseId">The base ID (already normalized)</param>
+    /// <param name="usedIds">Set of already-used IDs (will be updated with the final unique ID)</param>
+    /// <returns>Unique ID (e.g., "lorem-ipsum-143025" or "lorem-ipsum-2-143025")</returns>
+    public static string EnsureUniqueId(string baseId, HashSet<string> usedIds)
+    {
+        if (string.IsNullOrEmpty(baseId))
+            throw new ArgumentException("Base ID cannot be null or empty", nameof(baseId));
+
+        if (usedIds == null)
+            throw new ArgumentNullException(nameof(usedIds));
+
+        // If ID is already unique, use it as-is
+        if (!usedIds.Contains(baseId))
+        {
+            usedIds.Add(baseId);
+            return baseId;
+        }
+
+        // ID is duplicate - append counter
+        int counter = 2;
+        string uniqueId;
+
+        do
+        {
+            uniqueId = $"{baseId}-{counter}";
+            counter++;
+        }
+        while (usedIds.Contains(uniqueId));
+
+        usedIds.Add(uniqueId);
+        return uniqueId;
     }
 
     /// <summary>

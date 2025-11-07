@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Moq;
 using PdfConversion.Models;
 using PdfConversion.Services;
@@ -13,6 +14,7 @@ public class HierarchyGeneratorServiceTests
     private readonly Mock<ILogger<HierarchyGeneratorService>> _loggerMock;
     private readonly Mock<RuleBasedHierarchyGenerator> _ruleBasedGeneratorMock;
     private readonly Mock<IConfiguration> _configurationMock;
+    private readonly Mock<IOptions<ConversionSettings>> _conversionSettingsMock;
     private readonly HierarchyGeneratorService _service;
 
     public HierarchyGeneratorServiceTests()
@@ -20,14 +22,24 @@ public class HierarchyGeneratorServiceTests
         _ollamaServiceMock = new Mock<IOllamaService>();
         _loggerMock = new Mock<ILogger<HierarchyGeneratorService>>();
         _ruleBasedGeneratorMock = new Mock<RuleBasedHierarchyGenerator>(
-            Mock.Of<ILogger<RuleBasedHierarchyGenerator>>());
+            Mock.Of<ILogger<RuleBasedHierarchyGenerator>>(),
+            Mock.Of<IOptions<ConversionSettings>>());
         _configurationMock = new Mock<IConfiguration>();
+        _conversionSettingsMock = new Mock<IOptions<ConversionSettings>>();
+
+        // Setup default ConversionSettings
+        _conversionSettingsMock.Setup(x => x.Value).Returns(new ConversionSettings
+        {
+            IdPostfixEnabled = false,
+            IdPostfixFormat = "yyyyMMdd-HHmmss"
+        });
 
         _service = new HierarchyGeneratorService(
             _ollamaServiceMock.Object,
             _loggerMock.Object,
             _ruleBasedGeneratorMock.Object,
-            _configurationMock.Object);
+            _configurationMock.Object,
+            _conversionSettingsMock.Object);
     }
 
     [Fact]

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Options;
 using PdfConversion.Models;
 using PdfConversion.Utils;
 
@@ -14,6 +15,7 @@ namespace PdfConversion.Services;
 public class RuleBasedHierarchyGenerator
 {
     private readonly ILogger<RuleBasedHierarchyGenerator> _logger;
+    private readonly IOptions<ConversionSettings> _conversionSettings;
     private readonly PatternDatabase? _patterns;
     private readonly NotePatternDatabase? _notePatterns;
     private readonly ComprehensivePatternDatabase? _comprehensivePatterns;
@@ -42,9 +44,12 @@ public class RuleBasedHierarchyGenerator
         "Lead auditor's independence declaration"
     };
 
-    public RuleBasedHierarchyGenerator(ILogger<RuleBasedHierarchyGenerator> logger)
+    public RuleBasedHierarchyGenerator(
+        ILogger<RuleBasedHierarchyGenerator> logger,
+        IOptions<ConversionSettings> conversionSettings)
     {
         _logger = logger;
+        _conversionSettings = conversionSettings;
         _patterns = LoadPatterns();
         _notePatterns = LoadNotePatterns();
         _comprehensivePatterns = LoadComprehensivePatterns();
@@ -324,6 +329,27 @@ public class RuleBasedHierarchyGenerator
         var technicalLogs = new List<string>();
         var patternsMatched = 0;
 
+        // Generate postfix once for all items in this hierarchy
+        string? idPostfix = null;
+        if (_conversionSettings.Value.IdPostfixEnabled)
+        {
+            try
+            {
+                var timestamp = DateTime.Now.ToString(_conversionSettings.Value.IdPostfixFormat);
+                idPostfix = timestamp;
+                _logger.LogInformation("[RuleBasedHierarchy] Using ID postfix: {Postfix}", idPostfix);
+                genericLogs.Add($"ID postfix enabled: {idPostfix}");
+                technicalLogs.Add($"[ID Postfix] Enabled with timestamp: {idPostfix}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[RuleBasedHierarchy] Invalid timestamp format '{Format}', disabling postfix",
+                    _conversionSettings.Value.IdPostfixFormat);
+                technicalLogs.Add($"[ID Postfix] ERROR: Invalid format '{_conversionSettings.Value.IdPostfixFormat}', disabled");
+                idPostfix = null;
+            }
+        }
+
         // Generic logs: user-friendly progress messages
         genericLogs.Add("Starting hierarchy generation...");
         genericLogs.Add($"Processing {headers.Count} headers from document");
@@ -362,7 +388,7 @@ public class RuleBasedHierarchyGenerator
         _logger.LogInformation("[RuleBasedHierarchy] Mode: {Mode}",
             _comprehensivePatterns != null ? "Two-pass (comprehensive)" : "Legacy (data-number + Level 1)");
 
-        // Create root item
+        // Create root item (root never gets postfix)
         var rootItem = new HierarchyItem
         {
             Id = "report-root",
@@ -373,6 +399,9 @@ public class RuleBasedHierarchyGenerator
             SubItems = new List<HierarchyItem>(),
             Confidence = 100
         };
+
+        // Track used IDs to prevent duplicates
+        var usedIds = new HashSet<string> { "report-root" }; // Root ID always used
 
         // Track current context
         var currentMajorSection = rootItem;
@@ -539,7 +568,7 @@ public class RuleBasedHierarchyGenerator
 
                 // Create and add item
                 patternsMatched++;
-                var item = CreateHierarchyItem(header, level, parent, lastItemAtLevel, classifiedSection);
+                var item = CreateHierarchyItem(header, level, parent, lastItemAtLevel, usedIds, classifiedSection, idPostfix);
                 parent.SubItems.Add(item);
                 lastItemAtLevel[level] = item;
 
@@ -632,7 +661,7 @@ public class RuleBasedHierarchyGenerator
 
                     patternsMatched++;
 
-                    var item = CreateHierarchyItem(header, level, parent, lastItemAtLevel, classifiedSection);
+                    var item = CreateHierarchyItem(header, level, parent, lastItemAtLevel, usedIds, classifiedSection, idPostfix);
                     parent.SubItems.Add(item);
                     lastItemAtLevel[level] = item;
 
@@ -689,7 +718,7 @@ public class RuleBasedHierarchyGenerator
 
                 patternsMatched++;
 
-                var item = CreateHierarchyItem(header, 1, rootItem, lastItemAtLevel, classifiedSection);
+                var item = CreateHierarchyItem(header, 1, rootItem, lastItemAtLevel, usedIds, classifiedSection, idPostfix);
                 rootItem.SubItems.Add(item);
                 lastItemAtLevel[1] = item;
                 currentMajorSection = item;
@@ -757,7 +786,7 @@ public class RuleBasedHierarchyGenerator
 
                     patternsMatched++;
 
-                    var item = CreateHierarchyItem(header, noteLevel, parent, lastItemAtLevel, classifiedSection);
+                    var item = CreateHierarchyItem(header, noteLevel, parent, lastItemAtLevel, usedIds, classifiedSection, idPostfix);
                     parent.SubItems.Add(item);
                     lastItemAtLevel[noteLevel] = item;
 
@@ -1144,9 +1173,12 @@ public class RuleBasedHierarchyGenerator
         int level,
         HierarchyItem parent,
         Dictionary<int, HierarchyItem> lastItemAtLevel,
-        ClassifiedSection? classifiedSection = null)
+        HashSet<string> usedIds,
+        ClassifiedSection? classifiedSection = null,
+        string? idPostfix = null)
     {
-        var normalizedId = FilenameUtils.NormalizeFileName(header.Text);
+        var baseId = FilenameUtils.NormalizeFileName(header.Text, idPostfix);
+        var normalizedId = FilenameUtils.EnsureUniqueId(baseId, usedIds);
 
         // Calculate confidence score based on structural patterns
         var (confidence, flags, reasoning) = CalculateConfidence(header, level, lastItemAtLevel, classifiedSection);

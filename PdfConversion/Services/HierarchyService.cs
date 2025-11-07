@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using Microsoft.Extensions.Options;
 using PdfConversion.Models;
 
 namespace PdfConversion.Services;
@@ -14,10 +15,14 @@ public interface IHierarchyService
 public class HierarchyService : IHierarchyService
 {
     private readonly ILogger<HierarchyService> _logger;
+    private readonly IOptions<ConversionSettings> _conversionSettings;
 
-    public HierarchyService(ILogger<HierarchyService> logger)
+    public HierarchyService(
+        ILogger<HierarchyService> logger,
+        IOptions<ConversionSettings> conversionSettings)
     {
         _logger = logger;
+        _conversionSettings = conversionSettings;
     }
 
     public async Task<HierarchyStructure> LoadHierarchyAsync(string filePath)
@@ -139,6 +144,9 @@ public class HierarchyService : IHierarchyService
             // Normalize the root element to ensure consistent format
             NormalizeRootElement(hierarchy.Root);
 
+            // Apply ID postfixes if enabled
+            ApplyIdPostfixes(hierarchy.Root);
+
             var doc = new XDocument(
                 new XElement("items",
                     new XElement("structured",
@@ -211,6 +219,75 @@ public class HierarchyService : IHierarchyService
             rootItem.Path = "/";
         }
         // Note: Child items (SubItems) are NOT modified - they remain editable
+    }
+
+    /// <summary>
+    /// Applies ID postfixes to all items in the hierarchy if postfix is enabled.
+    /// Regenerates IDs from LinkNames and ensures uniqueness.
+    /// </summary>
+    private void ApplyIdPostfixes(HierarchyItem rootItem)
+    {
+        if (!_conversionSettings.Value.IdPostfixEnabled)
+        {
+            _logger.LogDebug("ID postfix not enabled, skipping postfix application");
+            return;
+        }
+
+        try
+        {
+            var timestamp = DateTime.Now.ToString(_conversionSettings.Value.IdPostfixFormat);
+            _logger.LogInformation("Applying ID postfix to all items: {Postfix}", timestamp);
+
+            var usedIds = new HashSet<string> { "report-root" }; // Root never gets postfix
+            ApplyIdPostfixesRecursive(rootItem, timestamp, usedIds, skipRoot: true);
+
+            _logger.LogInformation("Successfully applied ID postfix to hierarchy");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to apply ID postfixes, timestamp format may be invalid");
+            // Don't throw - save hierarchy with existing IDs rather than failing
+        }
+    }
+
+    /// <summary>
+    /// Recursively applies postfixes to item and all descendants.
+    /// </summary>
+    private void ApplyIdPostfixesRecursive(
+        HierarchyItem item,
+        string postfix,
+        HashSet<string> usedIds,
+        bool skipRoot = false)
+    {
+        // Skip root item (level 0) - it always stays as "report-root"
+        if (skipRoot && item.Level == 0)
+        {
+            _logger.LogDebug("Skipping root item (Id: {Id})", item.Id);
+
+            // Process children but don't modify root
+            foreach (var child in item.SubItems)
+            {
+                ApplyIdPostfixesRecursive(child, postfix, usedIds, skipRoot: false);
+            }
+            return;
+        }
+
+        // Regenerate ID from LinkName with postfix
+        var baseId = PdfConversion.Utils.FilenameUtils.NormalizeFileName(item.LinkName, postfix);
+        var uniqueId = PdfConversion.Utils.FilenameUtils.EnsureUniqueId(baseId, usedIds);
+
+        _logger.LogDebug("Regenerating ID for '{LinkName}': '{OldId}' → '{NewId}'",
+            item.LinkName, item.Id, uniqueId);
+
+        // Update ID and DataRef
+        item.Id = uniqueId;
+        item.DataRef = $"{uniqueId}.xml";
+
+        // Process all children recursively
+        foreach (var child in item.SubItems)
+        {
+            ApplyIdPostfixesRecursive(child, postfix, usedIds, skipRoot: false);
+        }
     }
 
     private XElement BuildItemElement(HierarchyItem item)

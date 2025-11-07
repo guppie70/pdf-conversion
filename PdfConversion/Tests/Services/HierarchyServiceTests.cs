@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Moq;
 using PdfConversion.Models;
 using PdfConversion.Services;
@@ -9,13 +10,20 @@ namespace PdfConversion.Tests.Services;
 public class HierarchyServiceTests : IDisposable
 {
     private readonly Mock<ILogger<HierarchyService>> _loggerMock;
+    private readonly Mock<IOptions<ConversionSettings>> _conversionSettingsMock;
     private readonly HierarchyService _service;
     private readonly string _testDirectory;
 
     public HierarchyServiceTests()
     {
         _loggerMock = new Mock<ILogger<HierarchyService>>();
-        _service = new HierarchyService(_loggerMock.Object);
+        _conversionSettingsMock = new Mock<IOptions<ConversionSettings>>();
+        _conversionSettingsMock.Setup(x => x.Value).Returns(new ConversionSettings
+        {
+            IdPostfixEnabled = false, // Default: postfix disabled for backward compatibility
+            IdPostfixFormat = "yyyyMMdd-HHmmss"
+        });
+        _service = new HierarchyService(_loggerMock.Object, _conversionSettingsMock.Object);
         _testDirectory = Path.Combine(Path.GetTempPath(), $"hierarchy-tests-{Guid.NewGuid()}");
         Directory.CreateDirectory(_testDirectory);
     }
@@ -476,5 +484,221 @@ public class HierarchyServiceTests : IDisposable
             if (File.Exists(testFilePath))
                 File.Delete(testFilePath);
         }
+    }
+
+    [Fact]
+    public async Task SaveHierarchyAsync_DoesNotApplyPostfixWhenDisabled()
+    {
+        // Arrange - Postfix is disabled by default in test setup
+        var hierarchy = new HierarchyStructure
+        {
+            Root = new HierarchyItem
+            {
+                Id = "report-root",
+                Level = 0,
+                DataRef = "report-root.xml",
+                LinkName = "Annual Report 2024",
+                Path = "/",
+                SubItems = new List<HierarchyItem>
+                {
+                    new HierarchyItem
+                    {
+                        Id = "directors-report",
+                        Level = 1,
+                        DataRef = "directors-report.xml",
+                        LinkName = "Directors Report",
+                        Path = "/"
+                    }
+                }
+            }
+        };
+
+        var testFile = Path.Combine(_testDirectory, "no-postfix-test.xml");
+
+        // Act
+        await _service.SaveHierarchyAsync(testFile, hierarchy);
+
+        // Assert - IDs should remain unchanged
+        var savedXml = await File.ReadAllTextAsync(testFile);
+        Assert.Contains("id=\"directors-report\"", savedXml);
+        Assert.Contains("data-ref=\"directors-report.xml\"", savedXml);
+    }
+
+    [Fact]
+    public async Task SaveHierarchyAsync_AppliesPostfixWhenEnabled()
+    {
+        // Arrange - Enable postfix with simple format
+        _conversionSettingsMock.Setup(x => x.Value).Returns(new ConversionSettings
+        {
+            IdPostfixEnabled = true,
+            IdPostfixFormat = "HHmmss" // Simpler format for testing
+        });
+
+        var serviceWithPostfix = new HierarchyService(_loggerMock.Object, _conversionSettingsMock.Object);
+
+        var hierarchy = new HierarchyStructure
+        {
+            Root = new HierarchyItem
+            {
+                Id = "report-root",
+                Level = 0,
+                DataRef = "report-root.xml",
+                LinkName = "Annual Report 2024",
+                Path = "/",
+                SubItems = new List<HierarchyItem>
+                {
+                    new HierarchyItem
+                    {
+                        Id = "directors-report",
+                        Level = 1,
+                        DataRef = "directors-report.xml",
+                        LinkName = "Directors Report",
+                        Path = "/"
+                    }
+                }
+            }
+        };
+
+        var testFile = Path.Combine(_testDirectory, "with-postfix-test.xml");
+
+        // Act
+        await serviceWithPostfix.SaveHierarchyAsync(testFile, hierarchy);
+
+        // Assert - IDs should have postfix, but root should not
+        var savedXml = await File.ReadAllTextAsync(testFile);
+        Assert.Contains("id=\"report-root\"", savedXml); // Root never gets postfix
+        Assert.Contains("data-ref=\"report-root.xml\"", savedXml);
+
+        // Child ID should have postfix (format: directors-report-HHMMSS)
+        Assert.Contains("id=\"directors-report-", savedXml);
+        Assert.Contains("data-ref=\"directors-report-", savedXml);
+        Assert.DoesNotContain("id=\"directors-report\"", savedXml); // Old ID should not exist
+    }
+
+    [Fact]
+    public async Task SaveHierarchyAsync_HandlesNestingWithPostfix()
+    {
+        // Arrange
+        _conversionSettingsMock.Setup(x => x.Value).Returns(new ConversionSettings
+        {
+            IdPostfixEnabled = true,
+            IdPostfixFormat = "HHmmss"
+        });
+
+        var serviceWithPostfix = new HierarchyService(_loggerMock.Object, _conversionSettingsMock.Object);
+
+        var hierarchy = new HierarchyStructure
+        {
+            Root = new HierarchyItem
+            {
+                Id = "report-root",
+                Level = 0,
+                DataRef = "report-root.xml",
+                LinkName = "Annual Report 2024",
+                Path = "/",
+                SubItems = new List<HierarchyItem>
+                {
+                    new HierarchyItem
+                    {
+                        Id = "section-1",
+                        Level = 1,
+                        DataRef = "section-1.xml",
+                        LinkName = "Section 1",
+                        Path = "/",
+                        SubItems = new List<HierarchyItem>
+                        {
+                            new HierarchyItem
+                            {
+                                Id = "subsection-1-1",
+                                Level = 2,
+                                DataRef = "subsection-1-1.xml",
+                                LinkName = "Subsection 1.1",
+                                Path = "/"
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        var testFile = Path.Combine(_testDirectory, "nested-postfix-test.xml");
+
+        // Act
+        await serviceWithPostfix.SaveHierarchyAsync(testFile, hierarchy);
+
+        // Assert - All nested items should have postfix
+        var savedXml = await File.ReadAllTextAsync(testFile);
+        Assert.Contains("id=\"section-1-", savedXml);
+        Assert.Contains("id=\"subsection-1-1-", savedXml);
+    }
+
+    [Fact]
+    public async Task SaveHierarchyAsync_HandlesDuplicateNamesWithPostfix()
+    {
+        // Arrange
+        _conversionSettingsMock.Setup(x => x.Value).Returns(new ConversionSettings
+        {
+            IdPostfixEnabled = true,
+            IdPostfixFormat = "HHmmss"
+        });
+
+        var serviceWithPostfix = new HierarchyService(_loggerMock.Object, _conversionSettingsMock.Object);
+
+        var hierarchy = new HierarchyStructure
+        {
+            Root = new HierarchyItem
+            {
+                Id = "report-root",
+                Level = 0,
+                DataRef = "report-root.xml",
+                LinkName = "Annual Report 2024",
+                Path = "/",
+                SubItems = new List<HierarchyItem>
+                {
+                    new HierarchyItem
+                    {
+                        Id = "lorem-ipsum",
+                        Level = 1,
+                        DataRef = "lorem-ipsum.xml",
+                        LinkName = "Lorem Ipsum",
+                        Path = "/"
+                    },
+                    new HierarchyItem
+                    {
+                        Id = "lorem-ipsum-2",
+                        Level = 1,
+                        DataRef = "lorem-ipsum-2.xml",
+                        LinkName = "Lorem Ipsum", // Same name
+                        Path = "/"
+                    },
+                    new HierarchyItem
+                    {
+                        Id = "lorem-ipsum-3",
+                        Level = 1,
+                        DataRef = "lorem-ipsum-3.xml",
+                        LinkName = "Lorem Ipsum", // Same name again
+                        Path = "/"
+                    }
+                }
+            }
+        };
+
+        var testFile = Path.Combine(_testDirectory, "duplicate-postfix-test.xml");
+
+        // Act
+        await serviceWithPostfix.SaveHierarchyAsync(testFile, hierarchy);
+
+        // Assert - Duplicates should get sequential counters
+        var savedXml = await File.ReadAllTextAsync(testFile);
+
+        // First occurrence gets just the postfix
+        var firstMatch = System.Text.RegularExpressions.Regex.Match(savedXml, @"id=""lorem-ipsum-(\d{6})""");
+        Assert.True(firstMatch.Success, "First 'Lorem Ipsum' should have ID with timestamp postfix");
+
+        // Second occurrence should get -2 counter
+        Assert.Contains("-2\"", savedXml);
+
+        // Third occurrence should get -3 counter
+        Assert.Contains("-3\"", savedXml);
     }
 }
