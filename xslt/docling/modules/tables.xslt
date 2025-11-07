@@ -115,7 +115,7 @@
     </xsl:template>
 
     <xsl:template match="td" mode="table-header" priority="10">
-        <td>
+        <th>
             <xsl:apply-templates select="@*"/>
             <xsl:choose>
                 <xsl:when test="normalize-space(.) = ''">
@@ -125,7 +125,7 @@
                     <xsl:apply-templates/>
                 </xsl:otherwise>
             </xsl:choose>
-        </td>
+        </th>
     </xsl:template>
 
     <!-- Table body cells -->

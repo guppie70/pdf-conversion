@@ -178,9 +178,11 @@
                         <xsl:apply-templates select="../thead/@*" mode="pass2-table"/>
                         <xsl:apply-templates select="../thead/tr" mode="pass2-table">
                             <xsl:with-param name="max-cells" select="$max-cells" tunnel="yes"/>
+                            <xsl:with-param name="in-thead" select="true()" tunnel="yes"/>
                         </xsl:apply-templates>
                         <xsl:apply-templates select="$header-rows" mode="pass2-table">
                             <xsl:with-param name="max-cells" select="$max-cells" tunnel="yes"/>
+                            <xsl:with-param name="in-thead" select="true()" tunnel="yes"/>
                         </xsl:apply-templates>
                     </thead>
                 </xsl:when>
@@ -189,6 +191,7 @@
                     <thead>
                         <xsl:apply-templates select="$header-rows" mode="pass2-table">
                             <xsl:with-param name="max-cells" select="$max-cells" tunnel="yes"/>
+                            <xsl:with-param name="in-thead" select="true()" tunnel="yes"/>
                         </xsl:apply-templates>
                     </thead>
                 </xsl:otherwise>
@@ -206,32 +209,38 @@
 
     <!-- Cell normalization: ensure thead uses th, tbody uses td -->
 
-    <!-- Convert td to th when inside thead -->
-    <xsl:template match="thead//td" mode="pass2-table" priority="15">
-        <th>
-            <xsl:apply-templates select="@* | node()" mode="pass2-table"/>
-        </th>
+    <!-- Convert td to th when processing cells for thead -->
+    <xsl:template match="td" mode="pass2-table" priority="15">
+        <xsl:param name="in-thead" as="xs:boolean" select="false()" tunnel="yes"/>
+        <xsl:choose>
+            <xsl:when test="$in-thead">
+                <th>
+                    <xsl:apply-templates select="@* | node()" mode="pass2-table"/>
+                </th>
+            </xsl:when>
+            <xsl:otherwise>
+                <xsl:copy>
+                    <xsl:apply-templates select="@* | node()" mode="pass2-table"/>
+                </xsl:copy>
+            </xsl:otherwise>
+        </xsl:choose>
     </xsl:template>
 
-    <!-- Keep th as th when inside thead -->
-    <xsl:template match="thead//th" mode="pass2-table" priority="15">
-        <xsl:copy>
-            <xsl:apply-templates select="@* | node()" mode="pass2-table"/>
-        </xsl:copy>
-    </xsl:template>
-
-    <!-- Convert th to td when inside tbody -->
-    <xsl:template match="tbody//th" mode="pass2-table" priority="15">
-        <td>
-            <xsl:apply-templates select="@* | node()" mode="pass2-table"/>
-        </td>
-    </xsl:template>
-
-    <!-- Keep td as td when inside tbody -->
-    <xsl:template match="tbody//td" mode="pass2-table" priority="15">
-        <xsl:copy>
-            <xsl:apply-templates select="@* | node()" mode="pass2-table"/>
-        </xsl:copy>
+    <!-- Convert th to td when processing cells for tbody, keep as th for thead -->
+    <xsl:template match="th" mode="pass2-table" priority="15">
+        <xsl:param name="in-thead" as="xs:boolean" select="false()" tunnel="yes"/>
+        <xsl:choose>
+            <xsl:when test="$in-thead">
+                <xsl:copy>
+                    <xsl:apply-templates select="@* | node()" mode="pass2-table"/>
+                </xsl:copy>
+            </xsl:when>
+            <xsl:otherwise>
+                <td>
+                    <xsl:apply-templates select="@* | node()" mode="pass2-table"/>
+                </td>
+            </xsl:otherwise>
+        </xsl:choose>
     </xsl:template>
 
 </xsl:stylesheet>
