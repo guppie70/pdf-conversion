@@ -1,4 +1,4 @@
-@page "/convert"
+@page "/convert/{customer}/{projectId}"
 @using System
 @using System.IO
 @using System.Xml.Linq
@@ -14,6 +14,8 @@
 @inject IJSRuntime JSRuntime
 @inject ProjectMetadataService MetadataService
 @inject IFileGroupBuilderService FileGroupBuilder
+@inject IProjectValidationService ProjectValidation
+@inject NavigationManager NavigationManager
 @implements IDisposable
 
 <PageTitle>Convert: PDF to Taxxor Sections</PageTitle>
@@ -228,6 +230,13 @@
 </div>
 
 @code {
+    // Route Parameters
+    [Parameter]
+    public string Customer { get; set; } = string.Empty;
+
+    [Parameter]
+    public string ProjectId { get; set; } = string.Empty;
+
     // Configuration
     private readonly ConversionConfiguration _config = new();
 
@@ -284,6 +293,18 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!ProjectValidation.IsValidProjectParameters(Customer, ProjectId))
+        {
+            NavigationManager.NavigateTo("/");
+            return;
+        }
+
+        if (!ProjectValidation.ProjectExists(Customer, ProjectId))
+        {
+            NavigationManager.NavigateTo("/");
+            return;
+        }
+
         await LoadProjectsAsync();
         await RestoreSavedSelectionsAsync();
     }
@@ -485,7 +506,9 @@
             ProjectFileGroups = await FileGroupBuilder.BuildXmlFileGroupsAsync(
                 includeInputFiles: true,
                 includeOutputFiles: false,  // Convert only needs input files
-                onlyActiveProjects: true);
+                onlyActiveProjects: false,
+                customer: Customer,
+                projectId: ProjectId);
 
             Logger.LogInformation("Loaded {Count} active projects", Projects.Count);
         }

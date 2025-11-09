@@ -12,10 +12,18 @@
     <header class="top-nav">
         <nav class="nav-links">
             <NavLink href="/" class="nav-link" Match="NavLinkMatch.All">Home</NavLink>
-            <NavLink href="/docling-convert" class="nav-link">Convert</NavLink>
-            <NavLink href="/transform" class="nav-link">Transform</NavLink>
-            <NavLink href="/generate-hierarchy" class="nav-link">Generate Hierarchy</NavLink>
-            <NavLink href="/convert" class="nav-link">Section Generation</NavLink>
+
+            @if (IsProjectContextActive())
+            {
+                var (customer, projectId) = GetCurrentProject();
+
+                <NavLink href="@($"/convert/{customer}/{projectId}")" class="nav-link">Section Generation</NavLink>
+                <NavLink href="@($"/transform/{customer}/{projectId}")" class="nav-link">Transform</NavLink>
+                <NavLink href="@($"/docling-convert/{customer}/{projectId}")" class="nav-link">Convert</NavLink>
+                <NavLink href="@($"/generate-hierarchy/{customer}/{projectId}")" class="nav-link">Generate Hierarchy</NavLink>
+            }
+
+            <!-- Production always visible as it operates outside project scope -->
             <div class="nav-item dropdown">
                 <a class="nav-link dropdown-toggle" href="#" id="developDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                     Develop
@@ -28,6 +36,15 @@
                 </ul>
             </div>
         </nav>
+
+        @if (IsProjectContextActive())
+        {
+            var (customer, projectId) = GetCurrentProject();
+            <div class="project-context-indicator">
+                <i class="bi bi-folder-fill"></i>
+                <span class="project-path">@customer / @projectId</span>
+            </div>
+        }
 
         @if (IsOnTransformPage)
         {
@@ -62,6 +79,36 @@
     private bool IsOnTransformPage => Navigation.Uri.Contains("/transform", StringComparison.OrdinalIgnoreCase);
     private bool ShowHelp = false;
     private bool ShowTransformationLog = false;
+
+    private bool IsProjectContextActive()
+    {
+        var uri = Navigation.Uri;
+
+        // Check if current route contains /{customer}/{projectId} pattern
+        // Routes: /transform/{customer}/{projectId}, /convert/{customer}/{projectId}, etc.
+        var segments = new Uri(uri).AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+        // Need at least 3 segments: [page-name, customer, projectId]
+        if (segments.Length < 3)
+            return false;
+
+        // Check if it's one of our workflow pages
+        var workflowPages = new[] { "transform", "docling-convert", "generate-hierarchy", "convert" };
+        return workflowPages.Contains(segments[0], StringComparer.OrdinalIgnoreCase);
+    }
+
+    private (string Customer, string ProjectId) GetCurrentProject()
+    {
+        var uri = Navigation.Uri;
+        var segments = new Uri(uri).AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+        if (segments.Length >= 3)
+        {
+            return (segments[1], segments[2]);
+        }
+
+        return (string.Empty, string.Empty);
+    }
 
     protected override void OnInitialized()
     {

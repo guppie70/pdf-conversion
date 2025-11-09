@@ -1,4 +1,4 @@
-@page "/generate-hierarchy"
+@page "/generate-hierarchy/{customer}/{projectId}"
 @using PdfConversion.Models
 @using PdfConversion.Services
 @using PdfConversion.Shared
@@ -17,6 +17,8 @@
 @inject IJSRuntime JSRuntime
 @inject ILogger<GenerateHierarchy> Logger
 @inject HttpClient HttpClient
+@inject IProjectValidationService ProjectValidation
+@inject NavigationManager NavigationManager
 
 <PageTitle>Generate Hierarchy</PageTitle>
 
@@ -635,6 +637,13 @@
 </div>
 
 @code {
+    // Route Parameters
+    [Parameter]
+    public string Customer { get; set; } = string.Empty;
+
+    [Parameter]
+    public string ProjectId { get; set; } = string.Empty;
+
     private HierarchyStructure? CurrentHierarchy { get; set; }
     private HierarchyItem? SelectedItem { get; set; }
     private bool HasChanges { get; set; }
@@ -954,6 +963,18 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!ProjectValidation.IsValidProjectParameters(Customer, ProjectId))
+        {
+            NavigationManager.NavigateTo("/");
+            return;
+        }
+
+        if (!ProjectValidation.ProjectExists(Customer, ProjectId))
+        {
+            NavigationManager.NavigateTo("/");
+            return;
+        }
+
         Logger.LogInformation("[OnInitializedAsync] Starting initialization");
 
         try
@@ -973,7 +994,9 @@
             ProjectFileGroups = await FileGroupBuilder.BuildXmlFileGroupsAsync(
                 includeInputFiles: true,
                 includeOutputFiles: true,
-                onlyActiveProjects: true);  // This fixes the bug!
+                onlyActiveProjects: false,
+                customer: Customer,
+                projectId: ProjectId);
 
             Logger.LogInformation("[OnInitializedAsync] Loaded {Count} project file groups", ProjectFileGroups.Count);
 

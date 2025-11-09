@@ -1,4 +1,4 @@
-@page "/docling-convert"
+@page "/docling-convert/{customer}/{projectId}"
 @using System.Net.Http.Headers
 @using System.Threading
 @using Microsoft.AspNetCore.SignalR.Client
@@ -14,6 +14,7 @@
 @inject IUserSelectionService UserSelectionService
 @inject IBase64ImageExtractor ImageExtractor
 @inject IFileGroupBuilderService FileGroupBuilder
+@inject IProjectValidationService ProjectValidation
 @implements IAsyncDisposable
 
 <PageTitle>Convert</PageTitle>
@@ -185,6 +186,13 @@
 </div>
 
 @code {
+    // Route Parameters
+    [Parameter]
+    public string Customer { get; set; } = string.Empty;
+
+    [Parameter]
+    public string ProjectId { get; set; } = string.Empty;
+
     // State
     private List<ProjectInfo> Projects { get; set; } = new();
     private string SelectedProject { get; set; } = string.Empty;
@@ -235,6 +243,18 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!ProjectValidation.IsValidProjectParameters(Customer, ProjectId))
+        {
+            Navigation.NavigateTo("/");
+            return;
+        }
+
+        if (!ProjectValidation.ProjectExists(Customer, ProjectId))
+        {
+            Navigation.NavigateTo("/");
+            return;
+        }
+
         try
         {
             Logger.LogInformation("[OnInitializedAsync] Starting initialization");
@@ -243,7 +263,9 @@
             // Load existing document files using the service
             ExistingFileGroups = await FileGroupBuilder.BuildDocumentFileGroupsAsync(
                 extensions: new[] { ".pdf", ".docx", ".doc" },
-                onlyActiveProjects: true);
+                onlyActiveProjects: false,
+                customer: Customer,
+                projectId: ProjectId);
 
             await InitializeSignalR();
             await RestoreUserSelectionsAsync();

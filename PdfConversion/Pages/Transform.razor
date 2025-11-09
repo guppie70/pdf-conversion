@@ -1,4 +1,4 @@
-@page "/transform"
+@page "/transform/{customer}/{projectId}"
 @using PdfConversion.Services
 @using PdfConversion.Models
 @using PdfConversion.Shared
@@ -19,6 +19,8 @@
 @inject IUserSelectionService UserSelectionService
 @inject ProjectMetadataService MetadataService
 @inject IFileGroupBuilderService FileGroupBuilder
+@inject IProjectValidationService ProjectValidation
+@inject NavigationManager NavigationManager
 
 <PageTitle>Transform</PageTitle>
 
@@ -838,6 +840,13 @@
 </div>
 
 @code {
+    // Route Parameters
+    [Parameter]
+    public string Customer { get; set; } = string.Empty;
+
+    [Parameter]
+    public string ProjectId { get; set; } = string.Empty;
+
     // LocalStorage models
     private class SavedSelection
     {
@@ -993,6 +1002,22 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Validate project parameters
+        if (!ProjectValidation.IsValidProjectParameters(Customer, ProjectId))
+        {
+            Logger.LogWarning("Invalid project parameters in Transform page: {Customer}/{ProjectId}", Customer, ProjectId);
+            NavigationManager.NavigateTo("/");
+            return;
+        }
+
+        if (!ProjectValidation.ProjectExists(Customer, ProjectId))
+        {
+            Logger.LogWarning("Project not found in Transform page: {Customer}/{ProjectId}", Customer, ProjectId);
+            // TODO: Show toast notification
+            NavigationManager.NavigateTo("/");
+            return;
+        }
+
         // Wire up toolbar state
         ToolbarState.OnTransform = TransformAsync;
         ToolbarState.OnSave = SaveXsltAsync;
@@ -1078,7 +1103,9 @@
             ProjectFileGroups = await FileGroupBuilder.BuildXmlFileGroupsAsync(
                 includeInputFiles: true,
                 includeOutputFiles: true,  // Transform needs both
-                onlyActiveProjects: true);
+                onlyActiveProjects: false,
+                customer: Customer,
+                projectId: ProjectId);
 
             Logger.LogInformation("Loaded {Count} active projects with files", Projects.Count);
         }
