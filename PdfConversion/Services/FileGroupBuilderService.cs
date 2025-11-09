@@ -14,28 +14,41 @@ public interface IFileGroupBuilderService
     /// <param name="includeInputFiles">Include XML files from input directories (default: true)</param>
     /// <param name="includeOutputFiles">Include XML files from output directories (default: false)</param>
     /// <param name="onlyActiveProjects">Only include projects not marked as "Ready" (default: true)</param>
+    /// <param name="customer">Optional: Filter to specific customer</param>
+    /// <param name="projectId">Optional: Filter to specific project</param>
     /// <returns>List of project file groups with absolute filesystem paths</returns>
     Task<List<ProjectFileGroup>> BuildXmlFileGroupsAsync(
         bool includeInputFiles = true,
         bool includeOutputFiles = false,
-        bool onlyActiveProjects = true);
+        bool onlyActiveProjects = true,
+        string? customer = null,
+        string? projectId = null);
 
     /// <summary>
     /// Builds file groups containing document files (PDF, DOCX, DOC, etc.) from project input directories.
     /// </summary>
     /// <param name="extensions">File extensions to include (e.g., [".pdf", ".docx", ".doc"])</param>
     /// <param name="onlyActiveProjects">Only include projects not marked as "Ready" (default: true)</param>
+    /// <param name="customer">Optional: Filter to specific customer</param>
+    /// <param name="projectId">Optional: Filter to specific project</param>
     /// <returns>List of project file groups with absolute filesystem paths</returns>
     Task<List<ProjectFileGroup>> BuildDocumentFileGroupsAsync(
         string[] extensions,
-        bool onlyActiveProjects = true);
+        bool onlyActiveProjects = true,
+        string? customer = null,
+        string? projectId = null);
 
     /// <summary>
     /// Builds file groups containing all files from project directories.
     /// </summary>
     /// <param name="onlyActiveProjects">Only include projects not marked as "Ready" (default: true)</param>
+    /// <param name="customer">Optional: Filter to specific customer</param>
+    /// <param name="projectId">Optional: Filter to specific project</param>
     /// <returns>List of project file groups with absolute filesystem paths</returns>
-    Task<List<ProjectFileGroup>> BuildAllFileGroupsAsync(bool onlyActiveProjects = true);
+    Task<List<ProjectFileGroup>> BuildAllFileGroupsAsync(
+        bool onlyActiveProjects = true,
+        string? customer = null,
+        string? projectId = null);
 }
 
 /// <summary>
@@ -63,11 +76,24 @@ public class FileGroupBuilderService : IFileGroupBuilderService
     public async Task<List<ProjectFileGroup>> BuildXmlFileGroupsAsync(
         bool includeInputFiles = true,
         bool includeOutputFiles = false,
-        bool onlyActiveProjects = true)
+        bool onlyActiveProjects = true,
+        string? customer = null,
+        string? projectId = null)
     {
         try
         {
             var projects = await GetFilteredProjectsAsync(onlyActiveProjects);
+
+            // Filter by customer and projectId if provided
+            if (!string.IsNullOrEmpty(customer))
+            {
+                projects = projects.Where(p => p.Organization.Equals(customer, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
+            if (!string.IsNullOrEmpty(projectId))
+            {
+                projects = projects.Where(p => p.ProjectId.Equals(projectId, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
+
             var fileGroups = new List<ProjectFileGroup>();
 
             foreach (var project in projects)
@@ -133,7 +159,9 @@ public class FileGroupBuilderService : IFileGroupBuilderService
     /// <inheritdoc />
     public async Task<List<ProjectFileGroup>> BuildDocumentFileGroupsAsync(
         string[] extensions,
-        bool onlyActiveProjects = true)
+        bool onlyActiveProjects = true,
+        string? customer = null,
+        string? projectId = null)
     {
         try
         {
@@ -144,6 +172,17 @@ public class FileGroupBuilderService : IFileGroupBuilderService
             }
 
             var projects = await GetFilteredProjectsAsync(onlyActiveProjects);
+
+            // Filter by customer and projectId if provided
+            if (!string.IsNullOrEmpty(customer))
+            {
+                projects = projects.Where(p => p.Organization.Equals(customer, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
+            if (!string.IsNullOrEmpty(projectId))
+            {
+                projects = projects.Where(p => p.ProjectId.Equals(projectId, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
+
             var fileGroups = new List<ProjectFileGroup>();
 
             foreach (var project in projects)
@@ -188,11 +227,25 @@ public class FileGroupBuilderService : IFileGroupBuilderService
     }
 
     /// <inheritdoc />
-    public async Task<List<ProjectFileGroup>> BuildAllFileGroupsAsync(bool onlyActiveProjects = true)
+    public async Task<List<ProjectFileGroup>> BuildAllFileGroupsAsync(
+        bool onlyActiveProjects = true,
+        string? customer = null,
+        string? projectId = null)
     {
         try
         {
             var projects = await GetFilteredProjectsAsync(onlyActiveProjects);
+
+            // Filter by customer and projectId if provided
+            if (!string.IsNullOrEmpty(customer))
+            {
+                projects = projects.Where(p => p.Organization.Equals(customer, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
+            if (!string.IsNullOrEmpty(projectId))
+            {
+                projects = projects.Where(p => p.ProjectId.Equals(projectId, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
+
             var fileGroups = new List<ProjectFileGroup>();
 
             foreach (var project in projects)

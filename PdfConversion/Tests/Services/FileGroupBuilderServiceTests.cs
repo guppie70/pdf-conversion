@@ -211,6 +211,62 @@ public class FileGroupBuilderServiceTests : IDisposable
             Assert.Empty(result);
     }
 
+    [Fact]
+    public async Task BuildXmlFileGroupsAsync_WithProjectScope_FiltersCorrectly()
+    {
+        // This test will verify that when customer and projectId are provided,
+        // only files from that specific project are returned
+
+        // Arrange
+        var projects = CreateTestProjects();
+        _mockProjectService.Setup(s => s.GetProjectsAsync())
+            .ReturnsAsync(projects);
+
+        // Create test files for multiple projects
+        CreateXmlFile("optiver", "ar24-1", "input.xml");
+        CreateXmlFile("optiver", "ar24-2", "source.xml");
+        CreateXmlFile("taxxor", "ar25-1", "data.xml");
+
+        // Act - Call with project scope
+        var result = await _service.BuildXmlFileGroupsAsync(
+            includeInputFiles: true,
+            includeOutputFiles: false,
+            onlyActiveProjects: false,
+            customer: "optiver",
+            projectId: "ar24-1");
+
+        // Assert - Should only return files from optiver/ar24-1
+        Assert.Single(result);
+        Assert.Equal("optiver", result[0].Customer);
+        Assert.Equal("ar24-1", result[0].ProjectId);
+    }
+
+    [Fact]
+    public async Task BuildDocumentFileGroupsAsync_WithProjectScope_FiltersCorrectly()
+    {
+        // Arrange
+        var projects = CreateTestProjects();
+        _mockProjectService.Setup(s => s.GetProjectsAsync())
+            .ReturnsAsync(projects);
+
+        // Create test files for multiple projects
+        CreateDocumentFile("optiver", "ar24-1", "report.pdf");
+        CreateDocumentFile("optiver", "ar24-2", "annual.pdf");
+        CreateDocumentFile("taxxor", "ar25-1", "data.pdf");
+
+        // Act - Call with project scope
+        var result = await _service.BuildDocumentFileGroupsAsync(
+            new[] { ".pdf" },
+            onlyActiveProjects: false,
+            customer: "taxxor",
+            projectId: "ar25-1");
+
+        // Assert - Should only return files from taxxor/ar25-1
+        Assert.Single(result);
+        Assert.Equal("taxxor", result[0].Customer);
+        Assert.Equal("ar25-1", result[0].ProjectId);
+    }
+
     #endregion
 
     #region BuildDocumentFileGroupsAsync Tests
