@@ -993,7 +993,7 @@
             // Load file groups using the service (filters by active projects automatically)
             ProjectFileGroups = await FileGroupBuilder.BuildXmlFileGroupsAsync(
                 includeInputFiles: true,
-                includeOutputFiles: true,
+                includeOutputFiles: false,  // Only show input files (source XML for transformation)
                 onlyActiveProjects: false,
                 customer: Customer,
                 projectId: ProjectId);
@@ -1093,18 +1093,20 @@
                         {
                             Logger.LogWarning("[OnInitializedAsync] Hierarchy file not found: {File}", hierarchyFilename);
                             // No hierarchy file found, load flat list in Restricted Mode
+                            // Use LoadManualModeHeadersAsync() which transforms the source file first
                             if (_currentMode == HierarchyMode.Restricted)
                             {
-                                await LoadFlatHeaderListAsync();
+                                await LoadManualModeHeadersAsync();
                             }
                         }
                     }
                     else
                     {
                         // No saved hierarchy selection, load flat list in Restricted Mode
+                        // Use LoadManualModeHeadersAsync() which transforms the source file first
                         if (_currentMode == HierarchyMode.Restricted)
                         {
-                            await LoadFlatHeaderListAsync();
+                            await LoadManualModeHeadersAsync();
                         }
                     }
                 }

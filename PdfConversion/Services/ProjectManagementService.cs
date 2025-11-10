@@ -289,14 +289,14 @@ public class ProjectManagementService : IProjectManagementService
                 lastProcessedDate = File.GetLastWriteTime(outputFile);
             }
 
-            // Get display string from ProjectLabelService
-            var displayName = await _labelService.GetDisplayStringAsync(organization, projectId);
+            // Get custom label from ProjectLabelService (just the label, not the full DisplayString)
+            var customLabel = await _labelService.GetProjectLabelAsync(organization, projectId);
 
             return new Project
             {
                 ProjectId = projectId,
                 Organization = organization,
-                Name = displayName,
+                Name = customLabel ?? projectId,  // Fallback to projectId if no custom label
                 InputPath = projectPath,
                 OutputPath = outputPath,
                 Status = status,

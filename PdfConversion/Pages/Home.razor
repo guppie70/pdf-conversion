@@ -1234,7 +1234,7 @@
     private void OpenProject(string customer, string projectId)
     {
         Logger.LogInformation("Opening project: {Customer}/{ProjectId}", customer, projectId);
-        Navigation.NavigateTo($"/convert/{customer}/{projectId}");
+        Navigation.NavigateTo($"/docling-convert/{customer}/{projectId}");
     }
 
     public void Dispose()

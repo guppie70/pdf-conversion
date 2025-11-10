@@ -1,9 +1,12 @@
 ﻿@inherits LayoutComponentBase
 @using PdfConversion.Services
 @using PdfConversion.Shared
+@using PdfConversion.Utils
+@using PdfConversion.Models
 @inject NavigationManager Navigation
 @inject TransformToolbarState ToolbarState
 @inject IJSRuntime JSRuntime
+@inject IProjectLabelService ProjectLabelService
 @implements IDisposable
 
 <PageTitle>PdfConversion</PageTitle>
@@ -17,10 +20,10 @@
             {
                 var (customer, projectId) = GetCurrentProject();
 
-                <NavLink href="@($"/convert/{customer}/{projectId}")" class="nav-link">Section Generation</NavLink>
-                <NavLink href="@($"/transform/{customer}/{projectId}")" class="nav-link">Transform</NavLink>
                 <NavLink href="@($"/docling-convert/{customer}/{projectId}")" class="nav-link">Convert</NavLink>
+                <NavLink href="@($"/transform/{customer}/{projectId}")" class="nav-link">Transform</NavLink>
                 <NavLink href="@($"/generate-hierarchy/{customer}/{projectId}")" class="nav-link">Generate Hierarchy</NavLink>
+                <NavLink href="@($"/convert/{customer}/{projectId}")" class="nav-link">Section Generation</NavLink>
             }
 
             <!-- Production always visible as it operates outside project scope -->
@@ -40,9 +43,9 @@
         @if (IsProjectContextActive())
         {
             var (customer, projectId) = GetCurrentProject();
+            var displayString = GetProjectDisplayString(customer, projectId);
             <div class="project-context-indicator">
-                <i class="bi bi-folder-fill"></i>
-                <span class="project-path">@customer / @projectId</span>
+                <span class="project-path">@displayString</span>
             </div>
         }
 
@@ -79,6 +82,7 @@
     private bool IsOnTransformPage => Navigation.Uri.Contains("/transform", StringComparison.OrdinalIgnoreCase);
     private bool ShowHelp = false;
     private bool ShowTransformationLog = false;
+    private Dictionary<string, string> _projectCache = new();
 
     private bool IsProjectContextActive()
     {
@@ -110,10 +114,47 @@
         return (string.Empty, string.Empty);
     }
 
-    protected override void OnInitialized()
+    private string GetProjectDisplayString(string customer, string projectId)
+    {
+        // Try to get the project from cache
+        if (_projectCache.TryGetValue($"{customer}:{projectId}", out var displayString))
+        {
+            return displayString;
+        }
+
+        // Fallback to basic format while loading
+        return $"{FilenameUtils.FormatCustomerDisplayName(customer)} / {projectId}";
+    }
+
+    protected override async Task OnInitializedAsync()
     {
         Navigation.LocationChanged += OnLocationChanged;
         ToolbarState.OnChange += StateHasChanged;
+
+        // Load all projects to populate cache
+        await LoadProjectCacheAsync();
+    }
+
+    private async Task LoadProjectCacheAsync()
+    {
+        try
+        {
+            var projects = await ProjectLabelService.GetAllProjectsAsync("data/input");
+            _projectCache.Clear();
+
+            foreach (var project in projects)
+            {
+                var key = $"{project.Customer}:{project.ProjectId}";
+                // Format: "CustomerDisplay / CustomLabel or ProjectId"
+                var customerDisplay = FilenameUtils.FormatCustomerDisplayName(project.Customer);
+                var label = string.IsNullOrEmpty(project.CustomLabel) ? project.ProjectId : project.CustomLabel;
+                _projectCache[key] = $"{customerDisplay} / {label}";
+            }
+        }
+        catch (Exception)
+        {
+            // Silently fail - fallback formatting will be used
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

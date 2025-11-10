@@ -317,13 +317,13 @@
 }
 
 .col-status {
-    width: 18%;
-    min-width: 150px;
+    width: 12%;
+    min-width: 100px;
 }
 
 .col-actions {
-    width: 12%;
-    min-width: 80px;
+    width: 18%;
+    min-width: 150px;
 }
 
 /* Project ID Cell */
@@ -844,7 +844,7 @@
 
 /* Open Button - VS Code Dark Modern (Primary Blue) */
 .btn-open {
-    background: transparent;
+    background: transparent !important;
     border: none;
     color: #4fc3f7; /* Primary blue - most prominent */
     font-size: 20px;
@@ -856,16 +856,18 @@
     align-items: center;
     justify-content: center;
     opacity: 0.9;
+    min-width: auto;
+    width: auto;
 }
 
 .btn-open:hover {
-    background: rgba(79, 195, 247, 0.15);
+    background: rgba(79, 195, 247, 0.15) !important;
     opacity: 1;
     transform: scale(1.1);
 }
 
 .btn-open:active {
-    background: rgba(79, 195, 247, 0.25);
+    background: rgba(79, 195, 247, 0.25) !important;
     transform: scale(0.95);
 }
 

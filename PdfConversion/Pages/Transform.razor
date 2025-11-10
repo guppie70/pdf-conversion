@@ -1102,7 +1102,7 @@
             // Use the service to build file groups for dropdowns
             ProjectFileGroups = await FileGroupBuilder.BuildXmlFileGroupsAsync(
                 includeInputFiles: true,
-                includeOutputFiles: true,  // Transform needs both
+                includeOutputFiles: false,  // Only show input files for transformation
                 onlyActiveProjects: false,
                 customer: Customer,
                 projectId: ProjectId);
