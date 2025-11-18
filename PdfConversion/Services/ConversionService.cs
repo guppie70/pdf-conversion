@@ -950,8 +950,28 @@ public class ConversionService : IConversionService
                         // This ensures we don't get matches for other hierarchy items with the same LinkName
                         // IMPORTANT: Only include matches that come AFTER the current section start in document order
                         var currentSectionStart = match.MatchedHeader;
-                        var nextMatches = matches
+
+                        // DEBUG: Log current section start position
+                        var currentPos = currentSectionStart != null ? GetDocumentPosition(currentSectionStart) : -1;
+                        if (currentSectionStart != null)
+                        {
+                            logCallback($"{progress}   Current section start: '{match.MatchedText}' at doc position {currentPos}");
+                        }
+
+                        // Get all candidates first (before filtering)
+                        var allCandidates = matches
                             .Where(m => m.HierarchyItem.Id == nextHierarchyItem.Id && m.MatchedHeader != null)
+                            .ToList();
+
+                        // DEBUG: Log all candidates with their positions
+                        foreach (var candidate in allCandidates)
+                        {
+                            var candidatePos = GetDocumentPosition(candidate.MatchedHeader!);
+                            var isAfter = IsAfterInDocument(currentSectionStart!, candidate.MatchedHeader!);
+                            logCallback($"{progress}   Candidate: '{candidate.MatchedText}' at doc position {candidatePos}, isAfter={isAfter}");
+                        }
+
+                        var nextMatches = allCandidates
                             .Where(m => {
                                 // Only include boundaries that are AFTER the current section start
                                 if (currentSectionStart == null)
@@ -959,7 +979,10 @@ public class ConversionService : IConversionService
 
                                 return IsAfterInDocument(currentSectionStart, m.MatchedHeader!);
                             })
+                            .OrderBy(m => GetDocumentPosition(m.MatchedHeader!))  // Sort by document order (closest first)
                             .ToList();
+
+                        logCallback($"{progress}   After filtering: {nextMatches.Count} candidates remain");
 
                         if (nextMatches.Count > 1)
                         {
@@ -988,6 +1011,15 @@ public class ConversionService : IConversionService
                             }
                             else
                             {
+                                // Disambiguation failed - use the CLOSEST boundary (first in sorted list)
+                                // This prevents sections from extending too far and including wrong content
+                                var closestMatch = nextMatches.First();
+                                nextHeader = closestMatch.MatchedHeader;
+                                logCallback($"{progress} ✓ Auto-selected closest boundary: {closestMatch.MatchedText}");
+                                resolvedDuplicates[nextHierarchyItem.Id] = closestMatch;
+
+                                // Skip asking user - we now always pick the closest boundary
+                                /*
                                 // Still ambiguous - ask user
                                 logCallback($"{progress} ℹ Could not auto-resolve, asking user...");
 
@@ -1023,6 +1055,7 @@ public class ConversionService : IConversionService
                                 {
                                     logCallback($"{progress} ⚠ User skipped boundary selection, extracting to end");
                                 }
+                                */
                             }
                         }
                         else if (nextMatches.Count == 1)
@@ -1317,33 +1350,30 @@ public class ConversionService : IConversionService
     }
 
     /// <summary>
+    /// Gets the position of an element in document order
+    /// </summary>
+    private int GetDocumentPosition(XElement element)
+    {
+        var body = element.Ancestors().FirstOrDefault(a => a.Name.LocalName.ToLowerInvariant() == "body");
+        if (body == null)
+            return -1;
+
+        var allElements = body.Descendants().ToList();
+        return allElements.IndexOf(element);
+    }
+
+    /// <summary>
     /// Checks if element2 comes after element1 in document order
     /// </summary>
     private bool IsAfterInDocument(XElement element1, XElement element2)
     {
-        // Get the root document element (body)
-        var body1 = element1.Ancestors().FirstOrDefault(a => a.Name.LocalName.ToLowerInvariant() == "body");
-        var body2 = element2.Ancestors().FirstOrDefault(a => a.Name.LocalName.ToLowerInvariant() == "body");
+        var pos1 = GetDocumentPosition(element1);
+        var pos2 = GetDocumentPosition(element2);
 
-        if (body1 == null || body2 == null || body1 != body2)
-        {
-            // Elements not in same document/body, can't compare
+        if (pos1 == -1 || pos2 == -1)
             return false;
-        }
 
-        // Get all elements in document order
-        var allElements = body1.Descendants().ToList();
-        var index1 = allElements.IndexOf(element1);
-        var index2 = allElements.IndexOf(element2);
-
-        if (index1 == -1 || index2 == -1)
-        {
-            // One or both elements not found
-            return false;
-        }
-
-        // element2 comes after element1 if its index is greater
-        return index2 > index1;
+        return pos2 > pos1;
     }
 
     /// <summary>
@@ -1384,34 +1414,12 @@ public class ConversionService : IConversionService
             // Get the XHTML namespace
             var xhtmlNs = XNamespace.Get("http://www.w3.org/1999/xhtml");
 
-            // Get ALL headers first
-            var allHeadersUnfiltered = transformedXhtml.Descendants()
+            // Get ALL headers first (no filtering - we'll filter per candidate)
+            var allHeaders = transformedXhtml.Descendants()
                 .Where(e => IsHeaderElement(e))
                 .ToList();
 
-            // Find the last processed header position
-            int lastProcessedIndex = -1;
-            if (processedMatches.Count > 0)
-            {
-                // Find the last non-null matched header in processed matches
-                var lastProcessedHeader = processedMatches
-                    .Where(m => m.MatchedHeader != null)
-                    .Select(m => m.MatchedHeader)
-                    .LastOrDefault();
-
-                if (lastProcessedHeader != null)
-                {
-                    lastProcessedIndex = allHeadersUnfiltered.IndexOf(lastProcessedHeader);
-                    logCallback($"{progress}   Last processed header found at index {lastProcessedIndex}");
-                }
-            }
-
-            // Filter to only headers AFTER the last processed position
-            var allHeaders = lastProcessedIndex >= 0
-                ? allHeadersUnfiltered.Skip(lastProcessedIndex + 1).ToList()
-                : allHeadersUnfiltered;
-
-            logCallback($"{progress}   Searching through {allHeaders.Count} unprocessed headers (filtered from {allHeadersUnfiltered.Count} total)");
+            logCallback($"{progress}   Searching through {allHeaders.Count} total headers in document");
 
             // Score each duplicate by how well the subsequent headers match
             var candidateScores = new List<CandidateScore>();
@@ -1425,23 +1433,26 @@ public class ConversionService : IConversionService
 
                 if (duplicateIndex < 0) continue;
 
-                // Calculate forward-looking score (existing logic)
+                // Get headers AFTER this specific candidate
+                var headersAfterCandidate = allHeaders.Skip(duplicateIndex + 1).ToList();
+
+                // Calculate forward-looking score by checking headers AFTER this candidate
                 for (int j = 0; j < upcomingHierarchy.Count; j++)
                 {
                     var expectedItem = upcomingHierarchy[j];
                     bool found = false;
 
-                    // Look in the next headers after the duplicate (within next 20 headers)
-                    for (int k = duplicateIndex + 1; k < allHeaders.Count && k < duplicateIndex + 20; k++)
+                    // Look in the next headers after this candidate (within next 20 headers)
+                    for (int k = 0; k < headersAfterCandidate.Count && k < 20; k++)
                     {
-                        var header = allHeaders[k];
+                        var header = headersAfterCandidate[k];
                         var headerText = NormalizeHeaderText(header.Value);
 
                         if (HeaderMatchesHierarchy(headerText, expectedItem.LinkName))
                         {
                             found = true;
                             forwardScore += (5 - j); // Higher score for closer matches (5 for 1st, 4 for 2nd, etc.)
-                            logCallback($"{progress}     Found expected header '{expectedItem.LinkName}' at position {j + 1}");
+                            logCallback($"{progress}     Candidate {duplicate.DuplicateIndex + 1}: Found expected header '{expectedItem.LinkName}' at position {j + 1}");
                             break;
                         }
                     }
@@ -1450,7 +1461,7 @@ public class ConversionService : IConversionService
                     {
                         // Penalty for missing expected header
                         forwardScore -= 2;
-                        logCallback($"{progress}     Expected header '{expectedItem.LinkName}' not found (penalty: -2)");
+                        logCallback($"{progress}     Candidate {duplicate.DuplicateIndex + 1}: Expected header '{expectedItem.LinkName}' not found (penalty: -2)");
                     }
                 }
 
