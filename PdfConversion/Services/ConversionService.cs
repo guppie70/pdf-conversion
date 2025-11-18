@@ -819,8 +819,21 @@ public class ConversionService : IConversionService
                     {
                         // Find all duplicates for THIS SPECIFIC hierarchy item (by Id, not LinkName)
                         // This ensures we don't mix duplicates from different hierarchy items with the same LinkName
+                        // IMPORTANT: Only include FORWARD duplicates (in document order, not hierarchy order)
+                        // Get the last processed header's position in the document
+                        var matchesProcessedSoFar = matches.Take(i).ToList();
+                        var lastProcessedHeader = matchesProcessedSoFar.LastOrDefault(m => m.MatchedHeader != null)?.MatchedHeader;
+
                         var duplicateMatches = matches
                             .Where(m => m.HierarchyItem.Id == match.HierarchyItem.Id && m.IsDuplicate)
+                            .Where(m => {
+                                // Only include duplicates that come AFTER the last processed header in document order
+                                if (lastProcessedHeader == null || m.MatchedHeader == null)
+                                    return true; // Include if no processed headers yet
+
+                                // Check document order: is m.MatchedHeader after lastProcessedHeader?
+                                return IsAfterInDocument(lastProcessedHeader, m.MatchedHeader);
+                            })
                             .ToList();
 
                         // If we haven't processed this duplicate group yet
@@ -935,8 +948,17 @@ public class ConversionService : IConversionService
 
                         // Find all matches for this SPECIFIC next item (by Id, not LinkName)
                         // This ensures we don't get matches for other hierarchy items with the same LinkName
+                        // IMPORTANT: Only include matches that come AFTER the current section start in document order
+                        var currentSectionStart = match.MatchedHeader;
                         var nextMatches = matches
                             .Where(m => m.HierarchyItem.Id == nextHierarchyItem.Id && m.MatchedHeader != null)
+                            .Where(m => {
+                                // Only include boundaries that are AFTER the current section start
+                                if (currentSectionStart == null)
+                                    return true; // Include all if no current start
+
+                                return IsAfterInDocument(currentSectionStart, m.MatchedHeader!);
+                            })
                             .ToList();
 
                         if (nextMatches.Count > 1)
@@ -1292,6 +1314,36 @@ public class ConversionService : IConversionService
         );
 
         return newElement;
+    }
+
+    /// <summary>
+    /// Checks if element2 comes after element1 in document order
+    /// </summary>
+    private bool IsAfterInDocument(XElement element1, XElement element2)
+    {
+        // Get the root document element (body)
+        var body1 = element1.Ancestors().FirstOrDefault(a => a.Name.LocalName.ToLowerInvariant() == "body");
+        var body2 = element2.Ancestors().FirstOrDefault(a => a.Name.LocalName.ToLowerInvariant() == "body");
+
+        if (body1 == null || body2 == null || body1 != body2)
+        {
+            // Elements not in same document/body, can't compare
+            return false;
+        }
+
+        // Get all elements in document order
+        var allElements = body1.Descendants().ToList();
+        var index1 = allElements.IndexOf(element1);
+        var index2 = allElements.IndexOf(element2);
+
+        if (index1 == -1 || index2 == -1)
+        {
+            // One or both elements not found
+            return false;
+        }
+
+        // element2 comes after element1 if its index is greater
+        return index2 > index1;
     }
 
     /// <summary>

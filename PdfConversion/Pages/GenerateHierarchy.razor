@@ -2651,12 +2651,21 @@
 
         if (_manualHeaders != null)
         {
+            Logger.LogDebug("GetOrdersFromTreeSelection: Looking up {Count} IDs in {HeaderCount} headers",
+                topLevelIds.Count, _manualHeaders.Count);
+
             foreach (var id in topLevelIds)
             {
                 var header = _manualHeaders.FirstOrDefault(h => h.Id == id);
                 if (header != null)
                 {
                     result.Add(header.OriginalOrder);
+                    Logger.LogDebug("GetOrdersFromTreeSelection: Found ID '{Id}' → Order {Order}", id, header.OriginalOrder);
+                }
+                else
+                {
+                    Logger.LogWarning("GetOrdersFromTreeSelection: ID '{Id}' NOT FOUND in _manualHeaders! Available IDs: {AvailableIds}",
+                        id, string.Join(", ", _manualHeaders.Take(5).Select(h => h.Id)));
                 }
             }
         }
@@ -3180,6 +3189,14 @@
 
             // Assign sequential order for display badges
             AssignSequentialOrderToTree(_manualHierarchyItems);
+
+            // CRITICAL: Sync IDs back to _manualHeaders to prevent ID mismatch
+            // ConvertToHierarchy() may regenerate IDs, so we must update _manualHeaders
+            Logger.LogDebug("ExcludeSelectedHeaders: Syncing IDs from tree to headers. Tree IDs: {TreeIds}",
+                string.Join(", ", _manualHierarchyItems.Take(3).Select(i => i.Id)));
+            _manualHeaders = FlattenHierarchyToHeaders(_manualHierarchyItems);
+            Logger.LogDebug("ExcludeSelectedHeaders: After sync, header IDs: {HeaderIds}",
+                string.Join(", ", _manualHeaders.Take(3).Select(h => h.Id)));
 
             // Sync to CurrentHierarchy for saving
             SyncManualHierarchyToCurrentHierarchy();

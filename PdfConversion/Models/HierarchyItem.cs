@@ -165,6 +165,12 @@ public class HierarchyItem
     public int ChildCount { get; set; }
 
     /// <summary>
+    /// Line number in the original input document (1-based).
+    /// Used for document order validation - parent must appear BEFORE child.
+    /// </summary>
+    public int LineNumber { get; set; }
+
+    /// <summary>
     /// Returns a formatted string for logging and debugging
     /// </summary>
     public override string ToString() => $"{LinkName} (Level {Level}, ID: {Id}, Confidence: {ConfidenceScore:F2})";
