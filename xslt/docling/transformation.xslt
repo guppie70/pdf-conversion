@@ -197,6 +197,26 @@
         </xsl:copy>
     </xsl:template>
 
+    <!-- Fix incorrect nesting: <strong><p> → <p><strong> -->
+    <xsl:template match="strong[p]" priority="15">
+        <xsl:for-each select="p">
+            <p>
+                <xsl:apply-templates select="@*"/>
+                <strong>
+                    <xsl:apply-templates select="node()"/>
+                </strong>
+            </p>
+        </xsl:for-each>
+    </xsl:template>
+
+    <!-- Normal strong handling (when not containing p) -->
+    <xsl:template match="strong[not(p)]" priority="10">
+        <xsl:copy>
+            <xsl:apply-templates select="@*"/>
+            <xsl:apply-templates/>
+        </xsl:copy>
+    </xsl:template>
+
     <xsl:template match="ul | ol | li" priority="10">
         <xsl:copy>
             <xsl:apply-templates select="@*"/>
