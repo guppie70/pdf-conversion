@@ -326,6 +326,34 @@
     min-width: 150px;
 }
 
+/* Clickable Row - Apply pointer cursor to entire row */
+.projects-table tbody tr {
+    cursor: pointer !important;
+}
+
+/* Apply pointer cursor to all clickable cells explicitly */
+.projects-table tbody tr td.project-id-cell,
+.projects-table tbody tr td.display-cell,
+.projects-table tbody tr td.status-cell {
+    cursor: pointer !important;
+}
+
+/* Override cursor for Actions column (last cell) - should not be clickable */
+.projects-table tbody tr td:last-child {
+    cursor: default !important;
+}
+
+/* Ensure buttons in Actions column keep pointer cursor */
+.projects-table tbody tr td:last-child button {
+    cursor: pointer !important;
+}
+
+/* Override cursor when editing display name or status */
+.display-cell:has(.inline-edit-input),
+.status-cell:has(.status-select) {
+    cursor: default !important;
+}
+
 /* Project ID Cell */
 .project-id-cell code {
     font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
@@ -389,7 +417,6 @@
 
 /* Status Column Styling */
 .status-cell {
-    cursor: pointer;
     position: relative;
 }
 
@@ -399,6 +426,10 @@
     right: 8px;
     opacity: 0.4;
     font-size: 14px;
+}
+
+.status-cell:has(.status-select):hover::after {
+    content: none;
 }
 
 .status-select {

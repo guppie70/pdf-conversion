@@ -88,10 +88,10 @@
                                         var projectStatus = GetProjectStatus(project.Customer, project.ProjectId);
 
                                         <tr class="project-row status-@projectStatus.ToString().ToLower()">
-                                            <td class="project-id-cell col-project-id">
+                                            <td class="project-id-cell col-project-id" @onclick="() => HandleCellClick(project.Customer, project.ProjectId)">
                                                 <code>@project.ProjectId</code>
                                             </td>
-                                            <td class="display-cell col-display">
+                                            <td class="display-cell col-display" @onclick="() => HandleCellClick(project.Customer, project.ProjectId)">
                                                 @if (isEditing)
                                                 {
                                                     <input
@@ -102,6 +102,7 @@
                                                         @oninput="@(e => OnEditingValueChanged(editKey, e.Value?.ToString() ?? string.Empty))"
                                                         @onblur="@(() => ExitEditMode(project.Customer, project.ProjectId))"
                                                         @onkeydown="@(e => OnEditKeyDown(e, project.Customer, project.ProjectId))"
+                                                        @onclick:stopPropagation
                                                     />
                                                 }
                                                 else
@@ -109,12 +110,13 @@
                                                     <span
                                                         class="editable-label"
                                                         @ondblclick="@(() => EnterEditMode(project.Customer, project.ProjectId, project.CustomLabel))"
+                                                        @onclick:stopPropagation
                                                         title="Double-click to edit">
                                                         @project.DisplayString
                                                     </span>
                                                 }
                                             </td>
-                                            <td class="status-cell col-status" @ondblclick="@(() => StartEditingStatus(project.Customer, project.ProjectId))">
+                                            <td class="status-cell col-status" @onclick="() => HandleCellClick(project.Customer, project.ProjectId)">
                                                 @if (isEditingStatus)
                                                 {
                                                     <select class="status-select"
@@ -122,6 +124,7 @@
                                                             @onchange="@(e => SaveStatus(project.Customer, project.ProjectId, e.Value?.ToString()))"
                                                             @onblur="@(() => CancelEditingStatus())"
                                                             @onkeydown="@(e => HandleStatusKeyDown(e))"
+                                                            @onclick:stopPropagation
                                                             @ref="@statusSelectRef">
                                                         <option value="Open">Open</option>
                                                         <option value="InProgress">In Progress</option>
@@ -131,15 +134,13 @@
                                                 }
                                                 else
                                                 {
-                                                    <span class="status-text">@GetStatusDisplayText(projectStatus)</span>
+                                                    <span class="status-text"
+                                                          @ondblclick="@(() => StartEditingStatus(project.Customer, project.ProjectId))"
+                                                          @ondblclick:stopPropagation
+                                                          @onclick:stopPropagation>@GetStatusDisplayText(projectStatus)</span>
                                                 }
                                             </td>
                                             <td class="actions-cell col-actions">
-                                                <button class="btn-open"
-                                                        @onclick="@(() => OpenProject(project.Customer, project.ProjectId))"
-                                                        title="Open project">
-                                                    <i class="bi bi-arrow-right-circle-fill"></i>
-                                                </button>
                                                 <button class="btn-files"
                                                         @onclick="@(() => ShowProjectFilesModal(project.Customer, project.ProjectId, project.DisplayString))"
                                                         title="Manage files">
@@ -1229,6 +1230,18 @@
 
         // Reload projects to update last modified time
         await LoadProjectsAsync();
+    }
+
+    private void HandleCellClick(string customer, string projectId)
+    {
+        var editKey = GetEditKey(customer, projectId);
+        var statusKey = GetStatusKey(customer, projectId);
+
+        // Block navigation if actively editing
+        if (IsEditing(editKey) || IsEditingStatus(statusKey))
+            return;
+
+        OpenProject(customer, projectId);
     }
 
     private void OpenProject(string customer, string projectId)
