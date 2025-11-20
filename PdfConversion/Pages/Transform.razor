@@ -3,6 +3,7 @@
 @using PdfConversion.Models
 @using PdfConversion.Shared
 @using PdfConversion.Utils
+@using PdfConversion.Helpers
 @using Microsoft.JSInterop
 @using static PdfConversion.Shared.LoadingSkeleton
 @implements IAsyncDisposable
@@ -21,6 +22,8 @@
 @inject IFileGroupBuilderService FileGroupBuilder
 @inject IProjectValidationService ProjectValidation
 @inject NavigationManager NavigationManager
+@inject IProjectLoadingService ProjectLoader
+@inject SelectionRestorationHelper SelectionHelper
 
 <PageTitle>Transform</PageTitle>
 
@@ -1064,33 +1067,8 @@
             IsLoading = true;
             UpdateToolbarState();
 
-            // Get all projects from ProjectService
-            var allProjects = (await ProjectService.GetProjectsAsync()).ToList();
-
-            // Get active projects from MetadataService
-            var activeProjectMetadata = await MetadataService.GetActiveProjects();
-
-            // Filter to only include active projects (must have metadata entry)
-            Projects = allProjects.Where(p =>
-            {
-                if (activeProjectMetadata.TryGetValue(p.Organization, out var tenantProjects))
-                {
-                    return tenantProjects.ContainsKey(p.ProjectId);
-                }
-                // If no metadata exists for this tenant/project, exclude it
-                return false;
-            }).ToList();
-
-            // Merge custom labels from metadata
-            foreach (var project in Projects)
-            {
-                if (activeProjectMetadata.TryGetValue(project.Organization, out var tenantProjects) &&
-                    tenantProjects.TryGetValue(project.ProjectId, out var metadata) &&
-                    !string.IsNullOrWhiteSpace(metadata.Label))
-                {
-                    project.Name = $"{metadata.Label} ({project.ProjectId})";
-                }
-            }
+            // Use centralized ProjectLoadingService
+            Projects = await ProjectLoader.LoadActiveProjectsWithLabelsAsync();
 
             // Load files for each project
             foreach (var project in Projects)
@@ -1099,7 +1077,7 @@
                 project.Files = (await ProjectService.GetProjectFilesAsync(fullProjectId)).ToList();
             }
 
-            // Use the service to build file groups for dropdowns
+            // Build file groups for dropdowns
             ProjectFileGroups = await FileGroupBuilder.BuildXmlFileGroupsAsync(
                 includeInputFiles: true,
                 includeOutputFiles: false,  // Only show input files for transformation

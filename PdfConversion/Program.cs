@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using PdfConversion.HealthChecks;
+using PdfConversion.Helpers;
 using PdfConversion.Services;
 using Serilog;
 using Serilog.Events;
@@ -114,6 +115,12 @@ builder.Services.AddHostedService(provider => provider.GetRequiredService<Doclin
 // Register ProjectMetadataService
 var metadataPath = Path.Combine(builder.Environment.ContentRootPath, "data", "project-metadata.json");
 builder.Services.AddSingleton(new ProjectMetadataService(metadataPath));
+
+// Register ProjectLoadingService (centralizes project loading with metadata)
+builder.Services.AddScoped<IProjectLoadingService, ProjectLoadingService>();
+
+// Register SelectionRestorationHelper (centralizes selection restoration logic)
+builder.Services.AddScoped<SelectionRestorationHelper>();
 
 // Register performance optimization services
 builder.Services.AddSingleton<IDistributedCacheService, DistributedCacheService>();
