@@ -1189,24 +1189,17 @@
     {
         try
         {
-            // Parse absolute path: "/app/data/input/customer/projects/project-id/filename.xml"
-            var match = System.Text.RegularExpressions.Regex.Match(
-                filePath,
-                @"/app/data/(input|output)/([^/]+)/projects/([^/]+)/(.+)$"
-            );
+            // Use centralized ProjectPathParser
+            var parsed = ProjectPathParser.Parse(filePath);
 
-            if (!match.Success)
+            if (!parsed.Success)
             {
                 Logger.LogWarning("Failed to parse file path: {Path}", filePath);
                 return;
             }
 
-            var organization = match.Groups[2].Value;  // customer
-            var projectId = match.Groups[3].Value;     // project-id
-            var fileName = match.Groups[4].Value;       // filename.xml
-
-            SelectedProjectId = $"{organization}/{projectId}";
-            SelectedFileName = fileName;
+            SelectedProjectId = parsed.FullProjectId;
+            SelectedFileName = parsed.FileName;
             XmlContent = null;
             OutputContent = null;
 
