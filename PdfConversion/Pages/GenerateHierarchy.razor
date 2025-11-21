@@ -280,12 +280,15 @@
                     }
                 </div>
                 <div class="source-selector-group">
-                    <ProjectFileSelector
+                    <ProjectFileSelectionToolbar
                         FileGroups="@ProjectFileGroups"
-                        SelectedValue="@GetSelectedFilePath()"
-                        OnSelectionChanged="@OnFilePathChangedFromComponent"
+                        @bind-ProjectId="@SelectedProject"
+                        @bind-FileName="@SelectedFileName"
+                        OnSelectionChanged="@HandleSourceFileSelection"
+                        ShowLabel="false"
                         CssClass="form-select form-select-sm"
-                        PlaceholderText="Select source XML..." />
+                        PlaceholderText="Select source XML..."
+                        InputOutputType="input" />
                     <button class="btn btn-sm btn-outline-secondary reload-btn"
                             @onclick="OnReloadSourceXmlClickedAsync"
                             disabled="@(string.IsNullOrEmpty(SelectedSourceXml) || IsLoadingDocument)"
@@ -728,8 +731,43 @@
     // ProjectFileSelector helper properties
     private List<ProjectFileGroup> ProjectFileGroups { get; set; } = new();
 
-    private string GetSelectedFilePath() =>
-        !string.IsNullOrEmpty(SelectedSourceXml) ? SelectedSourceXml : string.Empty;
+    // Helper property to extract filename from SelectedSourceXml for toolbar binding
+    private string? SelectedFileName
+    {
+        get => !string.IsNullOrEmpty(SelectedSourceXml) ? Path.GetFileName(SelectedSourceXml) : null;
+        set
+        {
+            // Filename is set via toolbar - update SelectedSourceXml
+            if (!string.IsNullOrEmpty(value) && !string.IsNullOrEmpty(SelectedProject))
+            {
+                SelectedSourceXml = ProjectPathParser.BuildPathFromFullId("input", SelectedProject, value);
+            }
+        }
+    }
+
+    private async Task HandleSourceFileSelection(ProjectPathComponents parsed)
+    {
+        try
+        {
+            // Note: SelectedProject and SelectedFileName already updated via two-way binding
+            // SelectedSourceXml is updated via SelectedFileName setter
+            Logger.LogInformation("Source file selected: {Project} / {File}", SelectedProject, SelectedFileName);
+
+            // Save selections
+            await UserSelectionService.UpdateSelectionAsync(projectId: SelectedProject);
+            Logger.LogInformation("Saved project selection: {Project}", SelectedProject);
+
+            await UserSelectionService.UpdateSelectionAsync(sourceXml: SelectedFileName);
+            Logger.LogInformation("Saved source XML selection: {File}", SelectedFileName);
+
+            await OnSourceXmlChangedAsync();
+            LoadHierarchyXmlFiles();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error handling source file selection");
+        }
+    }
 
     private async Task OnFilePathChangedFromComponent(string filePath)
     {

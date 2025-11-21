@@ -38,14 +38,16 @@
             <div class="row g-3">
                 <!-- Combined Project & Source File Selection -->
                 <div class="col-md-6">
-                    <label for="sourceFileSelect" class="form-label">Source File</label>
-                    <ProjectFileSelector
+                    <ProjectFileSelectionToolbar
                         FileGroups="@ProjectFileGroups"
-                        SelectedValue="@GetSelectedFilePath()"
-                        OnSelectionChanged="@OnFilePathChangedFromComponent"
-                        CssClass="form-select"
+                        @bind-ProjectId="@_config.ProjectId"
+                        @bind-FileName="@_config.SourceFile"
+                        OnSelectionChanged="@HandleSourceFileSelection"
+                        LabelText="Source File"
+                        ElementId="sourceFileSelect"
                         PlaceholderText="Select source file..."
-                        IsDisabled="@IsProcessing" />
+                        IsDisabled="@IsProcessing"
+                        InputOutputType="input" />
                 </div>
 
                 <!-- Hierarchy File Selection -->
@@ -252,18 +254,6 @@
 
     // ProjectFileSelector helper properties
     private List<ProjectFileGroup> ProjectFileGroups { get; set; } = new();
-
-    private string GetSelectedFilePath()
-    {
-        if (string.IsNullOrEmpty(_config.ProjectId) || string.IsNullOrEmpty(_config.SourceFile))
-            return string.Empty;
-
-        var parts = _config.ProjectId.Split('/', 2);
-        if (parts.Length != 2) return string.Empty;
-
-        // Return absolute path to match dropdown values from FileGroupBuilder
-        return $"/app/data/input/{parts[0]}/projects/{parts[1]}/{_config.SourceFile}";
-    }
 
     // Progress tracking
     private int CurrentItemIndex = 0;
@@ -484,42 +474,30 @@
         StateHasChanged();
     }
 
-    private async Task OnFilePathChangedFromComponent(string filePath)
+    private async Task HandleSourceFileSelection(ProjectPathComponents parsed)
     {
-        if (!string.IsNullOrEmpty(filePath))
+        try
         {
-            try
-            {
-                // Use centralized ProjectPathParser
-                var parsed = ProjectPathParser.Parse(filePath);
+            // Note: ProjectId and SourceFile are already updated via two-way binding
+            // Reset hierarchy selection
+            _config.HierarchyFile = null;
+            HierarchyFiles = null;
 
-                if (!parsed.Success)
-                {
-                    Logger.LogWarning("Failed to parse file path: {Path}", filePath);
-                    return;
-                }
+            // Load hierarchy files for the selected project
+            await LoadProjectFilesAsync(_config.ProjectId!);
 
-                _config.ProjectId = parsed.FullProjectId;
-                _config.SourceFile = parsed.FileName;
-                _config.HierarchyFile = null;  // Reset hierarchy selection
-                HierarchyFiles = null;
+            // Save to UserSelectionService with FULL path format (e.g., "optiver/ar24-3")
+            await UserSelectionService.UpdateSelectionAsync(
+                projectId: _config.ProjectId,
+                sourceXml: _config.SourceFile);
 
-                // Load hierarchy files for the selected project
-                await LoadProjectFilesAsync(_config.ProjectId!);
-
-                // Save to UserSelectionService with FULL path format (e.g., "optiver/ar24-3")
-                await UserSelectionService.UpdateSelectionAsync(
-                    projectId: _config.ProjectId,  // Use full path, not just projectId
-                    sourceXml: parsed.FileName);
-
-                AddLogEntry($"Source file selected: {parsed.FileName}");
-                StateHasChanged();
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "Error handling file path change");
-                AddLogEntry($"Error selecting file: {ex.Message}");
-            }
+            AddLogEntry($"Source file selected: {_config.SourceFile}");
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error handling file selection");
+            AddLogEntry($"Error selecting file: {ex.Message}");
         }
     }
 

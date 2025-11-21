@@ -1,0 +1,152 @@
+@using PdfConversion.Models
+@using PdfConversion.Utils
+
+@if (ShowLabel)
+{
+    <div class="mb-3">
+        <label for="@ElementId" class="form-label">@LabelText</label>
+        <ProjectFileSelector
+            FileGroups="@FileGroups"
+            SelectedValue="@GetSelectedFilePath()"
+            OnSelectionChanged="@HandleFilePathChanged"
+            CssClass="@CssClass"
+            PlaceholderText="@PlaceholderText"
+            IsDisabled="@IsDisabled" />
+    </div>
+}
+else
+{
+    <ProjectFileSelector
+        FileGroups="@FileGroups"
+        SelectedValue="@GetSelectedFilePath()"
+        OnSelectionChanged="@HandleFilePathChanged"
+        CssClass="@CssClass"
+        PlaceholderText="@PlaceholderText"
+        IsDisabled="@IsDisabled" />
+}
+
+@code {
+    /// <summary>
+    /// List of file groups to display in the dropdown
+    /// </summary>
+    [Parameter]
+    public List<ProjectFileGroup>? FileGroups { get; set; }
+
+    /// <summary>
+    /// Currently selected project ID in format "customer/project-id"
+    /// </summary>
+    [Parameter]
+    public string? ProjectId { get; set; }
+
+    /// <summary>
+    /// Event callback when project ID changes
+    /// </summary>
+    [Parameter]
+    public EventCallback<string?> ProjectIdChanged { get; set; }
+
+    /// <summary>
+    /// Currently selected file name (not full path, just filename)
+    /// </summary>
+    [Parameter]
+    public string? FileName { get; set; }
+
+    /// <summary>
+    /// Event callback when file name changes
+    /// </summary>
+    [Parameter]
+    public EventCallback<string?> FileNameChanged { get; set; }
+
+    /// <summary>
+    /// Event callback when selection changes (provides full parsed path components)
+    /// </summary>
+    [Parameter]
+    public EventCallback<ProjectPathComponents> OnSelectionChanged { get; set; }
+
+    /// <summary>
+    /// Whether to show a label above the selector
+    /// </summary>
+    [Parameter]
+    public bool ShowLabel { get; set; } = true;
+
+    /// <summary>
+    /// Label text (only used if ShowLabel is true)
+    /// </summary>
+    [Parameter]
+    public string LabelText { get; set; } = "Source File";
+
+    /// <summary>
+    /// Element ID for label association
+    /// </summary>
+    [Parameter]
+    public string ElementId { get; set; } = "fileSelect";
+
+    /// <summary>
+    /// Placeholder text for the dropdown
+    /// </summary>
+    [Parameter]
+    public string PlaceholderText { get; set; } = "Select a file...";
+
+    /// <summary>
+    /// CSS class(es) to apply to the select element
+    /// </summary>
+    [Parameter]
+    public string CssClass { get; set; } = "form-select";
+
+    /// <summary>
+    /// Whether the dropdown is disabled
+    /// </summary>
+    [Parameter]
+    public bool IsDisabled { get; set; } = false;
+
+    /// <summary>
+    /// Input/output directory type ("input" or "output")
+    /// </summary>
+    [Parameter]
+    public string InputOutputType { get; set; } = "input";
+
+    /// <summary>
+    /// Builds the selected file path from ProjectId and FileName.
+    /// Uses centralized ProjectPathParser for consistency.
+    /// </summary>
+    private string? GetSelectedFilePath()
+    {
+        if (string.IsNullOrEmpty(ProjectId) || string.IsNullOrEmpty(FileName))
+            return null;
+
+        return ProjectPathParser.BuildPathFromFullId(InputOutputType, ProjectId, FileName);
+    }
+
+    /// <summary>
+    /// Handles file path change from ProjectFileSelector.
+    /// Parses the path using ProjectPathParser and updates ProjectId/FileName.
+    /// </summary>
+    private async Task HandleFilePathChanged(string filePath)
+    {
+        if (string.IsNullOrEmpty(filePath))
+        {
+            // Clear selection
+            await ProjectIdChanged.InvokeAsync(null);
+            await FileNameChanged.InvokeAsync(null);
+            return;
+        }
+
+        // Use centralized ProjectPathParser
+        var parsed = ProjectPathParser.Parse(filePath);
+
+        if (!parsed.Success)
+        {
+            // Invalid path - don't update state
+            return;
+        }
+
+        // Update two-way bound parameters
+        await ProjectIdChanged.InvokeAsync(parsed.FullProjectId);
+        await FileNameChanged.InvokeAsync(parsed.FileName);
+
+        // Invoke custom selection changed callback if provided
+        if (OnSelectionChanged.HasDelegate)
+        {
+            await OnSelectionChanged.InvokeAsync(parsed);
+        }
+    }
+}
