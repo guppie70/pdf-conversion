@@ -6,6 +6,7 @@
 @using PdfConversion.Models
 @using PdfConversion.Components
 @using PdfConversion.Utils
+@using PdfConversion.Helpers
 @inject IProjectManagementService ProjectService
 @inject IConversionService ConversionService
 @inject IRoundTripValidationService ValidationService
@@ -16,6 +17,8 @@
 @inject IFileGroupBuilderService FileGroupBuilder
 @inject IProjectValidationService ProjectValidation
 @inject NavigationManager NavigationManager
+@inject IProjectLoadingService ProjectLoader
+@inject SelectionRestorationHelper SelectionHelper
 @implements IDisposable
 
 <PageTitle>Convert: PDF to Taxxor Sections</PageTitle>
@@ -313,113 +316,45 @@
     {
         try
         {
-            string? savedProjectId = null;
-            string? savedSourceFile = null;
-            string? savedHierarchyFile = null;
+            // Use centralized SelectionRestorationHelper
+            var restored = await SelectionHelper.RestoreProjectSelectionAsync(Projects);
 
-            // First, try to restore from UserSelectionService (server-side JSON)
-            try
+            if (!restored.ProjectFound)
             {
-                var selection = await UserSelectionService.GetSelectionAsync();
-
-                if (!string.IsNullOrEmpty(selection.LastSelectedProject))
+                if (!string.IsNullOrEmpty(restored.WarningMessage))
                 {
-                    // Support both formats:
-                    // - Full format: "optiver/ar24-3" (preferred, used by unified dropdown)
-                    // - Short format: "ar24-3" (legacy, needs lookup)
-
-                    string? resolvedProjectId = null;
-
-                    if (selection.LastSelectedProject.Contains('/'))
-                    {
-                        // Already in full format - use directly
-                        resolvedProjectId = selection.LastSelectedProject;
-                        Logger.LogInformation("Restored project selection in full format: {Project}", resolvedProjectId);
-                    }
-                    else
-                    {
-                        // Short format - find matching project in Projects list
-                        Logger.LogWarning("⚠️ Legacy ProjectId format detected in user-selections.json: '{ProjectId}' (expected 'customer/project-id' format)",
-                            selection.LastSelectedProject);
-
-                        var matchingProject = Projects?.FirstOrDefault(p =>
-                            p.ProjectId.EndsWith("/" + selection.LastSelectedProject, StringComparison.OrdinalIgnoreCase));
-
-                        resolvedProjectId = matchingProject?.ProjectId;
-
-                        if (resolvedProjectId != null)
-                        {
-                            Logger.LogInformation("Resolved legacy ProjectId '{Short}' to full format: {Full}",
-                                selection.LastSelectedProject, resolvedProjectId);
-                        }
-                        else
-                        {
-                            Logger.LogWarning("Could not resolve legacy ProjectId '{Short}' to any available project",
-                                selection.LastSelectedProject);
-                        }
-                    }
-
-                    if (resolvedProjectId != null)
-                    {
-                        savedProjectId = resolvedProjectId;
-                        savedSourceFile = selection.LastSelectedSourceXml;
-                        savedHierarchyFile = selection.LastSelectedHierarchyXml;
-                        Logger.LogInformation("Restored selections from UserSelectionService: Project={Project}, Source={Source}, Hierarchy={Hierarchy}",
-                            savedProjectId, savedSourceFile, savedHierarchyFile);
-                    }
+                    Logger.LogWarning(restored.WarningMessage);
                 }
-            }
-            catch (Exception ex)
-            {
-                Logger.LogWarning(ex, "Error restoring selections from UserSelectionService");
+                return;
             }
 
-            // Apply the restored selections
-            if (!string.IsNullOrEmpty(savedProjectId))
+            // Apply restored project selection
+            _config.ProjectId = restored.ProjectId;
+            await LoadProjectFilesAsync(restored.ProjectId!);
+
+            // Restore source file selection
+            if (SelectionHelper.ValidateFileExists(restored.SourceFile, SourceFiles))
             {
-                // Check if project exists in loaded projects
-                // Note: Projects list contains Project objects where the full path is "{Organization}/{ProjectId}"
-                var projectExists = Projects?.Any(p => $"{p.Organization}/{p.ProjectId}" == savedProjectId) == true;
-
-                if (projectExists)
-                {
-                    Logger.LogInformation("Applying restored selections: Project={Project}, Source={Source}, Hierarchy={Hierarchy}",
-                        savedProjectId, savedSourceFile, savedHierarchyFile);
-
-                    _config.ProjectId = savedProjectId;
-                    await LoadProjectFilesAsync(savedProjectId);
-
-                    // Restore source file selection
-                    if (!string.IsNullOrEmpty(savedSourceFile) && SourceFiles?.Contains(savedSourceFile) == true)
-                    {
-                        _config.SourceFile = savedSourceFile;
-                        Logger.LogInformation("Restored source file: {File}", savedSourceFile);
-                    }
-                    else if (!string.IsNullOrEmpty(savedSourceFile))
-                    {
-                        Logger.LogWarning("Source file '{File}' not found in project files", savedSourceFile);
-                    }
-
-                    // Restore hierarchy file selection
-                    if (!string.IsNullOrEmpty(savedHierarchyFile) && HierarchyFiles?.Contains(savedHierarchyFile) == true)
-                    {
-                        _config.HierarchyFile = savedHierarchyFile;
-                        Logger.LogInformation("Restored hierarchy file: {File}", savedHierarchyFile);
-                    }
-                    else if (!string.IsNullOrEmpty(savedHierarchyFile))
-                    {
-                        Logger.LogWarning("Hierarchy file '{File}' not found in project files", savedHierarchyFile);
-                    }
-
-                    StateHasChanged();
-                }
-                else
-                {
-                    Logger.LogWarning("Project '{Project}' not found in loaded projects. Available projects: {Available}",
-                        savedProjectId,
-                        string.Join(", ", Projects?.Select(p => $"{p.Organization}/{p.ProjectId}") ?? Array.Empty<string>()));
-                }
+                _config.SourceFile = restored.SourceFile;
+                Logger.LogInformation("Restored source file: {File}", restored.SourceFile);
             }
+            else if (!string.IsNullOrEmpty(restored.SourceFile))
+            {
+                Logger.LogWarning("Source file '{File}' not found in project files", restored.SourceFile);
+            }
+
+            // Restore hierarchy file selection
+            if (SelectionHelper.ValidateFileExists(restored.HierarchyFile, HierarchyFiles))
+            {
+                _config.HierarchyFile = restored.HierarchyFile;
+                Logger.LogInformation("Restored hierarchy file: {File}", restored.HierarchyFile);
+            }
+            else if (!string.IsNullOrEmpty(restored.HierarchyFile))
+            {
+                Logger.LogWarning("Hierarchy file '{File}' not found in project files", restored.HierarchyFile);
+            }
+
+            StateHasChanged();
         }
         catch (Exception ex)
         {
@@ -474,35 +409,10 @@
     {
         try
         {
-            // Get all projects from ProjectService
-            var allProjects = (await ProjectService.GetProjectsAsync()).ToList();
+            // Use centralized ProjectLoadingService
+            Projects = await ProjectLoader.LoadActiveProjectsWithLabelsAsync();
 
-            // Get active projects from MetadataService
-            var activeProjectMetadata = await MetadataService.GetActiveProjects();
-
-            // Filter to only include active projects (must have metadata entry)
-            Projects = allProjects.Where(p =>
-            {
-                if (activeProjectMetadata.TryGetValue(p.Organization, out var tenantProjects))
-                {
-                    return tenantProjects.ContainsKey(p.ProjectId);
-                }
-                // If no metadata exists for this tenant/project, exclude it
-                return false;
-            }).ToList();
-
-            // Merge custom labels from metadata
-            foreach (var project in Projects)
-            {
-                if (activeProjectMetadata.TryGetValue(project.Organization, out var tenantProjects) &&
-                    tenantProjects.TryGetValue(project.ProjectId, out var metadata) &&
-                    !string.IsNullOrWhiteSpace(metadata.Label))
-                {
-                    project.Name = $"{metadata.Label} ({project.ProjectId})";
-                }
-            }
-
-            // Use the service to build file groups (replaces manual file loading)
+            // Build file groups for project/file selector
             ProjectFileGroups = await FileGroupBuilder.BuildXmlFileGroupsAsync(
                 includeInputFiles: true,
                 includeOutputFiles: false,  // Convert only needs input files
@@ -580,36 +490,29 @@
         {
             try
             {
-                // Parse absolute path: "/app/data/input/customer/projects/project-id/filename.xml"
-                var match = System.Text.RegularExpressions.Regex.Match(
-                    filePath,
-                    @"/app/data/(input|output)/([^/]+)/projects/([^/]+)/(.+)$"
-                );
+                // Use centralized ProjectPathParser
+                var parsed = ProjectPathParser.Parse(filePath);
 
-                if (!match.Success)
+                if (!parsed.Success)
                 {
                     Logger.LogWarning("Failed to parse file path: {Path}", filePath);
                     return;
                 }
 
-                var organization = match.Groups[2].Value;  // customer
-                var projectId = match.Groups[3].Value;     // project-id
-                var fileName = match.Groups[4].Value;       // filename.xml
-
-                _config.ProjectId = $"{organization}/{projectId}";
-                _config.SourceFile = fileName;
+                _config.ProjectId = parsed.FullProjectId;
+                _config.SourceFile = parsed.FileName;
                 _config.HierarchyFile = null;  // Reset hierarchy selection
                 HierarchyFiles = null;
 
                 // Load hierarchy files for the selected project
-                await LoadProjectFilesAsync(_config.ProjectId);
+                await LoadProjectFilesAsync(_config.ProjectId!);
 
                 // Save to UserSelectionService with FULL path format (e.g., "optiver/ar24-3")
                 await UserSelectionService.UpdateSelectionAsync(
                     projectId: _config.ProjectId,  // Use full path, not just projectId
-                    sourceXml: fileName);
+                    sourceXml: parsed.FileName);
 
-                AddLogEntry($"Source file selected: {fileName}");
+                AddLogEntry($"Source file selected: {parsed.FileName}");
                 StateHasChanged();
             }
             catch (Exception ex)

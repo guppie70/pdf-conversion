@@ -3,6 +3,7 @@
 @using PdfConversion.Models
 @using PdfConversion.Shared
 @using PdfConversion.Utils
+@using PdfConversion.Helpers
 @using Microsoft.JSInterop
 @using static PdfConversion.Shared.LoadingSkeleton
 @implements IAsyncDisposable
@@ -21,6 +22,8 @@
 @inject IFileGroupBuilderService FileGroupBuilder
 @inject IProjectValidationService ProjectValidation
 @inject NavigationManager NavigationManager
+@inject IProjectLoadingService ProjectLoader
+@inject SelectionRestorationHelper SelectionHelper
 
 <PageTitle>Transform</PageTitle>
 
@@ -1064,33 +1067,8 @@
             IsLoading = true;
             UpdateToolbarState();
 
-            // Get all projects from ProjectService
-            var allProjects = (await ProjectService.GetProjectsAsync()).ToList();
-
-            // Get active projects from MetadataService
-            var activeProjectMetadata = await MetadataService.GetActiveProjects();
-
-            // Filter to only include active projects (must have metadata entry)
-            Projects = allProjects.Where(p =>
-            {
-                if (activeProjectMetadata.TryGetValue(p.Organization, out var tenantProjects))
-                {
-                    return tenantProjects.ContainsKey(p.ProjectId);
-                }
-                // If no metadata exists for this tenant/project, exclude it
-                return false;
-            }).ToList();
-
-            // Merge custom labels from metadata
-            foreach (var project in Projects)
-            {
-                if (activeProjectMetadata.TryGetValue(project.Organization, out var tenantProjects) &&
-                    tenantProjects.TryGetValue(project.ProjectId, out var metadata) &&
-                    !string.IsNullOrWhiteSpace(metadata.Label))
-                {
-                    project.Name = $"{metadata.Label} ({project.ProjectId})";
-                }
-            }
+            // Use centralized ProjectLoadingService
+            Projects = await ProjectLoader.LoadActiveProjectsWithLabelsAsync();
 
             // Load files for each project
             foreach (var project in Projects)
@@ -1099,7 +1077,7 @@
                 project.Files = (await ProjectService.GetProjectFilesAsync(fullProjectId)).ToList();
             }
 
-            // Use the service to build file groups for dropdowns
+            // Build file groups for dropdowns
             ProjectFileGroups = await FileGroupBuilder.BuildXmlFileGroupsAsync(
                 includeInputFiles: true,
                 includeOutputFiles: false,  // Only show input files for transformation
@@ -1211,34 +1189,27 @@
     {
         try
         {
-            // Parse absolute path: "/app/data/input/customer/projects/project-id/filename.xml"
-            var match = System.Text.RegularExpressions.Regex.Match(
-                filePath,
-                @"/app/data/(input|output)/([^/]+)/projects/([^/]+)/(.+)$"
-            );
+            // Use centralized ProjectPathParser
+            var parsed = ProjectPathParser.Parse(filePath);
 
-            if (!match.Success)
+            if (!parsed.Success)
             {
                 Logger.LogWarning("Failed to parse file path: {Path}", filePath);
                 return;
             }
 
-            var organization = match.Groups[2].Value;  // customer
-            var projectId = match.Groups[3].Value;     // project-id
-            var fileName = match.Groups[4].Value;       // filename.xml
-
-            SelectedProjectId = $"{organization}/{projectId}";
-            SelectedFileName = fileName;
+            SelectedProjectId = parsed.FullProjectId;
+            SelectedFileName = parsed.FileName;
             XmlContent = null;
             OutputContent = null;
 
             // Auto-select XSLT file based on source XML filename pattern
-            if (fileName.Contains("docling", StringComparison.OrdinalIgnoreCase))
+            if (SelectedFileName.Contains("docling", StringComparison.OrdinalIgnoreCase))
             {
                 var desiredXslt = "docling/transformation.xslt";
                 if (XsltFiles != null && XsltFiles.Contains(desiredXslt) && SelectedXsltFile != desiredXslt)
                 {
-                    Logger.LogInformation("Auto-selecting XSLT file '{Xslt}' based on source XML filename pattern '{FileName}'", desiredXslt, fileName);
+                    Logger.LogInformation("Auto-selecting XSLT file '{Xslt}' based on source XML filename pattern '{FileName}'", desiredXslt, SelectedFileName);
                     SelectedXsltFile = desiredXslt;
 
                     // Load the XSLT content immediately
@@ -1280,8 +1251,8 @@
 
             // Use the provided absolute path directly (no need to construct)
             var xmlFilePath = filePath;
-            XmlContent = await ProjectService.ReadInputFileAsync(SelectedProjectId, fileName);
-            Logger.LogInformation("Loaded file {FileName} from project {ProjectId}", fileName, SelectedProjectId);
+            XmlContent = await ProjectService.ReadInputFileAsync(SelectedProjectId, SelectedFileName);
+            Logger.LogInformation("Loaded file {FileName} from project {ProjectId}", SelectedFileName, SelectedProjectId);
 
             // Start watching the XML file
             try
