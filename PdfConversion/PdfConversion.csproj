@@ -25,7 +25,7 @@
     <!-- Diff comparison package -->
     <PackageReference Include="DiffPlex" Version="1.7.2" />
     <!-- HTML to XML conversion -->
-    <PackageReference Include="HtmlAgilityPack" Version="1.11.71" />
+    <PackageReference Include="HtmlAgilityPack" Version="1.11.61" />
   </ItemGroup>
 
   <ItemGroup>

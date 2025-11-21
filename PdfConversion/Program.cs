@@ -104,6 +104,7 @@ builder.Services.AddScoped<IProjectDeletionService, ProjectDeletionService>();
 builder.Services.AddScoped<IProjectCreationService, ProjectCreationService>();
 builder.Services.AddScoped<IProjectArchiveService, ProjectArchiveService>();
 builder.Services.AddScoped<ISourceDetectionService, SourceDetectionService>();
+builder.Services.AddScoped<IHtmlToXhtmlConversionService, HtmlToXhtmlConversionService>();
 
 // Register MetadataSyncService (single instance for both hosted service and injection)
 builder.Services.AddSingleton<IMetadataSyncService, MetadataSyncService>();
