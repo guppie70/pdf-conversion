@@ -66,12 +66,13 @@
 
 
     /// <summary>
-    /// Generates the optgroup label in format: "Customer / Project Name (project-id)"
+    /// Generates the optgroup label in format: "Customer / Project Name"
+    /// Note: ProjectName already includes the project ID from ProjectLoadingService
     /// </summary>
     private string GetGroupLabel(ProjectFileGroup group)
     {
         var customerDisplay = FilenameUtils.FormatCustomerDisplayName(group.Customer);
-        return $"{customerDisplay} / {group.ProjectName} ({group.ProjectId})";
+        return $"{customerDisplay} / {group.ProjectName}";
     }
 
     /// <summary>

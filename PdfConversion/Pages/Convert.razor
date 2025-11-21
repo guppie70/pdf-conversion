@@ -510,9 +510,9 @@
                 // Save to UserSelectionService with FULL path format (e.g., "optiver/ar24-3")
                 await UserSelectionService.UpdateSelectionAsync(
                     projectId: _config.ProjectId,  // Use full path, not just projectId
-                    sourceXml: fileName);
+                    sourceXml: parsed.FileName);
 
-                AddLogEntry($"Source file selected: {fileName}");
+                AddLogEntry($"Source file selected: {parsed.FileName}");
                 StateHasChanged();
             }
             catch (Exception ex)

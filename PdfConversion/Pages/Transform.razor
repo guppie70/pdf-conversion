@@ -1204,12 +1204,12 @@
             OutputContent = null;
 
             // Auto-select XSLT file based on source XML filename pattern
-            if (fileName.Contains("docling", StringComparison.OrdinalIgnoreCase))
+            if (SelectedFileName.Contains("docling", StringComparison.OrdinalIgnoreCase))
             {
                 var desiredXslt = "docling/transformation.xslt";
                 if (XsltFiles != null && XsltFiles.Contains(desiredXslt) && SelectedXsltFile != desiredXslt)
                 {
-                    Logger.LogInformation("Auto-selecting XSLT file '{Xslt}' based on source XML filename pattern '{FileName}'", desiredXslt, fileName);
+                    Logger.LogInformation("Auto-selecting XSLT file '{Xslt}' based on source XML filename pattern '{FileName}'", desiredXslt, SelectedFileName);
                     SelectedXsltFile = desiredXslt;
 
                     // Load the XSLT content immediately
@@ -1251,8 +1251,8 @@
 
             // Use the provided absolute path directly (no need to construct)
             var xmlFilePath = filePath;
-            XmlContent = await ProjectService.ReadInputFileAsync(SelectedProjectId, fileName);
-            Logger.LogInformation("Loaded file {FileName} from project {ProjectId}", fileName, SelectedProjectId);
+            XmlContent = await ProjectService.ReadInputFileAsync(SelectedProjectId, SelectedFileName);
+            Logger.LogInformation("Loaded file {FileName} from project {ProjectId}", SelectedFileName, SelectedProjectId);
 
             // Start watching the XML file
             try

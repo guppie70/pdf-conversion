@@ -12,7 +12,6 @@ public class RestoredSelection
     public string? ProjectId { get; set; }
     public string? SourceFile { get; set; }
     public string? HierarchyFile { get; set; }
-    public string? TransformedXml { get; set; }
     public string? WarningMessage { get; set; }
 }
 
@@ -112,14 +111,12 @@ public class SelectionRestorationHelper
             result.ProjectId = resolvedProjectId;
             result.SourceFile = selection.LastSelectedSourceXml;
             result.HierarchyFile = selection.LastSelectedHierarchyXml;
-            result.TransformedXml = selection.LastSelectedTransformedXml;
 
             _logger.LogInformation(
-                "Restored selections: Project={Project}, Source={Source}, Hierarchy={Hierarchy}, Transformed={Transformed}",
+                "Restored selections: Project={Project}, Source={Source}, Hierarchy={Hierarchy}",
                 result.ProjectId,
                 result.SourceFile,
-                result.HierarchyFile,
-                result.TransformedXml);
+                result.HierarchyFile);
 
             return result;
         }
