@@ -24,6 +24,8 @@
 @inject NavigationManager NavigationManager
 @inject IProjectLoadingService ProjectLoader
 @inject SelectionRestorationHelper SelectionHelper
+@inject ISourceDetectionService SourceDetectionService
+@inject IHtmlToXhtmlConversionService HtmlToXhtmlConversionService
 
 <PageTitle>Transform</PageTitle>
 
@@ -1204,46 +1206,51 @@
             XmlContent = null;
             OutputContent = null;
 
-            // Auto-select XSLT file based on source XML filename pattern
-            if (SelectedFileName.Contains("docling", StringComparison.OrdinalIgnoreCase))
+            // Auto-select XSLT file based on source filename using SourceDetectionService
+            try
             {
-                var desiredXslt = "docling/transformation.xslt";
-                if (XsltFiles != null && XsltFiles.Contains(desiredXslt) && SelectedXsltFile != desiredXslt)
+                var xsltPath = SourceDetectionService.GetXsltPathForSource(SelectedFileName);
+
+                // Convert to relative path for XsltFiles list (e.g., "/app/xslt/adobe/transformation.xslt" → "adobe/transformation.xslt")
+                var relativePath = xsltPath.Replace("/app/xslt/", "");
+
+                if (XsltFiles != null && XsltFiles.Contains(relativePath) && SelectedXsltFile != relativePath)
                 {
-                    Logger.LogInformation("Auto-selecting XSLT file '{Xslt}' based on source XML filename pattern '{FileName}'", desiredXslt, SelectedFileName);
-                    SelectedXsltFile = desiredXslt;
+                    Logger.LogInformation("Auto-selecting XSLT file '{Xslt}' based on source filename '{FileName}'", relativePath, SelectedFileName);
+                    SelectedXsltFile = relativePath;
 
                     // Load the XSLT content immediately
-                    try
+                    if (File.Exists(xsltPath))
                     {
-                        var xsltPath = $"/app/xslt/{SelectedXsltFile}";
-                        if (File.Exists(xsltPath))
+                        XsltContent = await File.ReadAllTextAsync(xsltPath);
+                        Logger.LogInformation("Auto-loaded XSLT file from {Path}", xsltPath);
+
+                        // Update Monaco editor if initialized
+                        if (monacoInitialized)
                         {
-                            XsltContent = await File.ReadAllTextAsync(xsltPath);
-                            Logger.LogInformation("Auto-loaded XSLT file from {Path}", xsltPath);
+                            await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.setValue", XsltContent);
+                        }
 
-                            // Update Monaco editor if initialized
-                            if (monacoInitialized)
-                            {
-                                await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.setValue", XsltContent);
-                            }
-
-                            // Update file watcher
-                            try
-                            {
-                                XsltFileWatcher.StartWatching(xsltPath);
-                            }
-                            catch (Exception watchEx)
-                            {
-                                Logger.LogError(watchEx, "Failed to start XSLT file watcher during auto-selection");
-                            }
+                        // Update file watcher
+                        try
+                        {
+                            XsltFileWatcher.StartWatching(xsltPath);
+                        }
+                        catch (Exception watchEx)
+                        {
+                            Logger.LogError(watchEx, "Failed to start XSLT file watcher during auto-selection");
                         }
                     }
-                    catch (Exception xsltEx)
-                    {
-                        Logger.LogError(xsltEx, "Error auto-loading XSLT file during source XML selection");
-                    }
                 }
+            }
+            catch (ArgumentException argEx)
+            {
+                // Source filename doesn't match known patterns - log and continue without auto-selection
+                Logger.LogWarning(argEx, "Could not auto-determine XSLT for source file '{FileName}'", SelectedFileName);
+            }
+            catch (Exception xsltEx)
+            {
+                Logger.LogError(xsltEx, "Error auto-loading XSLT file during source file selection");
             }
 
             IsLoadingXml = true;
@@ -1254,6 +1261,21 @@
             var xmlFilePath = filePath;
             XmlContent = await ProjectService.ReadInputFileAsync(SelectedProjectId, SelectedFileName);
             Logger.LogInformation("Loaded file {FileName} from project {ProjectId}", SelectedFileName, SelectedProjectId);
+
+            // If HTML source file, convert to XHTML before processing
+            if (SelectedFileName.EndsWith(".source.html", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    XmlContent = await HtmlToXhtmlConversionService.ConvertHtmlToXhtmlAsync(XmlContent);
+                    Logger.LogInformation("Converted HTML source to XHTML for file {FileName}", SelectedFileName);
+                }
+                catch (Exception convEx)
+                {
+                    Logger.LogError(convEx, "Failed to convert HTML to XHTML for file {FileName}", SelectedFileName);
+                    ToastNotification.ShowError($"Failed to convert HTML to XHTML: {convEx.Message}");
+                }
+            }
 
             // Start watching the XML file
             try
@@ -1412,6 +1434,21 @@
                 var xmlFilePath = Path.Combine("/app/data/input/optiver/projects", SelectedProjectId, SelectedFileName);
                 XmlContent = await ProjectService.ReadInputFileAsync(SelectedProjectId, SelectedFileName);
                 Logger.LogInformation("Loaded file {FileName} from project {ProjectId}", SelectedFileName, SelectedProjectId);
+
+                // If HTML source file, convert to XHTML before processing
+                if (SelectedFileName.EndsWith(".source.html", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        XmlContent = await HtmlToXhtmlConversionService.ConvertHtmlToXhtmlAsync(XmlContent);
+                        Logger.LogInformation("Converted HTML source to XHTML for file {FileName}", SelectedFileName);
+                    }
+                    catch (Exception convEx)
+                    {
+                        Logger.LogError(convEx, "Failed to convert HTML to XHTML for file {FileName}", SelectedFileName);
+                        ToastNotification.ShowError($"Failed to convert HTML to XHTML: {convEx.Message}");
+                    }
+                }
 
                 // Start watching the XML file for external changes
                 try
