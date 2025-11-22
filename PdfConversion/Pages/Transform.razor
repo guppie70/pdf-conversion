@@ -1874,7 +1874,7 @@
                 TransformationStats = result;
                 Logger.LogInformation("Transformation successful in {Time}ms. OutputContent length: {Length}", result.ProcessingTimeMs, OutputContent?.Length ?? 0);
 
-                // Save normalized XML to debug folder
+                // Save normalized XML to normalized/ folder with derived name
                 if (!string.IsNullOrEmpty(SelectedProjectId) && !string.IsNullOrEmpty(OutputContent))
                 {
                     try
@@ -1884,20 +1884,22 @@
                         {
                             var organization = parts[0];
                             var projectId = parts[1];
-                            var debugPath = Path.Combine("/app/data/output", organization, "projects", projectId, "debug");
+                            var projectPath = Path.Combine("/app/data/input", organization, "projects", projectId);
 
-                            // Ensure debug directory exists
-                            if (!Directory.Exists(debugPath))
-                            {
-                                Directory.CreateDirectory(debugPath);
-                            }
+                            // Ensure normalized folder exists
+                            PdfConversion.Services.FileService.EnsureProjectFoldersExist(projectPath);
 
-                            var normalizedXmlPath = Path.Combine(debugPath, "normalized.xml");
+                            // Derive normalized filename from source filename
+                            var derivedName = SourceDetectionService.GetNormalizedXmlName(SelectedFileName);
+                            var normalizedDir = Path.Combine(projectPath, "normalized");
+                            var normalizedXmlPath = Path.Combine(normalizedDir, derivedName);
+
+                            // Save to normalized folder
                             await File.WriteAllTextAsync(normalizedXmlPath, OutputContent);
                             SavedNormalizedXmlPath = normalizedXmlPath;
                             Logger.LogInformation("Saved normalized XML to {Path}", normalizedXmlPath);
 
-                            // Also write to _work directory for development context
+                            // Also write to _work directory for development context (keep this)
                             try
                             {
                                 var workPath = "/app/data/_work";
@@ -1918,7 +1920,7 @@
                     }
                     catch (Exception ex)
                     {
-                        Logger.LogError(ex, "Failed to save normalized XML to debug folder");
+                        Logger.LogError(ex, "Failed to save normalized XML to normalized/ folder");
                         // Non-critical error, continue
                     }
                 }

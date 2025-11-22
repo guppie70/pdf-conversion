@@ -709,16 +709,39 @@
                         outputContent = htmlWithBase64;  // Actually contains DocTags or JSON content from Docling
                     }
 
-                    // Save with appropriate file extension
-                    var fileExtension = OutputFormat switch
+                    // Determine source filename based on file type and output format
+                    string sourceFilename;
+                    if (baseFilename.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
                     {
-                        "xml" => "xml",
-                        "markdown" => "md",
-                        "doctags" => "doctags",
-                        "json" => "json",
-                        _ => "html"  // default for html format
-                    };
-                    var outputPath = Path.Combine(projectFolderPath, $"docling-output.{fileExtension}");
+                        sourceFilename = OutputFormat switch
+                        {
+                            "xml" => "docling-pdf.source.xml",
+                            "html" => "docling-pdf.source.html",
+                            "markdown" => "docling-pdf.source.md",
+                            "doctags" => "docling-pdf.source.doctags",
+                            "json" => "docling-pdf.source.json",
+                            _ => "docling-pdf.source.html"
+                        };
+                    }
+                    else
+                    {
+                        // Word document
+                        sourceFilename = OutputFormat switch
+                        {
+                            "xml" => "docling-word.source.xml",
+                            "html" => "docling-word.source.html",
+                            "markdown" => "docling-word.source.md",
+                            "doctags" => "docling-word.source.doctags",
+                            "json" => "docling-word.source.json",
+                            _ => "docling-word.source.html"
+                        };
+                    }
+
+                    // Ensure source folder exists
+                    var sourceDir = Path.Combine(projectFolderPath, "source");
+                    Directory.CreateDirectory(sourceDir);
+
+                    var outputPath = Path.Combine(sourceDir, sourceFilename);
                     await File.WriteAllTextAsync(outputPath, outputContent, System.Text.Encoding.UTF8);
                     Logger.LogInformation($"Saved output to: {outputPath}");
 
@@ -729,7 +752,7 @@
                     var imageInfo = needsImageExtraction && imageCount > 0
                         ? $" with {imageCount} images extracted"
                         : "";
-                    SuccessMessage = $"Conversion successful! Processed {result.PageCount ?? 0} pages in {ElapsedSeconds} seconds{imageInfo}. Output saved to {outputPath}";
+                    SuccessMessage = $"Conversion successful! Processed {result.PageCount ?? 0} pages in {ElapsedSeconds} seconds{imageInfo}. Output saved to source/{Path.GetFileName(outputPath)}";
                     Logger.LogInformation($"Conversion complete{(needsImageExtraction ? " with image extraction" : "")}");
                 }
                 else

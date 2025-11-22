@@ -51,14 +51,18 @@ public class FileService : IFileService
             var projectPath = Path.Combine("/app/data/input", organization, "projects", id);
             Directory.CreateDirectory(projectPath);
 
-            var filePath = Path.Combine(projectPath, fileName);
+            // Save Adobe XML to source/ folder with standardized name
+            EnsureProjectFoldersExist(projectPath);
+            var sourceDir = Path.Combine(projectPath, "source");
+            var standardizedName = "adobe.xml";  // Adobe uploads always become adobe.xml
+            var filePath = Path.Combine(sourceDir, standardizedName);
             using (var fileStreamOut = File.Create(filePath))
             {
                 await fileStream.CopyToAsync(fileStreamOut);
             }
 
-            _logger.LogInformation("Uploaded XML file {FileName} to project {Organization}/{ProjectId}", fileName, organization, id);
-            return (true, $"Successfully uploaded {fileName}");
+            _logger.LogInformation("Uploaded XML file as source/adobe.xml to project {Organization}/{ProjectId}", organization, id);
+            return (true, $"Successfully uploaded Adobe XML to source/adobe.xml");
         }
         catch (Exception ex)
         {
@@ -438,6 +442,20 @@ public class FileService : IFileService
         var extension = Path.GetExtension(fileName); // ".xml"
         var nameWithoutExtension = Path.GetFileNameWithoutExtension(fileName); // "report"
         return $"{nameWithoutExtension}-lorem{extension}"; // "report-lorem.xml"
+    }
+
+    /// <summary>
+    /// Ensures source and normalized folders exist for a project.
+    /// </summary>
+    public static void EnsureProjectFoldersExist(string projectPath)
+    {
+        var sourceDir = Path.Combine(projectPath, "source");
+        var normalizedDir = Path.Combine(projectPath, "normalized");
+
+        if (!Directory.Exists(sourceDir))
+            Directory.CreateDirectory(sourceDir);
+        if (!Directory.Exists(normalizedDir))
+            Directory.CreateDirectory(normalizedDir);
     }
 
     private (string organization, string projectId) ParseProjectId(string projectId)
