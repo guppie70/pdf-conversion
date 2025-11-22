@@ -711,7 +711,7 @@
 
                     // Determine source filename based on file type and output format
                     string sourceFilename;
-                    if (baseFilename.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+                    if (SelectedExistingFile.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
                     {
                         sourceFilename = OutputFormat switch
                         {
