@@ -106,13 +106,41 @@ public class FileGroupBuilderService : IFileGroupBuilderService
                     var inputPath = Path.Combine(_inputBasePath, project.Organization, "projects", project.ProjectId);
                     if (Directory.Exists(inputPath))
                     {
-                        var inputFiles = Directory.GetFiles(inputPath, "*.xml")
+                        // Get XML files from project root
+                        var inputFiles = Directory.GetFiles(inputPath, "*.xml", SearchOption.TopDirectoryOnly)
                             .Select(f => new ProjectFile
                             {
                                 FileName = Path.GetFileName(f),
                                 FullPath = f // Absolute path for XML files
                             });
                         files.AddRange(inputFiles);
+
+                        // Get source files from source/ subfolder
+                        var sourceDir = Path.Combine(inputPath, "source");
+                        if (Directory.Exists(sourceDir))
+                        {
+                            var sourceFiles = Directory.GetFiles(sourceDir, "*.xml")
+                                .Select(f => new ProjectFile
+                                {
+                                    FileName = Path.GetFileName(f),
+                                    FullPath = f
+                                });
+                            files.AddRange(sourceFiles);
+                        }
+
+                        // Get normalized files from normalized/ subfolder
+                        var normalizedDir = Path.Combine(inputPath, "normalized");
+                        if (Directory.Exists(normalizedDir))
+                        {
+                            var normalizedFiles = Directory.GetFiles(normalizedDir, "*.xml")
+                                .Union(Directory.GetFiles(normalizedDir, "*.xhtml"))
+                                .Select(f => new ProjectFile
+                                {
+                                    FileName = Path.GetFileName(f),
+                                    FullPath = f
+                                });
+                            files.AddRange(normalizedFiles);
+                        }
                     }
                 }
 
