@@ -256,9 +256,9 @@
                 return;
             }
 
-            // Normalize filename (use "adobe-source.xml" as default)
-            var targetFileName = "adobe-source.xml";
-            var targetPath = Path.Combine("/app/data/input", Customer, "projects", ProjectId, targetFileName);
+            // Normalize filename (use "adobe.xml" as default)
+            var targetFileName = "adobe.xml";
+            var targetPath = Path.Combine("/app/data/input", Customer, "projects", ProjectId, "source", targetFileName);
 
             // Ensure directory exists
             var directory = Path.GetDirectoryName(targetPath);

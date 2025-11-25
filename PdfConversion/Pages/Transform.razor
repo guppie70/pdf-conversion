@@ -1071,10 +1071,11 @@
 
             // Build file groups for dropdowns
             // For Transform page, only show source/ files, not normalized/ (which are outputs from previous runs)
+            // Using the new convention where all source files should be in the source/ folder
             ProjectFileGroups = await FileGroupBuilder.CreateQuery()
                 .UseInputBase(true)
-                .SourceXmlFiles()          // XML files from source/ folder
-                .RootXmlFiles()            // XML files from project root
+                .SourceXmlFiles()          // XML files from source/ folder only
+                // NOTE: Not including RootXmlFiles() to avoid duplicates (files should be in source/)
                 // NOTE: Not including NormalizedFiles() since we don't want normalized/ folder files
                 .OnlyActiveProjects(false)
                 .ForCustomer(Customer)
