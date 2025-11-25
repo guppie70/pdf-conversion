@@ -1070,12 +1070,16 @@
             }
 
             // Build file groups for dropdowns
-            ProjectFileGroups = await FileGroupBuilder.BuildXmlFileGroupsAsync(
-                includeInputFiles: true,
-                includeOutputFiles: false,  // Only show input files for transformation
-                onlyActiveProjects: false,
-                customer: Customer,
-                projectId: ProjectId);
+            // For Transform page, only show source/ files, not normalized/ (which are outputs from previous runs)
+            ProjectFileGroups = await FileGroupBuilder.CreateQuery()
+                .UseInputBase(true)
+                .SourceXmlFiles()          // XML files from source/ folder
+                .RootXmlFiles()            // XML files from project root
+                // NOTE: Not including NormalizedFiles() since we don't want normalized/ folder files
+                .OnlyActiveProjects(false)
+                .ForCustomer(Customer)
+                .ForProject(ProjectId)
+                .BuildAsync();
 
             Logger.LogInformation("Loaded {Count} active projects with files", Projects.Count);
         }
@@ -1210,13 +1214,23 @@
             try
             {
                 var xsltPath = SourceDetectionService.GetXsltPathForSource(SelectedFileName);
+                Logger.LogInformation("SourceDetectionService returned '{XsltPath}' for file '{FileName}'", xsltPath, SelectedFileName);
 
                 // Convert to relative path for XsltFiles list (e.g., "/app/xslt/adobe/transformation.xslt" → "adobe/transformation.xslt")
                 var relativePath = xsltPath.Replace("/app/xslt/", "");
+                Logger.LogInformation("Relative path: '{RelativePath}', Current XSLT: '{CurrentXslt}'", relativePath, SelectedXsltFile);
 
-                if (XsltFiles != null && XsltFiles.Contains(relativePath) && SelectedXsltFile != relativePath)
+                // Always update the XSLT to match the source file type
+                if (XsltFiles != null && XsltFiles.Contains(relativePath))
                 {
-                    Logger.LogInformation("Auto-selecting XSLT file '{Xslt}' based on source filename '{FileName}'", relativePath, SelectedFileName);
+                    if (SelectedXsltFile != relativePath)
+                    {
+                        Logger.LogInformation("Auto-selecting XSLT file '{Xslt}' based on source filename '{FileName}'", relativePath, SelectedFileName);
+                    }
+                    else
+                    {
+                        Logger.LogInformation("XSLT file '{Xslt}' already correctly selected for source '{FileName}'", relativePath, SelectedFileName);
+                    }
                     SelectedXsltFile = relativePath;
 
                     // Load the XSLT content immediately
@@ -2800,14 +2814,19 @@
 
                 if (savedSelection != null && !string.IsNullOrEmpty(savedSelection.ProjectId))
                 {
-                    Logger.LogInformation("Restoring saved selection: Project={Project}, File={File}, XsltFile={XsltFile}",
-                        savedSelection.ProjectId, savedSelection.FileName, savedSelection.XsltFile);
-
-                    // Set flag to prevent saving during restoration
-                    isRestoringFromStorage = true;
-
-                    try
+                    // CRITICAL: Only restore selection if it matches the current project
+                    // Security fix: Never load content from a different project
+                    var currentProject = $"{Customer}/{ProjectId}";
+                    if (savedSelection.ProjectId.Equals(currentProject, StringComparison.OrdinalIgnoreCase))
                     {
+                        Logger.LogInformation("Restoring saved selection: Project={Project}, File={File}, XsltFile={XsltFile}",
+                            savedSelection.ProjectId, savedSelection.FileName, savedSelection.XsltFile);
+
+                        // Set flag to prevent saving during restoration
+                        isRestoringFromStorage = true;
+
+                        try
+                        {
                         // Restore XSLT file selection first
                         if (!string.IsNullOrEmpty(savedSelection.XsltFile))
                         {
@@ -2855,10 +2874,17 @@
                                 savedSelection.FileName ?? "(empty)");
                         }
                     }
-                    finally
+                        finally
+                        {
+                            // Clear the flag after restoration is complete
+                            isRestoringFromStorage = false;
+                        }
+                    }
+                    else
                     {
-                        // Clear the flag after restoration is complete
-                        isRestoringFromStorage = false;
+                        // Saved selection exists but is from a different project - security check
+                        Logger.LogWarning("⚠️ SECURITY: Ignoring saved selection from different project. Saved: {SavedProject}, Current: {CurrentProject}",
+                            savedSelection.ProjectId, currentProject);
                     }
                 }
                 else

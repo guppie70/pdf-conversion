@@ -1,0 +1,66 @@
+// Example: How to update Transform.razor to use the new FileGroupBuilderService
+// This file shows the specific changes needed in Transform.razor
+
+// CURRENT CODE (around line 1074):
+// ProjectFileGroups = await FileGroupBuilder.BuildXmlFileGroupsAsync(
+//     includeInputFiles: true,
+//     includeOutputFiles: false,
+//     onlyActiveProjects: false,
+//     customer: Customer,
+//     projectId: ProjectId,
+//     includeNormalizedFolder: false);  // Don't show normalized for Transform page
+
+// NEW CODE - Option 1: Simple migration using presets
+ProjectFileGroups = await FileGroupBuilder.CreateQuery()
+    .UseInputBase(true)
+    .SourceXmlFiles()          // XML files from source/ folder
+    .RootXmlFiles()            // XML files from project root
+    // NOTE: Not including NormalizedFiles() since includeNormalizedFolder was false
+    .OnlyActiveProjects(false)
+    .ForCustomer(Customer)
+    .ForProject(ProjectId)
+    .BuildAsync();
+
+// NEW CODE - Option 2: More explicit (clearer intent)
+ProjectFileGroups = await FileGroupBuilder.CreateQuery()
+    .UseInputBase(true)
+    .UseOutputBase(false)
+    .FromProjectPath("source")    // Look in source/ folder
+    .WithExtensions(".xml")        // Only XML files
+    .FromProjectPath("")           // Also look in project root
+    .WithExtensions(".xml")        // XML files in root
+    .OnlyActiveProjects(false)
+    .ForCustomer(Customer)
+    .ForProject(ProjectId)
+    .BuildAsync();
+
+// NEW CODE - Option 3: Most flexible (if we want to make it configurable)
+var query = FileGroupBuilder.CreateQuery()
+    .UseInputBase(true)
+    .UseOutputBase(false)
+    .OnlyActiveProjects(false);
+
+// Add sources based on configuration
+query.SourceXmlFiles()         // Always include source/ folder
+     .RootXmlFiles();          // Always include root XML files
+
+// Optionally include normalized (could be controlled by a setting)
+if (IncludeNormalizedInTransform)  // This could be a page property
+{
+    query.NormalizedFiles();
+}
+
+// Apply filters
+if (!string.IsNullOrEmpty(Customer))
+    query.ForCustomer(Customer);
+
+if (!string.IsNullOrEmpty(ProjectId))
+    query.ForProject(ProjectId);
+
+ProjectFileGroups = await query.BuildAsync();
+
+// BENEFITS OF THE NEW APPROACH:
+// 1. Clear intent - we can see exactly which folders are being searched
+// 2. Flexible - easy to add/remove sources without changing method signatures
+// 3. Configurable - can make folder inclusion dynamic based on settings
+// 4. Extensible - can add new folder sources without modifying the service

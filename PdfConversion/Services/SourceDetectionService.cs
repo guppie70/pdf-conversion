@@ -22,23 +22,27 @@ public class SourceDetectionService : ISourceDetectionService
             throw new ArgumentException("Source filename cannot be null or empty", nameof(sourceFileName));
         }
 
-        var lowerFileName = sourceFileName.ToLowerInvariant();
+        // Extract just the filename if it includes a path
+        var fileName = Path.GetFileName(sourceFileName);
+        var lowerFileName = fileName.ToLowerInvariant();
+
+        _logger.LogInformation("Detecting XSLT for source file: '{FileName}' (from path: '{FullPath}')", fileName, sourceFileName);
 
         // Detect workstream from filename
         if (lowerFileName.StartsWith("adobe"))
         {
-            _logger.LogDebug("Detected Adobe workstream from source: {SourceFileName}", sourceFileName);
+            _logger.LogInformation("Detected Adobe workstream from source: {SourceFileName}", fileName);
             return "/app/xslt/adobe/transformation.xslt";
         }
         else if (lowerFileName.StartsWith("docling"))
         {
-            _logger.LogDebug("Detected Docling workstream from source: {SourceFileName}", sourceFileName);
+            _logger.LogInformation("Detected Docling workstream from source: {SourceFileName}", fileName);
             return "/app/xslt/docling/transformation.xslt";
         }
         else
         {
             // Default to Adobe for backward compatibility
-            _logger.LogWarning("Could not detect workstream from source: {SourceFileName}, defaulting to Adobe", sourceFileName);
+            _logger.LogWarning("Could not detect workstream from source: {SourceFileName}, defaulting to Adobe", fileName);
             return "/app/xslt/adobe/transformation.xslt";
         }
     }
