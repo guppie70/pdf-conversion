@@ -14,16 +14,16 @@ public interface ISourceDetectionService
     string GetXsltPathForSource(string sourceFileName);
 
     /// <summary>
-    /// Generates the matching hierarchy filename based on the source XML filename.
+    /// Generates the matching hierarchy filename based on the normalized XML filename.
     /// </summary>
-    /// <param name="sourceFileName">The source XML filename (e.g., "adobe.xml", "docling-pdf.xhtml")</param>
-    /// <returns>Matching hierarchy filename (e.g., "hierarchy-adobe.xml", "hierarchy-pdf-xhtml.xml")</returns>
-    string GetMatchingHierarchyName(string sourceFileName);
+    /// <param name="normalizedXmlName">The normalized XML filename (e.g., "adobe.xml", "docling-pdf.xml", "docling-pdf.xhtml")</param>
+    /// <returns>Matching hierarchy filename (e.g., "hierarchy-adobe.xml", "hierarchy-pdf-xml.xml", "hierarchy-pdf-xhtml.xml")</returns>
+    string GetMatchingHierarchyName(string normalizedXmlName);
 
     /// <summary>
     /// Generates the normalized XML filename based on the source XML filename.
     /// </summary>
     /// <param name="sourceFileName">The source XML filename (e.g., "adobe.xml", "docling-pdf.source.xml")</param>
-    /// <returns>Normalized XML filename (e.g., "normalized-adobe.xml", "normalized-pdf-source.xml")</returns>
+    /// <returns>Normalized XML filename (e.g., "adobe.xml", "docling-pdf.xml", "docling-pdf.xhtml")</returns>
     string GetNormalizedXmlName(string sourceFileName);
 }

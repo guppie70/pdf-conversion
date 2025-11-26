@@ -246,7 +246,23 @@ public class ConversionService : IConversionService
     {
         try
         {
-            _logger.LogInformation("Transforming source file: {Project}/{File}", projectId, sourceFile);
+            _logger.LogInformation("Processing source file: {Project}/{File}", projectId, sourceFile);
+
+            // Check if this is a pre-normalized XML (from normalized/ folder)
+            if (sourceFile.Contains("normalized/") || sourceFile.StartsWith("normalized/"))
+            {
+                _logger.LogInformation("Source file is pre-normalized, skipping XSLT transformation");
+
+                // Read the already-normalized XML directly
+                var normalizedContent = await _projectService.ReadInputFileAsync(projectId, sourceFile);
+                var normalizedDoc = XDocument.Parse(normalizedContent);
+
+                _logger.LogInformation("Pre-normalized XML loaded successfully");
+                return normalizedDoc;
+            }
+
+            // Legacy behavior: Transform source XML
+            _logger.LogInformation("Transforming source file using XSLT: {Project}/{File}", projectId, sourceFile);
 
             // Read source XML content
             var xmlContent = await _projectService.ReadInputFileAsync(projectId, sourceFile);
@@ -292,7 +308,7 @@ public class ConversionService : IConversionService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error transforming source XML: {Project}/{File}", projectId, sourceFile);
+            _logger.LogError(ex, "Error processing source XML: {Project}/{File}", projectId, sourceFile);
             throw;
         }
     }
@@ -743,9 +759,9 @@ public class ConversionService : IConversionService
             var template = await LoadTemplateAsync();
             logCallback("✓ Template loaded successfully");
 
-            // 4. Transform source XML
+            // 4. Transform source XML (or load pre-normalized)
             var sourceXmlPath = Path.Combine("/app/data/input", customer, "projects", project, sourceFile);
-            logCallback($"Transforming source XML: {sourceXmlPath}");
+            logCallback($"Loading source XML: {sourceXmlPath}");
             var transformedXhtml = await TransformSourceXmlAsync(projectId, sourceFile);
 
             if (transformedXhtml == null)

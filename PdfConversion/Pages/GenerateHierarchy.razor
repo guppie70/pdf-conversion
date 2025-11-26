@@ -14,6 +14,7 @@
 @inject IHierarchyRequestLogger HierarchyRequestLogger
 @inject IManualHierarchyBuilder ManualHierarchyBuilder
 @inject IFileGroupBuilderService FileGroupBuilder
+@inject ISourceDetectionService SourceDetectionService
 @inject IJSRuntime JSRuntime
 @inject ILogger<GenerateHierarchy> Logger
 @inject HttpClient HttpClient
@@ -382,24 +383,6 @@
                             </div>
                         }
 
-                        <!-- XSLT Selection -->
-                        <div class="mb-3">
-                            <label class="form-label fw-bold">XSLT Transformation</label>
-                            <select class="form-select" @bind="_selectedAiXslt">
-                                <option value="">-- Select XSLT File --</option>
-                                @foreach (var file in _availableXsltFiles)
-                                {
-                                    <option value="@file">@file.Replace("/app/xslt/", "")</option>
-                                }
-                            </select>
-                            @if (!string.IsNullOrEmpty(_selectedAiXslt))
-                            {
-                                <small class="text-muted d-block mt-1">
-                                    @_selectedAiXslt.Replace("/app/xslt/", "") selected
-                                </small>
-                            }
-                        </div>
-
                         <!-- Example Hierarchies Selection -->
                         <div class="mb-3">
                             <label class="form-label fw-bold">
@@ -493,7 +476,7 @@
                         <button type="button"
                                 class="btn btn-primary"
                                 @onclick="GenerateWithAi"
-                                disabled="@(_isGeneratingAi || _exampleHierarchies.Count(e => e.IsSelected) == 0 || string.IsNullOrEmpty(_selectedAiXslt))">
+                                disabled="@(_isGeneratingAi || _exampleHierarchies.Count(e => e.IsSelected) == 0)">
                             <i class="bi bi-robot"></i> Generate
                         </button>
                     </div>
@@ -535,24 +518,6 @@
                                     <li>Generates standardized IDs and data-refs</li>
                                     <li>No training examples needed</li>
                                 </ul>
-                            </div>
-
-                            <!-- XSLT Selection -->
-                            <div class="mb-3">
-                                <label class="form-label fw-bold">XSLT Transformation</label>
-                                <select class="form-select" @bind="_selectedRuleBasedXslt">
-                                    <option value="">-- Select XSLT File --</option>
-                                    @foreach (var file in _availableXsltFiles)
-                                    {
-                                        <option value="@file">@file.Replace("/app/xslt/", "")</option>
-                                    }
-                                </select>
-                                @if (!string.IsNullOrEmpty(_selectedRuleBasedXslt))
-                                {
-                                    <small class="text-muted d-block mt-1">
-                                        @_selectedRuleBasedXslt.Replace("/app/xslt/", "") selected
-                                    </small>
-                                }
                             </div>
                         }
 
@@ -620,7 +585,7 @@
                             <button type="button"
                                     class="btn btn-primary"
                                     @onclick="GenerateWithRules"
-                                    disabled="@(_isGeneratingRuleBased || string.IsNullOrEmpty(_selectedRuleBasedXslt))">
+                                    disabled="@_isGeneratingRuleBased">
                                 <i class="bi bi-gear"></i> Generate
                             </button>
                         }
@@ -670,15 +635,12 @@
     private List<OllamaModel> _availableAiModels = new();
     private string _selectedAiModel = "deepseek-coder:33b";
     private double _aiTemperature = 0.3;
-    private string _selectedAiXslt = "/app/xslt/transformation.xslt";
-    private List<string> _availableXsltFiles = new();
     private bool _showTestApiButton = false;
 
     // Rule-Based Generation state
     private bool _showRuleBasedModal = false;
     private bool _isGeneratingRuleBased = false;
     private string? _ruleBasedError = null;
-    private string _selectedRuleBasedXslt = "/app/xslt/transformation.xslt";
     private bool _showTechnicalLogs = false;
     private List<string> _genericLogs = new();
     private List<string> _technicalLogs = new();
@@ -731,10 +693,18 @@
     // ProjectFileSelector helper properties
     private List<ProjectFileGroup> ProjectFileGroups { get; set; } = new();
 
-    // Helper property to extract filename from SelectedSourceXml for toolbar binding
+    // Helper property to extract relative path (including subfolder like normalized/) from SelectedSourceXml for toolbar binding
     private string? SelectedFileName
     {
-        get => !string.IsNullOrEmpty(SelectedSourceXml) ? Path.GetFileName(SelectedSourceXml) : null;
+        get
+        {
+            if (string.IsNullOrEmpty(SelectedSourceXml))
+                return null;
+
+            // Use ProjectPathParser to extract the relative path (includes subfolder like "normalized/docling-word.xml")
+            var parsed = ProjectPathParser.Parse(SelectedSourceXml);
+            return parsed.Success ? parsed.FileName : Path.GetFileName(SelectedSourceXml);
+        }
         set
         {
             // Filename is set via toolbar - update SelectedSourceXml
@@ -806,26 +776,30 @@
         HierarchyXmlFiles.Clear();
         SelectedHierarchyXml = null;
 
-        if (string.IsNullOrEmpty(SelectedSourceXml))
+        if (string.IsNullOrEmpty(SelectedProject))
             return;
 
-        // Extract project directory from source XML path
-        // e.g., /app/data/input/taxxor/projects/ar25-1/docling-output.xml
-        // -> /app/data/input/taxxor/projects/ar25-1
-        var projectDir = Path.GetDirectoryName(SelectedSourceXml);
-        if (string.IsNullOrEmpty(projectDir))
+        var parts = SelectedProject.Split('/');
+        if (parts.Length != 2)
             return;
 
-        var metadataDir = Path.Combine(projectDir, "metadata");
-        if (!Directory.Exists(metadataDir))
-            return;
+        var customer = parts[0];
+        var projectId = parts[1];
 
-        // Get all XML files in metadata folder
-        HierarchyXmlFiles = Directory.GetFiles(metadataDir, "*.xml")
+        // Look in output/[customer]/projects/[project-id]/hierarchies/
+        var hierarchiesDir = $"/app/data/output/{customer}/projects/{projectId}/hierarchies";
+        if (!Directory.Exists(hierarchiesDir))
+        {
+            Logger.LogInformation("Hierarchies directory does not exist: {Dir}", hierarchiesDir);
+            return;
+        }
+
+        // Get all XML files in hierarchies folder
+        HierarchyXmlFiles = Directory.GetFiles(hierarchiesDir, "*.xml")
             .OrderBy(f => Path.GetFileName(f))
             .ToList();
 
-        Logger.LogInformation("Found {Count} hierarchy XML files in {Dir}", HierarchyXmlFiles.Count, metadataDir);
+        Logger.LogInformation("Found {Count} hierarchy XML files in {Dir}", HierarchyXmlFiles.Count, hierarchiesDir);
 
         // Force Blazor to re-render the dropdown
         StateHasChanged();
@@ -1020,12 +994,12 @@
             }
 
             // Load file groups using the service (filters by active projects automatically)
-            ProjectFileGroups = await FileGroupBuilder.BuildXmlFileGroupsAsync(
-                includeInputFiles: true,
-                includeOutputFiles: false,  // Only show input files (source XML for transformation)
-                onlyActiveProjects: false,
-                customer: Customer,
-                projectId: ProjectId);
+            ProjectFileGroups = await FileGroupBuilder.CreateQuery()
+                .OnlyActiveProjects(false)
+                .NormalizedFiles()  // Only show normalized XMLs (pre-rendered for hierarchy generation)
+                .ForCustomer(Customer)
+                .ForProject(ProjectId)
+                .BuildAsync();
 
             Logger.LogInformation("[OnInitializedAsync] Loaded {Count} project file groups", ProjectFileGroups.Count);
 
@@ -1083,22 +1057,20 @@
                     Logger.LogInformation("[OnInitializedAsync] Restored XSLT: {File}", SelectedXsltFile);
                 }
 
-                // If source XML was restored, auto-select appropriate XSLT and load hierarchy
+                // If source XML was restored, load hierarchy files
                 if (!string.IsNullOrEmpty(SelectedSourceXml))
                 {
-                    // Load XSLT files
-                    LoadXsltFiles();
-
-                    // Override saved XSLT with auto-selection based on source XML filename
-                    await AutoSelectXsltForSourceXml();
-
                     // Load hierarchy XML files from metadata folder
                     LoadHierarchyXmlFiles();
 
-                    // Auto-transform and load if XSLT is available
-                    if (!string.IsNullOrEmpty(SelectedXsltFile))
+                    // Load the pre-normalized XML (no XSLT transformation needed)
+                    NormalizedXmlPath = SelectedSourceXml;
+                    Logger.LogInformation("Using pre-normalized XML: {Path}", NormalizedXmlPath);
+
+                    // Load headers into right panel
+                    if (HeadersPanel != null)
                     {
-                        await AutoTransformAndLoadAsync();
+                        await HeadersPanel.LoadHeadersAsync(NormalizedXmlPath, HierarchyXmlPath);
                     }
 
                     // Restore hierarchy XML selection if available
@@ -1182,21 +1154,25 @@
         {
             if (!string.IsNullOrEmpty(SelectedSourceXml))
             {
-                // Save only the filename for consistency with Transform page
-                var filename = Path.GetFileName(SelectedSourceXml);
-                await UserSelectionService.UpdateSelectionAsync(sourceXml: filename);
+                // Save the relative path including subfolder (e.g., "normalized/docling-word.xml")
+                await UserSelectionService.UpdateSelectionAsync(sourceXml: SelectedFileName);
 
-                // Load XSLT files if not already loaded
-                if (!_availableXsltFiles.Any())
+                // Set NormalizedXmlPath to the selected file (it's already normalized)
+                NormalizedXmlPath = SelectedSourceXml;
+                Logger.LogInformation("Using pre-normalized XML: {Path}", NormalizedXmlPath);
+
+                // Load headers into right panel (AvailableHeadersPanel)
+                if (HeadersPanel != null)
                 {
-                    LoadXsltFiles();
+                    await HeadersPanel.LoadHeadersAsync(NormalizedXmlPath, HierarchyXmlPath);
                 }
 
-                // Auto-select appropriate XSLT based on source XML filename
-                await AutoSelectXsltForSourceXml();
-
-                // Trigger transformation with new XSLT
-                await AutoTransformAndLoadAsync();
+                // Load flat header list into main pane (left panel) when no hierarchy is loaded
+                if (string.IsNullOrEmpty(SelectedHierarchyXml))
+                {
+                    await LoadFlatHeaderListAsync();
+                    Logger.LogInformation("Loaded flat header list into main pane (no hierarchy selected)");
+                }
             }
         }
         catch (Exception ex)
@@ -1307,108 +1283,58 @@
                 Logger.LogInformation("Normalization complete");
             }
 
-            string filePath;
-
-            // Manual mode hierarchies go to metadata folder with specific name
-            if (_currentMode == HierarchyMode.Restricted)
+            var parts = SelectedProject.Split('/');
+            if (parts.Length != 2)
             {
-                var parts = SelectedProject.Split('/');
-                if (parts.Length != 2)
-                {
-                    Logger.LogError("Invalid project format: {Project}", SelectedProject);
-                    ToastNotification.ShowError("Invalid project format");
-                    return;
-                }
-
-                var customer = parts[0];
-                var projectId = parts[1];
-                var metadataDir = $"/app/data/input/{customer}/projects/{projectId}/metadata";
-
-                // Ensure metadata directory exists
-                if (!Directory.Exists(metadataDir))
-                {
-                    Directory.CreateDirectory(metadataDir);
-                    Logger.LogInformation("Created metadata directory: {Dir}", metadataDir);
-                }
-
-                filePath = Path.Combine(metadataDir, "manual-hierarchy.xml");
-                Logger.LogInformation("Saving manually-built hierarchy to metadata folder: {Path}", filePath);
+                Logger.LogError("Invalid project format: {Project}", SelectedProject);
+                ToastNotification.ShowError("Invalid project format");
+                return;
             }
-            // AI-generated hierarchies go to metadata folder with specific name
-            else if (_isAiGenerated)
+
+            var customer = parts[0];
+            var projectId = parts[1];
+
+            // Determine hierarchy filename based on selected normalized XML
+            string hierarchyFileName;
+            if (!string.IsNullOrEmpty(SelectedSourceXml))
             {
-                var parts = SelectedProject.Split('/');
-                if (parts.Length != 2)
-                {
-                    Logger.LogError("Invalid project format: {Project}", SelectedProject);
-                    ToastNotification.ShowError("Invalid project format");
-                    return;
-                }
-
-                var customer = parts[0];
-                var projectId = parts[1];
-                var metadataDir = $"/app/data/input/{customer}/projects/{projectId}/metadata";
-
-                // Ensure metadata directory exists
-                if (!Directory.Exists(metadataDir))
-                {
-                    Directory.CreateDirectory(metadataDir);
-                    Logger.LogInformation("Created metadata directory: {Dir}", metadataDir);
-                }
-
-                filePath = Path.Combine(metadataDir, "ai-hierarchy.xml");
-                Logger.LogInformation("Saving AI-generated hierarchy to metadata folder: {Path}", filePath);
-            }
-            else if (_isRuleBasedGenerated)
-            {
-                // Rule-based hierarchies go to metadata folder with specific name
-                var parts = SelectedProject.Split('/');
-                if (parts.Length != 2)
-                {
-                    Logger.LogError("Invalid project format: {Project}", SelectedProject);
-                    ToastNotification.ShowError("Invalid project format");
-                    return;
-                }
-
-                var customer = parts[0];
-                var projectId = parts[1];
-                var metadataDir = $"/app/data/input/{customer}/projects/{projectId}/metadata";
-
-                // Ensure metadata directory exists
-                if (!Directory.Exists(metadataDir))
-                {
-                    Directory.CreateDirectory(metadataDir);
-                    Logger.LogInformation("Created metadata directory: {Dir}", metadataDir);
-                }
-
-                filePath = Path.Combine(metadataDir, "rules-hierarchy.xml");
-                Logger.LogInformation("Saving rule-based hierarchy to metadata folder: {Path}", filePath);
+                // Get standardized hierarchy name from normalized XML filename
+                var normalizedFileName = Path.GetFileName(SelectedSourceXml);
+                hierarchyFileName = SourceDetectionService.GetMatchingHierarchyName(normalizedFileName);
+                Logger.LogInformation("Derived hierarchy filename '{HierarchyFile}' from normalized XML '{NormalizedFile}'",
+                    hierarchyFileName, normalizedFileName);
             }
             else if (!string.IsNullOrEmpty(SelectedHierarchyXml))
             {
-                // Save back to the selected hierarchy file
-                filePath = SelectedHierarchyXml;
+                // Use the filename from the currently selected hierarchy
+                hierarchyFileName = Path.GetFileName(SelectedHierarchyXml);
             }
             else
             {
-                // Fallback to default hierarchy.xml location in output folder
-                var parts = SelectedProject.Split('/');
-                if (parts.Length != 2)
-                {
-                    Logger.LogError("Invalid project format: {Project}", SelectedProject);
-                    ToastNotification.ShowError("Invalid project format");
-                    return;
-                }
-
-                var customer = parts[0];
-                var projectId = parts[1];
-                filePath = $"/app/data/output/{customer}/projects/{projectId}/hierarchy.xml";
+                // Fallback - should not happen in normal workflow
+                hierarchyFileName = "hierarchy.xml";
+                Logger.LogWarning("No source XML or hierarchy selected, using fallback filename");
             }
+
+            // Build path: output/[customer]/projects/[project-id]/hierarchies/[hierarchy-name].xml
+            var hierarchiesDir = $"/app/data/output/{customer}/projects/{projectId}/hierarchies";
+
+            // Ensure hierarchies directory exists
+            if (!Directory.Exists(hierarchiesDir))
+            {
+                Directory.CreateDirectory(hierarchiesDir);
+                Logger.LogInformation("Created hierarchies directory: {Dir}", hierarchiesDir);
+            }
+
+            var filePath = Path.Combine(hierarchiesDir, hierarchyFileName);
+            Logger.LogInformation("Saving hierarchy to: {Path}", filePath);
 
             await HierarchyService.SaveHierarchyAsync(filePath, CurrentHierarchy);
             HasChanges = false;
             Logger.LogInformation("Saved hierarchy to {Path}", filePath);
-            // Success toast removed - HasChanges = false indicates save success
+
+            // Update SelectedHierarchyXml to point to the saved file
+            SelectedHierarchyXml = filePath;
 
             // Refresh headers panel to update used status
             if (HeadersPanel != null)
@@ -1493,14 +1419,11 @@
         return confidence >= 80 ? "success" : confidence >= 70 ? "warning" : "danger";
     }
 
+    [Obsolete("This method is no longer needed since XMLs are pre-normalized. Use OnSourceXmlChangedAsync instead.")]
     private async Task AutoTransformAndLoadAsync()
     {
-        if (string.IsNullOrEmpty(SelectedSourceXml) || string.IsNullOrEmpty(SelectedXsltFile))
+        if (string.IsNullOrEmpty(SelectedSourceXml))
         {
-            if (string.IsNullOrEmpty(SelectedXsltFile))
-            {
-                ShowAlert("warning", "No XSLT file selected. Please transform a document on the Transform page first.");
-            }
             return;
         }
 
@@ -1519,58 +1442,9 @@
             CurrentHierarchy = null;
             HasChanges = false;
 
-            // Read source XML
-            var xmlContent = await File.ReadAllTextAsync(SelectedSourceXml);
-
-            // Read XSLT - handle both relative and absolute paths
-            var xsltPath = SelectedXsltFile.StartsWith("/app/xslt/")
-                ? SelectedXsltFile
-                : $"/app/xslt/{SelectedXsltFile}";
-            if (!File.Exists(xsltPath))
-            {
-                ShowAlert("danger", $"XSLT file not found: {SelectedXsltFile}");
-                return;
-            }
-            var xsltContent = await File.ReadAllTextAsync(xsltPath);
-
-            // Transform
-            Logger.LogInformation("Transforming {SourceXml} with {Xslt}", Path.GetFileName(SelectedSourceXml), SelectedXsltFile);
-            var transformResult = await XsltTransformationService.TransformAsync(
-                xmlContent,
-                xsltContent,
-                new TransformationOptions
-                {
-                    UseXslt3Service = true,
-                    NormalizeHeaders = false
-                },
-                xsltPath  // Pass file path for module resolution
-            );
-
-            if (!transformResult.IsSuccess)
-            {
-                ShowAlert("danger", $"Transformation failed: {transformResult.ErrorMessage}");
-                Logger.LogError("Transformation failed: {Error}", transformResult.ErrorMessage);
-                return;
-            }
-
-            // Save transformed XML to normalized location
-            var parts = SelectedProject?.Split('/');
-            if (parts?.Length == 2)
-            {
-                var customer = parts[0];
-                var projectId = parts[1];
-                var normalizedPath = $"/app/data/output/{customer}/projects/{projectId}/normalized.xml";
-                var normalizedDir = Path.GetDirectoryName(normalizedPath);
-                if (!Directory.Exists(normalizedDir))
-                {
-                    Directory.CreateDirectory(normalizedDir!);
-                }
-                await File.WriteAllTextAsync(normalizedPath, transformResult.OutputContent);
-                NormalizedXmlPath = normalizedPath;
-                Logger.LogInformation("Saved normalized XML to {Path}", normalizedPath);
-                Logger.LogInformation("NormalizedXmlPath set to: {Path}, File exists: {Exists}",
-                    NormalizedXmlPath, File.Exists(NormalizedXmlPath));
-            }
+            // SelectedSourceXml is already normalized (from normalized/ folder)
+            Logger.LogInformation("Using pre-normalized XML: {Path}", SelectedSourceXml);
+            NormalizedXmlPath = SelectedSourceXml;
 
             // Load headers by passing the path directly (before parameter binding completes)
             Logger.LogInformation("About to load headers. HeadersPanel is null: {IsNull}, NormalizedXmlPath: {Path}",
@@ -1620,9 +1494,6 @@
         _aiError = null;
         _showAiModal = true;
 
-        // Load XSLT files
-        LoadXsltFiles();
-
         // Load Ollama models and training hierarchies
         await LoadOllamaModelsAsync();
         LoadTrainingHierarchies();
@@ -1643,81 +1514,6 @@
         _showAiModal = false;
         _aiError = null;
         StateHasChanged();
-    }
-
-    private void LoadXsltFiles()
-    {
-        try
-        {
-            var xsltDir = "/app/xslt";
-            if (Directory.Exists(xsltDir))
-            {
-                _availableXsltFiles = Directory.GetFiles(xsltDir, "*.xslt", SearchOption.AllDirectories)
-                    .OrderBy(f => f)
-                    .ToList();
-
-                // Smart default selection based on source XML filename
-                string? defaultXslt = null;
-
-                // Check if source XML filename contains "docling"
-                if (!string.IsNullOrEmpty(SelectedSourceXml))
-                {
-                    var sourceFileName = Path.GetFileName(SelectedSourceXml).ToLowerInvariant();
-                    if (sourceFileName.Contains("docling"))
-                    {
-                        // Select docling transformation
-                        defaultXslt = _availableXsltFiles.FirstOrDefault(f => f.Contains("docling/transformation.xslt"));
-                        Logger.LogInformation("Source XML contains 'docling', defaulting to docling/transformation.xslt");
-                    }
-                    else
-                    {
-                        // Select adobe transformation
-                        defaultXslt = _availableXsltFiles.FirstOrDefault(f => f.Contains("adobe/transformation.xslt"));
-                        Logger.LogInformation("Source XML does not contain 'docling', defaulting to adobe/transformation.xslt");
-                    }
-                }
-
-                // Fallback: use any transformation.xslt if smart selection didn't find anything
-                if (string.IsNullOrEmpty(defaultXslt))
-                {
-                    defaultXslt = _availableXsltFiles.FirstOrDefault(f => f.Contains("transformation.xslt"));
-                }
-
-                // Final fallback: use first available XSLT
-                _selectedAiXslt = defaultXslt ?? _availableXsltFiles.FirstOrDefault() ?? string.Empty;
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to load XSLT files");
-        }
-    }
-
-    private async Task AutoSelectXsltForSourceXml()
-    {
-        if (string.IsNullOrEmpty(SelectedSourceXml) || !_availableXsltFiles.Any())
-            return;
-
-        var sourceFileName = Path.GetFileName(SelectedSourceXml).ToLowerInvariant();
-        string? newXslt = null;
-
-        if (sourceFileName.Contains("docling"))
-        {
-            newXslt = _availableXsltFiles.FirstOrDefault(f => f.Contains("docling/transformation.xslt"));
-            Logger.LogInformation("Auto-selected Docling XSLT for source file: {File}", sourceFileName);
-        }
-        else
-        {
-            newXslt = _availableXsltFiles.FirstOrDefault(f => f.Contains("adobe/transformation.xslt"));
-            Logger.LogInformation("Auto-selected Adobe XSLT for source file: {File}", sourceFileName);
-        }
-
-        if (!string.IsNullOrEmpty(newXslt) && newXslt != SelectedXsltFile)
-        {
-            SelectedXsltFile = newXslt;
-            await UserSelectionService.UpdateSelectionAsync(xslt: SelectedXsltFile);
-            Logger.LogInformation("Updated XSLT selection to: {Xslt}", SelectedXsltFile);
-        }
     }
 
     private async Task LoadOllamaModelsAsync()
@@ -1832,37 +1628,9 @@
                 return;
             }
 
-            // Validate XSLT selection
-            if (string.IsNullOrEmpty(_selectedAiXslt))
-            {
-                _aiError = "Please select an XSLT transformation file.";
-                return;
-            }
-
-            // Read and transform source XML
-            var sourceXmlContent = await File.ReadAllTextAsync(SelectedSourceXml);
-
-            // Read XSLT file
-            var xsltContent = await File.ReadAllTextAsync(_selectedAiXslt);
-
-            // Transform with proper options and file path for include resolution
-            Logger.LogInformation("Transforming source XML with XSLT: {Xslt}", _selectedAiXslt);
-            var transformResult = await XsltTransformationService.TransformAsync(
-                sourceXmlContent,
-                xsltContent,
-                new TransformationOptions
-                {
-                    UseXslt3Service = true,
-                    NormalizeHeaders = false
-                },
-                _selectedAiXslt  // Pass file path for module resolution
-            );
-
-            if (!transformResult.IsSuccess)
-            {
-                _aiError = $"XSLT transformation failed: {transformResult.ErrorMessage}";
-                return;
-            }
+            // SelectedSourceXml is already normalized (from normalized/ folder) - read it directly
+            var normalizedXmlContent = await File.ReadAllTextAsync(SelectedSourceXml);
+            Logger.LogInformation("Using pre-normalized XML: {Path}", SelectedSourceXml);
 
             // Log request parameters before generation
             var selectedExamplePaths = _exampleHierarchies
@@ -1870,10 +1638,15 @@
                 .Select(e => e.Path)
                 .ToList();
 
+            // Derive XSLT path from source filename for logging purposes
+            var xsltPath = !string.IsNullOrEmpty(SelectedSourceXml)
+                ? SourceDetectionService.GetXsltPathForSource(Path.GetFileName(SelectedSourceXml))
+                : "pre-normalized";
+
             HierarchyRequestLogger.LogRequest(
                 SelectedProject ?? string.Empty,
                 SelectedSourceXml ?? string.Empty,
-                _selectedAiXslt,
+                xsltPath,
                 selectedExamplePaths
             );
 
@@ -1884,7 +1657,7 @@
             Logger.LogInformation("Generating hierarchy with {ModelName} using {Count} examples",
                 _selectedAiModel, selectedExamples.Count);
             var proposal = await HierarchyGenerator.GenerateHierarchyAsync(
-                normalizedXml: transformResult.OutputContent,
+                normalizedXml: normalizedXmlContent,
                 exampleHierarchies: selectedExamples,
                 modelName: _selectedAiModel,
                 cancellationToken: CancellationToken.None
@@ -1999,24 +1772,6 @@
     {
         _ruleBasedError = null;
         _showRuleBasedModal = true;
-
-        // Load XSLT files
-        LoadXsltFiles();
-
-        // Smart default selection based on source XML filename
-        if (_availableXsltFiles.Any() && !string.IsNullOrEmpty(SelectedSourceXml))
-        {
-            var sourceFileName = Path.GetFileName(SelectedSourceXml).ToLowerInvariant();
-            if (sourceFileName.Contains("docling"))
-            {
-                _selectedRuleBasedXslt = _availableXsltFiles.FirstOrDefault(f => f.Contains("docling/transformation.xslt")) ?? string.Empty;
-            }
-            else
-            {
-                _selectedRuleBasedXslt = _availableXsltFiles.FirstOrDefault(f => f.Contains("adobe/transformation.xslt")) ?? string.Empty;
-            }
-        }
-
         StateHasChanged();
     }
 
@@ -2045,37 +1800,9 @@
                 return;
             }
 
-            // Validate XSLT selection
-            if (string.IsNullOrEmpty(_selectedRuleBasedXslt))
-            {
-                _ruleBasedError = "Please select an XSLT transformation file.";
-                return;
-            }
-
-            // Read and transform source XML
-            var sourceXmlContent = await File.ReadAllTextAsync(SelectedSourceXml);
-
-            // Read XSLT file
-            var xsltContent = await File.ReadAllTextAsync(_selectedRuleBasedXslt);
-
-            // Transform with proper options and file path for include resolution
-            Logger.LogInformation("Transforming source XML with XSLT: {Xslt}", _selectedRuleBasedXslt);
-            var transformResult = await XsltTransformationService.TransformAsync(
-                sourceXmlContent,
-                xsltContent,
-                new TransformationOptions
-                {
-                    UseXslt3Service = true,
-                    NormalizeHeaders = false
-                },
-                _selectedRuleBasedXslt  // Pass file path for module resolution
-            );
-
-            if (!transformResult.IsSuccess)
-            {
-                _ruleBasedError = $"XSLT transformation failed: {transformResult.ErrorMessage}";
-                return;
-            }
+            // SelectedSourceXml is already normalized (from normalized/ folder) - read it directly
+            var normalizedXmlContent = await File.ReadAllTextAsync(SelectedSourceXml);
+            Logger.LogInformation("Using pre-normalized XML: {Path}", SelectedSourceXml);
 
             // Generate hierarchy with rule-based generator (no examples needed)
             Logger.LogInformation("Generating hierarchy with rule-based generator");
@@ -2084,7 +1811,7 @@
             Environment.SetEnvironmentVariable("HierarchyGeneration__Mode", "RuleBased");
 
             var proposal = await HierarchyGenerator.GenerateHierarchyAsync(
-                normalizedXml: transformResult.OutputContent,
+                normalizedXml: normalizedXmlContent,
                 exampleHierarchies: new List<string>(),  // Empty list for rule-based
                 modelName: string.Empty,  // Not used for rule-based
                 cancellationToken: CancellationToken.None
@@ -2329,35 +2056,9 @@
                 return;
             }
 
-            // Transform source XML to normalized XML first
-            var sourceXmlContent = await File.ReadAllTextAsync(SelectedSourceXml);
-
-            // Determine XSLT path using XsltPathResolver utility
-            var sourceFileName = Path.GetFileName(SelectedSourceXml);
-            var xsltPath = PdfConversion.Utils.XsltPathResolver.GetTransformationPath(sourceFileName);
-
-            var xsltContent = await File.ReadAllTextAsync(xsltPath);
-
-            var transformResult = await XsltTransformationService.TransformAsync(
-                sourceXmlContent,
-                xsltContent,
-                new TransformationOptions { UseXslt3Service = true, NormalizeHeaders = false },
-                xsltPath
-            );
-
-            if (!transformResult.IsSuccess)
-            {
-                Logger.LogError("Failed to transform XML for Manual Mode: {Error}", transformResult.ErrorMessage);
-                ToastNotification.ShowError($"Failed to transform XML: {transformResult.ErrorMessage}");
-                return;
-            }
-
-            // Save normalized XML to temp file for header extraction
-            var tempNormalizedPath = Path.Combine(Path.GetTempPath(), $"manual_mode_{Guid.NewGuid()}.xml");
-            await File.WriteAllTextAsync(tempNormalizedPath, transformResult.OutputContent);
-
-            // Extract headers
-            _manualHeaders = await HeaderExtractionService.ExtractHeadersAsync(tempNormalizedPath);
+            // SelectedSourceXml is already normalized (from normalized/ folder) - extract headers directly
+            Logger.LogInformation("Loading manual mode headers from pre-normalized XML: {Path}", SelectedSourceXml);
+            _manualHeaders = await HeaderExtractionService.ExtractHeadersAsync(SelectedSourceXml);
 
             // Convert to hierarchy for tree display
             _manualHierarchyItems = ManualHierarchyBuilder.ConvertToHierarchy(_manualHeaders);
@@ -2371,9 +2072,6 @@
             Logger.LogInformation("Loaded {Count} headers for Manual Mode", _manualHeaders.Count);
 
             StateHasChanged();
-
-            // Clean up temp file
-            File.Delete(tempNormalizedPath);
         }
         catch (Exception ex)
         {

@@ -47,42 +47,52 @@ public class SourceDetectionService : ISourceDetectionService
         }
     }
 
-    public string GetMatchingHierarchyName(string sourceFileName)
+    public string GetMatchingHierarchyName(string normalizedXmlName)
     {
-        if (string.IsNullOrWhiteSpace(sourceFileName))
+        if (string.IsNullOrWhiteSpace(normalizedXmlName))
         {
-            throw new ArgumentException("Source filename cannot be null or empty", nameof(sourceFileName));
+            throw new ArgumentException("Normalized XML filename cannot be null or empty", nameof(normalizedXmlName));
         }
 
-        // For files like "adobe.xml" → "hierarchy-adobe.xml"
-        // For files like "docling-pdf.xhtml" → "hierarchy-pdf-xhtml.xml"
-        // For files like "docling-pdf.source.xml" → "hierarchy-pdf-source.xml"
+        // adobe.xml → hierarchy-adobe.xml
+        // docling-pdf.xml → hierarchy-pdf-xml.xml
+        // docling-pdf.xhtml → hierarchy-pdf-xhtml.xml
+        // docling-word.xml → hierarchy-word-xml.xml
+        // docling-word.xhtml → hierarchy-word-xhtml.xml
 
-        // Get base name with dots converted to hyphens
-        var baseName = GetBaseNameWithExtensionsAsHyphens(sourceFileName);
+        var fileName = Path.GetFileName(normalizedXmlName);
+        var nameWithoutExtension = Path.GetFileNameWithoutExtension(fileName);
+        var extension = Path.GetExtension(fileName);
 
-        // Extract the portion after the workstream prefix
-        string suffix;
-        if (baseName.StartsWith("adobe", StringComparison.OrdinalIgnoreCase))
+        if (nameWithoutExtension.Equals("adobe", StringComparison.OrdinalIgnoreCase))
         {
-            suffix = "adobe";
-        }
-        else if (baseName.StartsWith("docling-", StringComparison.OrdinalIgnoreCase))
-        {
-            // Remove "docling-" prefix and use the rest
-            suffix = baseName.Substring(8); // "docling-".Length = 8
-        }
-        else
-        {
-            // Fallback: use entire base name
-            suffix = baseName;
+            _logger.LogDebug("Generated hierarchy name: hierarchy-adobe.xml for normalized: {NormalizedXmlName}", normalizedXmlName);
+            return "hierarchy-adobe.xml";
         }
 
-        var hierarchyName = $"hierarchy-{suffix}.xml";
-        _logger.LogDebug("Generated hierarchy name: {HierarchyName} for source: {SourceFileName}",
-            hierarchyName, sourceFileName);
+        if (nameWithoutExtension.StartsWith("docling-pdf", StringComparison.OrdinalIgnoreCase))
+        {
+            if (extension.Equals(".xhtml", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug("Generated hierarchy name: hierarchy-pdf-xhtml.xml for normalized: {NormalizedXmlName}", normalizedXmlName);
+                return "hierarchy-pdf-xhtml.xml";
+            }
+            _logger.LogDebug("Generated hierarchy name: hierarchy-pdf-xml.xml for normalized: {NormalizedXmlName}", normalizedXmlName);
+            return "hierarchy-pdf-xml.xml";
+        }
 
-        return hierarchyName;
+        if (nameWithoutExtension.StartsWith("docling-word", StringComparison.OrdinalIgnoreCase))
+        {
+            if (extension.Equals(".xhtml", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug("Generated hierarchy name: hierarchy-word-xhtml.xml for normalized: {NormalizedXmlName}", normalizedXmlName);
+                return "hierarchy-word-xhtml.xml";
+            }
+            _logger.LogDebug("Generated hierarchy name: hierarchy-word-xml.xml for normalized: {NormalizedXmlName}", normalizedXmlName);
+            return "hierarchy-word-xml.xml";
+        }
+
+        throw new ArgumentException($"Unknown normalized XML filename pattern: {fileName}");
     }
 
     public string GetNormalizedXmlName(string sourceFileName)
@@ -92,63 +102,36 @@ public class SourceDetectionService : ISourceDetectionService
             throw new ArgumentException("Source filename cannot be null or empty", nameof(sourceFileName));
         }
 
-        // For files like "adobe.xml" → "normalized-adobe.xml"
-        // For files like "docling-pdf.source.xml" → "normalized-pdf-source.xml"
+        // adobe.xml → adobe.xml
+        // docling-pdf.source.xml → docling-pdf.xml
+        // docling-pdf.source.html → docling-pdf.xhtml
+        // docling-word.source.xml → docling-word.xml
+        // docling-word.source.html → docling-word.xhtml
 
-        // Get base name with dots converted to hyphens
-        var baseName = GetBaseNameWithExtensionsAsHyphens(sourceFileName);
+        var fileName = Path.GetFileName(sourceFileName);
 
-        // Extract the portion after the workstream prefix
-        string suffix;
-        if (baseName.StartsWith("adobe", StringComparison.OrdinalIgnoreCase))
+        if (fileName.Equals("adobe.xml", StringComparison.OrdinalIgnoreCase))
         {
-            suffix = "adobe";
-        }
-        else if (baseName.StartsWith("docling-", StringComparison.OrdinalIgnoreCase))
-        {
-            // Remove "docling-" prefix and use the rest
-            suffix = baseName.Substring(8); // "docling-".Length = 8
-        }
-        else
-        {
-            // Fallback: use entire base name
-            suffix = baseName;
+            _logger.LogDebug("Normalized XML name: adobe.xml for source: {SourceFileName}", sourceFileName);
+            return "adobe.xml";
         }
 
-        var normalizedName = $"normalized-{suffix}.xml";
-        _logger.LogDebug("Generated normalized XML name: {NormalizedName} for source: {SourceFileName}",
-            normalizedName, sourceFileName);
-
-        return normalizedName;
-    }
-
-    /// <summary>
-    /// Converts a source filename to a base name suitable for hierarchy/normalized naming.
-    /// Converts all dots to hyphens and removes the final .xml extension only.
-    /// Examples:
-    /// - "adobe.xml" → "adobe"
-    /// - "docling-pdf.xhtml" → "docling-pdf-xhtml"
-    /// - "docling-pdf.source.xml" → "docling-pdf-source"
-    /// </summary>
-    /// <param name="fileName">The filename to process</param>
-    /// <returns>Base name with all dots converted to hyphens except final .xml removed</returns>
-    private static string GetBaseNameWithExtensionsAsHyphens(string fileName)
-    {
-        // Get just the filename without path
-        var name = Path.GetFileName(fileName);
-
-        // Only remove the final .xml extension (not .xhtml)
-        // This treats .xhtml as part of the identifier
-        if (name.EndsWith(".xml", StringComparison.OrdinalIgnoreCase) &&
-            !name.EndsWith(".xhtml", StringComparison.OrdinalIgnoreCase))
+        if (fileName.EndsWith(".source.html", StringComparison.OrdinalIgnoreCase))
         {
-            name = name.Substring(0, name.Length - 4);
+            var normalizedName = fileName.Replace(".source.html", ".xhtml", StringComparison.OrdinalIgnoreCase);
+            _logger.LogDebug("Generated normalized XML name: {NormalizedName} for source: {SourceFileName}",
+                normalizedName, sourceFileName);
+            return normalizedName;
         }
 
-        // Convert all remaining dots to hyphens
-        // This handles: "pdf.xhtml" → "pdf-xhtml", "pdf.source" → "pdf-source"
-        name = name.Replace('.', '-');
+        if (fileName.EndsWith(".source.xml", StringComparison.OrdinalIgnoreCase))
+        {
+            var normalizedName = fileName.Replace(".source.xml", ".xml", StringComparison.OrdinalIgnoreCase);
+            _logger.LogDebug("Generated normalized XML name: {NormalizedName} for source: {SourceFileName}",
+                normalizedName, sourceFileName);
+            return normalizedName;
+        }
 
-        return name;
+        throw new ArgumentException($"Unknown source filename pattern: {fileName}");
     }
 }

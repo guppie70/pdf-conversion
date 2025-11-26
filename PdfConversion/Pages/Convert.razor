@@ -19,6 +19,7 @@
 @inject NavigationManager NavigationManager
 @inject IProjectLoadingService ProjectLoader
 @inject SelectionRestorationHelper SelectionHelper
+@inject ISourceDetectionService SourceDetectionService
 @implements IDisposable
 
 <PageTitle>Convert: PDF to Taxxor Sections</PageTitle>
@@ -36,37 +37,67 @@
         </div>
         <div class="panel-body">
             <div class="row g-3">
-                <!-- Combined Project & Source File Selection -->
-                <div class="col-md-6">
-                    <ProjectFileSelectionToolbar
-                        FileGroups="@ProjectFileGroups"
-                        @bind-ProjectId="@_config.ProjectId"
-                        @bind-FileName="@_config.SourceFile"
-                        OnSelectionChanged="@HandleSourceFileSelection"
-                        LabelText="Source File"
-                        ElementId="sourceFileSelect"
-                        PlaceholderText="Select source file..."
-                        IsDisabled="@IsProcessing"
-                        InputOutputType="input" />
-                </div>
-
-                <!-- Hierarchy File Selection -->
-                <div class="col-md-6">
-                    <label for="hierarchyFileSelect" class="form-label">Hierarchy File</label>
-                    <select id="hierarchyFileSelect"
-                            class="form-select"
-                            @onchange="OnHierarchyFileChanged"
-                            value="@_config.HierarchyFile"
-                            disabled="@(!IsProjectSelected || IsProcessing)">
-                        <option value="">-- Select Hierarchy File --</option>
-                        @if (HierarchyFiles != null)
-                        {
-                            @foreach (var file in HierarchyFiles)
+                <!-- Normalized XML Selection with Status Indicators -->
+                <div class="col-12">
+                    <label class="form-label">Select Normalized XML</label>
+                    @if (ProjectFileGroups.Any() && ProjectFileGroups.SelectMany(g => g.Files).Any())
+                    {
+                        <div class="normalized-xml-list">
+                            @foreach (var group in ProjectFileGroups)
                             {
-                                <option value="@file">@file</option>
+                                @foreach (var file in group.Files)
+                                {
+                                    var hasHierarchy = _hierarchyStatus.ContainsKey(file.FullPath) && _hierarchyStatus[file.FullPath];
+                                    var isSelected = _config.SourceFile == file.FileName;
+                                    var hierarchyName = GetExpectedHierarchyName(file.FileName);
+
+                                    <div class="normalized-xml-item @(isSelected ? "selected" : "") @(hasHierarchy ? "ready" : "needs-hierarchy")"
+                                         @onclick="@(() => SelectNormalizedXml(file.FullPath, file.FileName, hasHierarchy))"
+                                         style="@(IsProcessing ? "pointer-events: none; opacity: 0.6;" : "")">
+                                        <div class="item-content">
+                                            <div class="item-main">
+                                                <span class="status-icon">
+                                                    @if (hasHierarchy)
+                                                    {
+                                                        <i class="bi bi-check-circle-fill text-success"></i>
+                                                    }
+                                                    else
+                                                    {
+                                                        <i class="bi bi-circle text-warning"></i>
+                                                    }
+                                                </span>
+                                                <span class="file-name">@file.FileName</span>
+                                                <span class="status-badge @(hasHierarchy ? "badge-ready" : "badge-needs-hierarchy")">
+                                                    @(hasHierarchy ? "Ready" : "NEEDS HIERARCHY")
+                                                </span>
+                                            </div>
+                                            @if (!hasHierarchy)
+                                            {
+                                                <div class="item-hint">
+                                                    <i class="bi bi-info-circle"></i>
+                                                    Go to Generate Hierarchy to create @hierarchyName
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="item-hierarchy">
+                                                    <i class="bi bi-diagram-3"></i>
+                                                    @hierarchyName
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
                             }
-                        }
-                    </select>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-info">
+                            <i class="bi bi-info-circle"></i>
+                            No normalized XMLs available. Create one in the Transform page first.
+                        </div>
+                    }
                 </div>
             </div>
 
@@ -87,21 +118,18 @@
             </div>
 
             <!-- Validation Feedback -->
-            @if (!_config.IsValid && !IsProcessing)
+            @if (!string.IsNullOrEmpty(_validationError))
+            {
+                <div class="alert alert-danger mt-3" role="alert">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>Error:</strong> @_validationError
+                </div>
+            }
+            else if (!_config.IsValid && !IsProcessing)
             {
                 <div class="alert alert-info mt-3" role="alert">
                     <i class="bi bi-info-circle"></i>
-                    <strong>Required Fields:</strong>
-                    <ul class="mb-0 mt-1">
-                        @if (string.IsNullOrEmpty(_config.SourceFile))
-                        {
-                            <li>Please select a <strong>Source File</strong></li>
-                        }
-                        @if (string.IsNullOrEmpty(_config.HierarchyFile))
-                        {
-                            <li>Please select a <strong>Hierarchy File</strong></li>
-                        }
-                    </ul>
+                    Select a fileset to start the conversion process
                 </div>
             }
         </div>
@@ -255,6 +283,13 @@
     // ProjectFileSelector helper properties
     private List<ProjectFileGroup> ProjectFileGroups { get; set; } = new();
 
+    // Track hierarchy availability for each normalized XML
+    private Dictionary<string, bool> _hierarchyStatus = new();
+    private Dictionary<string, string> _matchingHierarchies = new();
+
+    // Error message for validation failures
+    private string? _validationError;
+
     // Progress tracking
     private int CurrentItemIndex = 0;
     private int TotalItems = 0;
@@ -358,31 +393,29 @@
         var allFiles = (await ProjectService.GetProjectFilesAsync(projectId)).ToList();
         SourceFiles = allFiles.Where(f => f.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)).ToList();
 
-        // Load hierarchy files (XML files in metadata subfolder)
-        // projectId is in format "organization/project-id" (e.g., "taxxor/ar25-1")
-        // Parse to extract organization and project-id
+        // Load hierarchy files from output/[customer]/projects/[project-id]/hierarchies/
         var parts = projectId.Split('/', 2);
         if (parts.Length == 2)
         {
             var organization = parts[0];
             var projectIdShort = parts[1];
-            var metadataPath = Path.Combine("/app/data/input", organization, "projects", projectIdShort, "metadata");
+            var hierarchiesPath = Path.Combine("/app/data/output", organization, "projects", projectIdShort, "hierarchies");
 
-            if (Directory.Exists(metadataPath))
+            if (Directory.Exists(hierarchiesPath))
             {
-                HierarchyFiles = Directory.GetFiles(metadataPath, "*.xml")
+                HierarchyFiles = Directory.GetFiles(hierarchiesPath, "*.xml")
                     .Select(Path.GetFileName)
                     .Where(f => !string.IsNullOrEmpty(f))
                     .Cast<string>()
                     .ToList();
 
                 Logger.LogInformation("Loaded {HierarchyCount} hierarchy files from {Path}",
-                    HierarchyFiles.Count, metadataPath);
+                    HierarchyFiles.Count, hierarchiesPath);
             }
             else
             {
                 HierarchyFiles = new List<string>();
-                Logger.LogWarning("Metadata directory not found: {Path}", metadataPath);
+                Logger.LogInformation("Hierarchies directory not found: {Path}", hierarchiesPath);
             }
         }
         else
@@ -392,7 +425,7 @@
         }
 
         Logger.LogInformation("Loaded {SourceCount} source files and {HierarchyCount} hierarchy files for project {ProjectId}",
-            SourceFiles.Count, HierarchyFiles.Count, projectId);
+            SourceFiles.Count, HierarchyFiles?.Count ?? 0, projectId);
     }
 
     private async Task LoadProjectsAsync()
@@ -402,13 +435,16 @@
             // Use centralized ProjectLoadingService
             Projects = await ProjectLoader.LoadActiveProjectsWithLabelsAsync();
 
-            // Build file groups for project/file selector
-            ProjectFileGroups = await FileGroupBuilder.BuildXmlFileGroupsAsync(
-                includeInputFiles: true,
-                includeOutputFiles: false,  // Convert only needs input files
-                onlyActiveProjects: false,
-                customer: Customer,
-                projectId: ProjectId);
+            // Build file groups for project/file selector (normalized XMLs only)
+            ProjectFileGroups = await FileGroupBuilder.CreateQuery()
+                .OnlyActiveProjects(false)
+                .NormalizedFiles()  // Only show normalized XMLs from normalized/ folder
+                .ForCustomer(Customer)
+                .ForProject(ProjectId)
+                .BuildAsync();
+
+            // Load hierarchy status for each normalized XML
+            await LoadHierarchyStatusAsync();
 
             Logger.LogInformation("Loaded {Count} active projects", Projects.Count);
         }
@@ -417,6 +453,44 @@
             Logger.LogError(ex, "Error loading projects");
             AddLogEntry($"Error loading projects: {ex.Message}");
         }
+    }
+
+    private async Task LoadHierarchyStatusAsync()
+    {
+        _hierarchyStatus.Clear();
+        _matchingHierarchies.Clear();
+
+        foreach (var group in ProjectFileGroups)
+        {
+            foreach (var file in group.Files)
+            {
+                try
+                {
+                    var normalizedName = Path.GetFileName(file.FileName);
+                    var hierarchyName = SourceDetectionService.GetMatchingHierarchyName(normalizedName);
+
+                    // Check if hierarchy exists in output folder
+                    if (!string.IsNullOrEmpty(group.Customer) && !string.IsNullOrEmpty(group.ProjectId))
+                    {
+                        var hierarchyPath = $"/app/data/output/{group.Customer}/projects/{group.ProjectId}/hierarchies/{hierarchyName}";
+                        _hierarchyStatus[file.FullPath] = File.Exists(hierarchyPath);
+                        _matchingHierarchies[file.FullPath] = hierarchyPath;
+
+                        Logger.LogDebug("Hierarchy status for {File}: {Status} (expected at {Path})",
+                            file.FileName,
+                            _hierarchyStatus[file.FullPath] ? "exists" : "missing",
+                            hierarchyPath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "Could not determine hierarchy status for {File}", file.FileName);
+                    _hierarchyStatus[file.FullPath] = false;
+                }
+            }
+        }
+
+        await Task.CompletedTask;
     }
 
     private async Task OnProjectChanged(ChangeEventArgs e)
@@ -486,10 +560,28 @@
             // Load hierarchy files for the selected project
             await LoadProjectFilesAsync(_config.ProjectId!);
 
+            // Reconstruct full path from parsed components for dictionary lookup
+            var fullPath = ProjectPathParser.BuildPath(
+                parsed.InputOutput ?? "input",
+                parsed.Organization ?? "",
+                parsed.ProjectId ?? "",
+                parsed.FileName ?? "");
+
+            // Auto-select matching hierarchy if it exists
+            if (_matchingHierarchies.TryGetValue(fullPath, out var hierarchyPath)
+                && _hierarchyStatus.TryGetValue(fullPath, out var hasHierarchy)
+                && hasHierarchy)
+            {
+                _config.HierarchyFile = hierarchyPath;
+                Logger.LogInformation("Auto-selected matching hierarchy: {Hierarchy}", hierarchyPath);
+                AddLogEntry($"Auto-selected matching hierarchy: {Path.GetFileName(hierarchyPath)}");
+            }
+
             // Save to UserSelectionService with FULL path format (e.g., "optiver/ar24-3")
             await UserSelectionService.UpdateSelectionAsync(
                 projectId: _config.ProjectId,
-                sourceXml: _config.SourceFile);
+                sourceXml: _config.SourceFile,
+                hierarchyXml: _config.HierarchyFile ?? string.Empty);
 
             AddLogEntry($"Source file selected: {_config.SourceFile}");
             StateHasChanged();
@@ -499,6 +591,52 @@
             Logger.LogError(ex, "Error handling file selection");
             AddLogEntry($"Error selecting file: {ex.Message}");
         }
+    }
+
+    private string GetExpectedHierarchyName(string normalizedFileName)
+    {
+        try
+        {
+            var fileName = Path.GetFileName(normalizedFileName);
+            return SourceDetectionService.GetMatchingHierarchyName(fileName);
+        }
+        catch
+        {
+            return "hierarchy.xml";
+        }
+    }
+
+    private async Task SelectNormalizedXml(string fullPath, string fileName, bool hasHierarchy)
+    {
+        if (!hasHierarchy)
+        {
+            // Don't allow selection of items without hierarchy
+            AddLogEntry($"Cannot select {fileName} - hierarchy not available");
+            return;
+        }
+
+        // Clear any previous validation error
+        _validationError = null;
+
+        // Include normalized/ prefix for pre-normalized files
+        // The ConversionService expects paths like "normalized/docling-word.xml"
+        _config.SourceFile = $"normalized/{fileName}";
+
+        // Auto-select matching hierarchy
+        if (_matchingHierarchies.TryGetValue(fullPath, out var hierarchyPath))
+        {
+            _config.HierarchyFile = hierarchyPath;
+            Logger.LogInformation("Selected normalized XML: {Source} with hierarchy: {Hierarchy}",
+                _config.SourceFile, Path.GetFileName(hierarchyPath));
+            AddLogEntry($"Selected: {fileName} with {Path.GetFileName(hierarchyPath)}");
+        }
+
+        // Save to UserSelectionService
+        await UserSelectionService.UpdateSelectionAsync(
+            sourceXml: _config.SourceFile,
+            hierarchyXml: _config.HierarchyFile ?? string.Empty);
+
+        StateHasChanged();
     }
 
     private async Task OnHierarchyFileChanged(ChangeEventArgs e)
@@ -522,6 +660,9 @@
     private async Task StartConversion()
     {
         if (!_config.IsValid) return;
+
+        // Clear any previous validation error
+        _validationError = null;
 
         // Create new cancellation token source
         _cancellationTokenSource?.Dispose();
@@ -558,6 +699,12 @@
             {
                 CurrentItemName = "Cancelled";
             }
+            else if (!result.Success && result.Errors.Any())
+            {
+                // Validation or early failure - show error in alert panel
+                _validationError = result.Errors.First();
+                CurrentItemName = "Failed";
+            }
             else
             {
                 // When complete successfully, show 100% progress
@@ -566,7 +713,7 @@
             }
 
             IsProcessing = false;
-            ProcessingComplete = true;
+            ProcessingComplete = result.Success || result.WasCancelled;
             StateHasChanged();
         }
         catch (OperationCanceledException)
@@ -582,6 +729,7 @@
         {
             Logger.LogError(ex, "Error during conversion");
             AddLogEntry($"✗ Error: {ex.Message}");
+            _validationError = ex.Message;
             CurrentItemName = "Failed";
             IsProcessing = false;
             ProcessingComplete = false;
