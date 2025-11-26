@@ -97,8 +97,15 @@
 }
 
 .normalized-xml-item.selected {
-    border-color: #0e639c;
-    background: #0e639c20;
+    border-color: #0078d4;
+    border-left: 4px solid #0078d4;
+    background: linear-gradient(90deg, #0078d420 0%, #0078d410 100%);
+    box-shadow: 0 0 0 1px #0078d450, 0 2px 8px rgba(0, 120, 212, 0.25);
+}
+
+.normalized-xml-item.selected .file-name {
+    color: #4fc3f7;
+    font-weight: 600;
 }
 
 .normalized-xml-item.needs-hierarchy {

@@ -74,6 +74,7 @@ public class ConversionService : IConversionService
     private readonly IHeaderMatchingService _headerMatchingService;
     private readonly IContentExtractionService _contentExtractionService;
     private readonly IHeaderNormalizationService _headerNormalizationService;
+    private readonly IProjectArchiveService _archiveService;
     private readonly IOptions<ConversionSettings> _conversionSettings;
     private const string TemplateFilePath = "/app/data/input/template.xml";
 
@@ -84,6 +85,7 @@ public class ConversionService : IConversionService
         IHeaderMatchingService headerMatchingService,
         IContentExtractionService contentExtractionService,
         IHeaderNormalizationService headerNormalizationService,
+        IProjectArchiveService archiveService,
         IOptions<ConversionSettings> conversionSettings)
     {
         _logger = logger;
@@ -92,6 +94,7 @@ public class ConversionService : IConversionService
         _headerMatchingService = headerMatchingService;
         _contentExtractionService = contentExtractionService;
         _headerNormalizationService = headerNormalizationService;
+        _archiveService = archiveService;
         _conversionSettings = conversionSettings;
     }
 
@@ -1179,6 +1182,37 @@ public class ConversionService : IConversionService
             {
                 result.Success = result.FailedSections == 0;
                 result.Duration = DateTime.UtcNow - startTime;
+            }
+
+            // Generate ZIP package after successful conversion
+            if (result.Success && !result.WasCancelled)
+            {
+                logCallback("");
+                logCallback("Creating download package...");
+
+                // Extract package name from source file (e.g., "normalized/docling-word.xml" → "docling-word")
+                var sourceFileName = Path.GetFileNameWithoutExtension(sourceFile);
+                // Remove any path prefix (e.g., "normalized/")
+                if (sourceFile.Contains("/"))
+                {
+                    sourceFileName = Path.GetFileNameWithoutExtension(sourceFile.Split('/').Last());
+                }
+
+                var packagePath = await _archiveService.CreateAndSavePackageAsync(
+                    customer,
+                    project,
+                    hierarchyPath,
+                    sourceFileName);
+
+                if (packagePath != null)
+                {
+                    result.PackagePath = packagePath;
+                    logCallback($"✓ Package created: {Path.GetFileName(packagePath)}");
+                }
+                else
+                {
+                    logCallback("⚠ Failed to create download package");
+                }
             }
 
             // Final summary

@@ -206,6 +206,140 @@ public class ProjectArchiveService : IProjectArchiveService
         }
     }
 
+    public async Task<string?> CreateAndSavePackageAsync(string customer, string projectId, string hierarchyFilePath, string packageName)
+    {
+        try
+        {
+            _logger.LogInformation("Creating package '{PackageName}' for {Customer}/{ProjectId} with hierarchy: {Hierarchy}",
+                packageName, customer, projectId, hierarchyFilePath);
+
+            // Ensure packages directory exists
+            var packagesPath = Path.Combine(_outputBasePath, customer, "projects", projectId, "packages");
+            Directory.CreateDirectory(packagesPath);
+
+            var packagePath = Path.Combine(packagesPath, $"{packageName}.zip");
+
+            var manifestData = new ManifestData();
+
+            // Delete existing package if it exists
+            if (File.Exists(packagePath))
+            {
+                File.Delete(packagePath);
+                _logger.LogDebug("Deleted existing package: {PackagePath}", packagePath);
+            }
+
+            using (var fileStream = new FileStream(packagePath, FileMode.Create))
+            using (var archive = new ZipArchive(fileStream, ZipArchiveMode.Create))
+            {
+                // 1. Add section XML files from output/data
+                var dataPath = Path.Combine(_outputBasePath, customer, "projects", projectId, "data");
+                if (Directory.Exists(dataPath))
+                {
+                    var sectionFiles = Directory.GetFiles(dataPath, "*.xml");
+                    foreach (var filePath in sectionFiles)
+                    {
+                        var fileName = Path.GetFileName(filePath);
+                        var entryName = $"data/{fileName}";
+                        await AddFileToArchiveAsync(archive, filePath, entryName);
+                        manifestData.AddSection(entryName);
+                    }
+                    _logger.LogDebug("Added {Count} section files", sectionFiles.Length);
+                }
+
+                // 2. Add the hierarchy file that was used in conversion
+                if (File.Exists(hierarchyFilePath))
+                {
+                    var hierarchyFileName = Path.GetFileName(hierarchyFilePath);
+                    var entryName = $"metadata/{hierarchyFileName}";
+                    await AddFileToArchiveAsync(archive, hierarchyFilePath, entryName);
+                    manifestData.SetHierarchy(entryName);
+                    _logger.LogDebug("Added hierarchy file: {FileName}", hierarchyFileName);
+                }
+                else
+                {
+                    _logger.LogWarning("Hierarchy file not found: {Path}", hierarchyFilePath);
+                }
+
+                // 3. Add all images recursively
+                var imagesPath = Path.Combine(_inputBasePath, customer, "projects", projectId, "images");
+                if (Directory.Exists(imagesPath))
+                {
+                    await AddDirectoryToArchiveAsync(archive, imagesPath, "images", manifestData);
+                    _logger.LogDebug("Added {Count} images", manifestData.Images.Count);
+                }
+
+                // 4. Generate and add manifest.yml
+                var manifestYml = GenerateManifestYml(manifestData);
+                var manifestEntry = archive.CreateEntry("manifest.yml", CompressionLevel.Optimal);
+                using (var entryStream = manifestEntry.Open())
+                using (var writer = new StreamWriter(entryStream))
+                {
+                    await writer.WriteAsync(manifestYml);
+                }
+            }
+
+            var fileInfo = new FileInfo(packagePath);
+            _logger.LogInformation("Created package '{PackageName}' for {Customer}/{ProjectId}: {Size} bytes, {Sections} sections, {Images} images",
+                packageName, customer, projectId, fileInfo.Length, manifestData.Sections.Count, manifestData.Images.Count);
+
+            return packagePath;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create package '{PackageName}' for {Customer}/{ProjectId}", packageName, customer, projectId);
+            return null;
+        }
+    }
+
+    public Task<List<string>> GetAvailablePackagesAsync(string customer, string projectId)
+    {
+        try
+        {
+            var packagesPath = Path.Combine(_outputBasePath, customer, "projects", projectId, "packages");
+
+            if (!Directory.Exists(packagesPath))
+            {
+                return Task.FromResult(new List<string>());
+            }
+
+            var packages = Directory.GetFiles(packagesPath, "*.zip")
+                .Select(Path.GetFileName)
+                .Where(f => f != null)
+                .Cast<string>()
+                .OrderBy(f => f)
+                .ToList();
+
+            _logger.LogDebug("Found {Count} packages for {Customer}/{ProjectId}", packages.Count, customer, projectId);
+            return Task.FromResult(packages);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get available packages for {Customer}/{ProjectId}", customer, projectId);
+            return Task.FromResult(new List<string>());
+        }
+    }
+
+    public string? GetPackagePath(string customer, string projectId, string packageFileName)
+    {
+        try
+        {
+            var packagePath = Path.Combine(_outputBasePath, customer, "projects", projectId, "packages", packageFileName);
+
+            if (File.Exists(packagePath))
+            {
+                return packagePath;
+            }
+
+            _logger.LogWarning("Package not found: {PackagePath}", packagePath);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get package path for {Customer}/{ProjectId}/{FileName}", customer, projectId, packageFileName);
+            return null;
+        }
+    }
+
     /// <summary>
     /// Helper class to track files for manifest generation
     /// </summary>

@@ -51,6 +51,11 @@ public class ConversionResult
     public bool WasCancelled { get; set; }
 
     /// <summary>
+    /// Path to the generated download package (ZIP file), if created
+    /// </summary>
+    public string? PackagePath { get; set; }
+
+    /// <summary>
     /// Returns a formatted summary of the conversion results
     /// </summary>
     public override string ToString() =>

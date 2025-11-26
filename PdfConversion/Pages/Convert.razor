@@ -48,7 +48,7 @@
                                 @foreach (var file in group.Files)
                                 {
                                     var hasHierarchy = _hierarchyStatus.ContainsKey(file.FullPath) && _hierarchyStatus[file.FullPath];
-                                    var isSelected = _config.SourceFile == file.FileName;
+                                    var isSelected = _config.SourceFile?.EndsWith(file.FileName) == true;
                                     var hierarchyName = GetExpectedHierarchyName(file.FileName);
 
                                     <div class="normalized-xml-item @(isSelected ? "selected" : "") @(hasHierarchy ? "ready" : "needs-hierarchy")"
@@ -334,56 +334,48 @@
         }
 
         await LoadProjectsAsync();
-        await RestoreSavedSelectionsAsync();
+        await InitializeFromUrlParametersAsync();
     }
 
-    private async Task RestoreSavedSelectionsAsync()
+    private async Task InitializeFromUrlParametersAsync()
     {
         try
         {
-            // Use centralized SelectionRestorationHelper
+            // Use URL parameters directly - this is a project-specific page
+            var projectPath = $"{Customer}/{ProjectId}";
+            _config.ProjectId = projectPath;
+
+            Logger.LogInformation("Initialize Convert page for project: {Project}", projectPath);
+
+            // Load files for this specific project
+            await LoadProjectFilesAsync(projectPath);
+
+            // Try to restore source/hierarchy selections for THIS project
             var restored = await SelectionHelper.RestoreProjectSelectionAsync(Projects);
 
-            if (!restored.ProjectFound)
+            // Only restore source/hierarchy if they belong to the current project
+            if (restored.ProjectFound && restored.ProjectId == projectPath)
             {
-                if (!string.IsNullOrEmpty(restored.WarningMessage))
+                // Restore source file selection
+                if (SelectionHelper.ValidateFileExists(restored.SourceFile, SourceFiles))
                 {
-                    Logger.LogWarning(restored.WarningMessage);
+                    _config.SourceFile = restored.SourceFile;
+                    Logger.LogInformation("Restored source file: {File}", restored.SourceFile);
                 }
-                return;
-            }
 
-            // Apply restored project selection
-            _config.ProjectId = restored.ProjectId;
-            await LoadProjectFilesAsync(restored.ProjectId!);
-
-            // Restore source file selection
-            if (SelectionHelper.ValidateFileExists(restored.SourceFile, SourceFiles))
-            {
-                _config.SourceFile = restored.SourceFile;
-                Logger.LogInformation("Restored source file: {File}", restored.SourceFile);
-            }
-            else if (!string.IsNullOrEmpty(restored.SourceFile))
-            {
-                Logger.LogWarning("Source file '{File}' not found in project files", restored.SourceFile);
-            }
-
-            // Restore hierarchy file selection
-            if (SelectionHelper.ValidateFileExists(restored.HierarchyFile, HierarchyFiles))
-            {
-                _config.HierarchyFile = restored.HierarchyFile;
-                Logger.LogInformation("Restored hierarchy file: {File}", restored.HierarchyFile);
-            }
-            else if (!string.IsNullOrEmpty(restored.HierarchyFile))
-            {
-                Logger.LogWarning("Hierarchy file '{File}' not found in project files", restored.HierarchyFile);
+                // Restore hierarchy file selection
+                if (SelectionHelper.ValidateFileExists(restored.HierarchyFile, HierarchyFiles))
+                {
+                    _config.HierarchyFile = restored.HierarchyFile;
+                    Logger.LogInformation("Restored hierarchy file: {File}", restored.HierarchyFile);
+                }
             }
 
             StateHasChanged();
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Error restoring saved selections");
+            Logger.LogWarning(ex, "Error initializing from URL parameters");
         }
     }
 

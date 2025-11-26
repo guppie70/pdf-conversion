@@ -25,7 +25,7 @@
                 <button type="button"
                         class="tab-button @(ActiveTab == "download" ? "active" : "")"
                         @onclick='() => SetActiveTab("download")'
-                        disabled="@(!HasFiles)">
+                        disabled="@(!HasPackages)">
                     Download
                 </button>
             </div>
@@ -98,55 +98,56 @@
                 {
                     <div class="download-section">
                         <p class="download-description">
-                            Download a ZIP archive containing all project output files:
+                            Download a pre-generated package containing all project output files:
                         </p>
 
-                        <!-- Hierarchy File Selector -->
+                        <!-- Package Selector -->
                         <div class="form-group mb-3">
-                            <label class="form-label fw-bold">Hierarchy XML File</label>
-                            @if (IsLoadingHierarchyFiles)
+                            <label class="form-label fw-bold">Download Package</label>
+                            @if (IsLoadingPackages)
                             {
                                 <div class="text-muted">
                                     <span class="spinner-border spinner-border-sm me-2"></span>
-                                    Loading hierarchy files...
+                                    Loading packages...
                                 </div>
                             }
-                            else if (!AvailableHierarchyFiles.Any())
+                            else if (!AvailablePackages.Any())
                             {
                                 <div class="alert alert-warning">
-                                    <i class="oi oi-warning"></i> No hierarchy files found in metadata folder.
+                                    <i class="oi oi-warning"></i> No packages available. Run Section Generation first to create a downloadable package.
                                 </div>
                             }
                             else
                             {
-                                <select class="form-select" @bind="SelectedHierarchy" required>
-                                    @if (AvailableHierarchyFiles.Count > 1 && string.IsNullOrEmpty(SelectedHierarchy))
+                                <select class="form-select" @bind="SelectedPackage" required>
+                                    @if (AvailablePackages.Count > 1 && string.IsNullOrEmpty(SelectedPackage))
                                     {
-                                        <option value="">-- Select hierarchy file --</option>
+                                        <option value="">-- Select package --</option>
                                     }
-                                    @foreach (var file in AvailableHierarchyFiles)
+                                    @foreach (var package in AvailablePackages)
                                     {
-                                        <option value="@file">@file</option>
+                                        <option value="@package">@package</option>
                                     }
                                 </select>
                                 <small class="form-text text-muted">
-                                    @AvailableHierarchyFiles.Count file(s) available
+                                    @AvailablePackages.Count package(s) available
                                 </small>
                             }
                         </div>
 
                         <!-- Package Contents -->
                         <ul class="download-contents">
-                            <li>Selected hierarchy XML: <strong>@(SelectedHierarchy ?? "none selected")</strong></li>
+                            <li>Selected package: <strong>@(SelectedPackage ?? "none selected")</strong></li>
                             <li>Section XML files (data/*.xml)</li>
+                            <li>Hierarchy XML (metadata/*.xml)</li>
                             <li>All images (images/*)</li>
                             <li>Package manifest (manifest.yml)</li>
                         </ul>
 
                         <button type="button"
                                 class="btn btn-primary btn-download"
-                                @onclick="DownloadArchive"
-                                disabled="@(IsDownloading || string.IsNullOrEmpty(SelectedHierarchy))">
+                                @onclick="DownloadPackage"
+                                disabled="@(IsDownloading || string.IsNullOrEmpty(SelectedPackage))">
                             @if (IsDownloading)
                             {
                                 <span class="spinner-border spinner-border-sm me-2"></span>
@@ -159,10 +160,10 @@
                             }
                         </button>
 
-                        @if (!HasFiles)
+                        @if (!HasPackages)
                         {
                             <div class="alert alert-info mt-3">
-                                <i class="oi oi-info"></i> No output files available yet. Process the project first.
+                                <i class="oi oi-info"></i> No packages available yet. Run Section Generation to create downloadable packages.
                             </div>
                         }
                     </div>
@@ -198,13 +199,13 @@
     private string ActiveTab { get; set; } = "upload";
     private bool IsUploading { get; set; } = false;
     private bool IsDownloading { get; set; } = false;
-    private bool HasFiles { get; set; } = false;
+    private bool HasPackages { get; set; } = false;
     private string? ErrorMessage { get; set; }
     private string? SuccessMessage { get; set; }
     private List<string> UploadedFiles { get; set; } = new();
-    private List<string> AvailableHierarchyFiles { get; set; } = new();
-    private string? SelectedHierarchy { get; set; }
-    private bool IsLoadingHierarchyFiles { get; set; } = false;
+    private List<string> AvailablePackages { get; set; } = new();
+    private string? SelectedPackage { get; set; }
+    private bool IsLoadingPackages { get; set; } = false;
 
     private const long MaxFileSize = 100 * 1024 * 1024; // 100MB
 
@@ -212,8 +213,9 @@
     {
         if (IsVisible && !string.IsNullOrEmpty(Customer) && !string.IsNullOrEmpty(ProjectId))
         {
-            // Check if project has files to download
-            HasFiles = await ArchiveService.HasFilesToArchiveAsync(Customer, ProjectId);
+            // Check if project has packages to download
+            var packages = await ArchiveService.GetAvailablePackagesAsync(Customer, ProjectId);
+            HasPackages = packages.Any();
 
             // Always start on Upload tab
             ActiveTab = "upload";
@@ -228,7 +230,7 @@
 
         if (tab == "download")
         {
-            await LoadHierarchyFilesAsync();
+            await LoadPackagesAsync();
         }
     }
 
@@ -408,43 +410,43 @@
         }
     }
 
-    private async Task DownloadArchive()
+    private async Task DownloadPackage()
     {
         try
         {
             IsDownloading = true;
             ErrorMessage = null;
 
-            if (string.IsNullOrEmpty(SelectedHierarchy))
+            if (string.IsNullOrEmpty(SelectedPackage))
             {
-                ErrorMessage = "Please select a hierarchy file first.";
+                ErrorMessage = "Please select a package first.";
                 return;
             }
 
-            Logger.LogInformation("Creating archive for download: {Customer}/{ProjectId} with hierarchy: {Hierarchy}",
-                Customer, ProjectId, SelectedHierarchy);
+            Logger.LogInformation("Downloading package: {Customer}/{ProjectId}/{Package}",
+                Customer, ProjectId, SelectedPackage);
 
-            var zipBytes = await ArchiveService.CreateProjectArchiveAsync(Customer, ProjectId, SelectedHierarchy);
+            var packagePath = ArchiveService.GetPackagePath(Customer, ProjectId, SelectedPackage);
 
-            if (zipBytes == null || zipBytes.Length == 0)
+            if (packagePath == null || !File.Exists(packagePath))
             {
-                ErrorMessage = "Failed to create archive. No files found or error occurred.";
+                ErrorMessage = "Package not found. It may have been deleted or moved.";
                 return;
             }
 
-            var filename = ArchiveService.GetArchiveFilename(Customer, ProjectId);
+            var zipBytes = await File.ReadAllBytesAsync(packagePath);
 
             // Trigger download using JavaScript
-            var jsCode = GenerateDownloadScript(zipBytes, filename);
+            var jsCode = GenerateDownloadScript(zipBytes, SelectedPackage);
             await JSRuntime.InvokeVoidAsync("eval", jsCode);
 
-            SuccessMessage = $"Archive downloaded: {filename}";
-            Logger.LogInformation("Archive download triggered: {Filename}, {Size} bytes", filename, zipBytes.Length);
+            SuccessMessage = $"Package downloaded: {SelectedPackage}";
+            Logger.LogInformation("Package download triggered: {Filename}, {Size} bytes", SelectedPackage, zipBytes.Length);
         }
         catch (Exception ex)
         {
-            ErrorMessage = $"Failed to download archive: {ex.Message}";
-            Logger.LogError(ex, "Error downloading archive");
+            ErrorMessage = $"Failed to download package: {ex.Message}";
+            Logger.LogError(ex, "Error downloading package");
         }
         finally
         {
@@ -496,52 +498,38 @@
                    URL.revokeObjectURL(url);";
     }
 
-    private async Task LoadHierarchyFilesAsync()
+    private async Task LoadPackagesAsync()
     {
-        IsLoadingHierarchyFiles = true;
+        IsLoadingPackages = true;
         ErrorMessage = null;
 
         try
         {
-            var metadataPath = Path.Combine("/app/data/input", Customer, "projects", ProjectId, "metadata");
+            AvailablePackages = await ArchiveService.GetAvailablePackagesAsync(Customer, ProjectId);
 
-            if (Directory.Exists(metadataPath))
+            // Auto-select if only one package
+            if (AvailablePackages.Count == 1)
             {
-                AvailableHierarchyFiles = Directory.GetFiles(metadataPath, "*.xml")
-                    .Select(Path.GetFileName)
-                    .Where(f => f != null)
-                    .Cast<string>()
-                    .OrderBy(f => f)
-                    .ToList();
-
-                // Auto-select if only one file
-                if (AvailableHierarchyFiles.Count == 1)
-                {
-                    SelectedHierarchy = AvailableHierarchyFiles[0];
-                }
-                else if (AvailableHierarchyFiles.Count == 0)
-                {
-                    ErrorMessage = "No hierarchy files found in metadata folder.";
-                }
-
-                Logger.LogInformation("Found {Count} hierarchy files for {Customer}/{ProjectId}",
-                    AvailableHierarchyFiles.Count, Customer, ProjectId);
+                SelectedPackage = AvailablePackages[0];
             }
-            else
+            else if (AvailablePackages.Count == 0)
             {
-                AvailableHierarchyFiles.Clear();
-                ErrorMessage = $"Metadata folder not found: {metadataPath}";
-                Logger.LogWarning("Metadata folder not found: {Path}", metadataPath);
+                ErrorMessage = "No packages available. Run Section Generation first.";
             }
+
+            HasPackages = AvailablePackages.Any();
+
+            Logger.LogInformation("Found {Count} packages for {Customer}/{ProjectId}",
+                AvailablePackages.Count, Customer, ProjectId);
         }
         catch (Exception ex)
         {
-            ErrorMessage = $"Failed to load hierarchy files: {ex.Message}";
-            Logger.LogError(ex, "Error loading hierarchy files for {Customer}/{ProjectId}", Customer, ProjectId);
+            ErrorMessage = $"Failed to load packages: {ex.Message}";
+            Logger.LogError(ex, "Error loading packages for {Customer}/{ProjectId}", Customer, ProjectId);
         }
         finally
         {
-            IsLoadingHierarchyFiles = false;
+            IsLoadingPackages = false;
             StateHasChanged();
         }
     }

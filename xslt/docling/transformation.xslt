@@ -217,10 +217,37 @@
         </xsl:copy>
     </xsl:template>
 
-    <xsl:template match="ul | ol | li" priority="10">
+    <!-- Fix nested list structure: Docling outputs <ul>/<ol> as siblings of <li>,
+         but valid HTML requires nested lists INSIDE the preceding <li> -->
+
+    <!-- ul/ol processing: check if parent is also ul/ol (nested case) -->
+    <xsl:template match="ul | ol" priority="10">
+        <!-- Skip if this is a nested list following an li sibling (will be pulled into li) -->
+        <xsl:if test="not((parent::ul or parent::ol) and preceding-sibling::*[1][self::li])">
+            <xsl:copy>
+                <xsl:apply-templates select="@*"/>
+                <xsl:apply-templates select="node()"/>
+            </xsl:copy>
+        </xsl:if>
+    </xsl:template>
+
+    <!-- li processing: pull in following sibling ul/ol if it exists -->
+    <xsl:template match="li" priority="10">
         <xsl:copy>
             <xsl:apply-templates select="@*"/>
-            <xsl:apply-templates/>
+            <xsl:apply-templates select="node()"/>
+            <!-- Pull in following sibling ul/ol (nested list) -->
+            <xsl:if test="following-sibling::*[1][self::ul or self::ol]">
+                <xsl:apply-templates select="following-sibling::*[1][self::ul or self::ol]" mode="nested"/>
+            </xsl:if>
+        </xsl:copy>
+    </xsl:template>
+
+    <!-- Mode for processing nested lists pulled into li -->
+    <xsl:template match="ul | ol" mode="nested" priority="10">
+        <xsl:copy>
+            <xsl:apply-templates select="@*"/>
+            <xsl:apply-templates select="node()"/>
         </xsl:copy>
     </xsl:template>
 

@@ -193,6 +193,14 @@
         <xsl:apply-templates/>
     </xsl:template>
 
+    <xsl:template match="Div">
+        <xsl:apply-templates/>
+    </xsl:template>
+
+    <xsl:template match="NonStruct">
+        <xsl:apply-templates/>
+    </xsl:template>
+
     <!-- Pass 1: Suppression templates -->
 
     <xsl:template match="x:xmpmeta | rdf:RDF" priority="10"/>
@@ -240,6 +248,15 @@
                 <xsl:apply-templates/>
             </p>
         </xsl:if>
+    </xsl:template>
+
+    <!-- Pass 1: Inline formatting transformation templates -->
+
+    <xsl:template match="Strong" priority="10">
+        <strong>
+            <xsl:apply-templates select="@*"/>
+            <xsl:apply-templates/>
+        </strong>
     </xsl:template>
 
     <!-- Pass 1: Link transformation templates -->
