@@ -16,11 +16,6 @@ public class UserSelection
     public string LastSelectedSourceXml { get; set; } = string.Empty;
 
     /// <summary>
-    /// Last selected XSLT filename (e.g., "transformation.xslt")
-    /// </summary>
-    public string LastSelectedXslt { get; set; } = "transformation.xslt";
-
-    /// <summary>
     /// Last selected hierarchy XML filename for Convert page (e.g., "hierarchy.xml")
     /// </summary>
     public string LastSelectedHierarchyXml { get; set; } = string.Empty;

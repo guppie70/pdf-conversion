@@ -208,13 +208,27 @@ app.MapFallbackToPage("/_Host");
 app.MapHub<PdfConversion.Hubs.DoclingProgressHub>("/hubs/docling-progress");
 
 // Map transform-test endpoint for rapid XSLT testing
-app.MapGet("/transform-test", async (HttpContext context, IXsltTransformationService xsltService, IUserSelectionService selectionService, ILogger<Program> logger) =>
+app.MapGet("/transform-test", async (HttpContext context, IXsltTransformationService xsltService, IUserSelectionService selectionService, ISourceDetectionService sourceDetection, ILogger<Program> logger) =>
 {
     try
     {
-        // Get XSLT file from query string, or use last selected from JSON storage
+        // Get XSLT file from query string, or auto-determine from last selected source XML
         var selection = await selectionService.GetSelectionAsync();
-        var xsltFile = context.Request.Query["xslt"].FirstOrDefault() ?? selection.LastSelectedXslt ?? "transformation.xslt";
+        string xsltFile;
+        if (context.Request.Query.ContainsKey("xslt"))
+        {
+            xsltFile = context.Request.Query["xslt"].ToString()!;
+        }
+        else if (!string.IsNullOrEmpty(selection.LastSelectedSourceXml))
+        {
+            // Auto-determine XSLT from source file
+            var detectedXsltPath = sourceDetection.GetXsltPathForSource(selection.LastSelectedSourceXml);
+            xsltFile = detectedXsltPath.Replace("/app/xslt/", "");
+        }
+        else
+        {
+            xsltFile = "adobe/transformation.xslt"; // Default fallback
+        }
 
         // Fixed test XML path
         var testXmlPath = "/app/data/input/_test.xml";

@@ -21,7 +21,7 @@ public interface IUserSelectionService
     /// <summary>
     /// Update specific fields in user selection
     /// </summary>
-    Task UpdateSelectionAsync(string? projectId = null, string? sourceXml = null, string? xslt = null, string? hierarchyXml = null, List<string>? trainingHierarchies = null);
+    Task UpdateSelectionAsync(string? projectId = null, string? sourceXml = null, string? hierarchyXml = null, List<string>? trainingHierarchies = null);
 
     /// <summary>
     /// Update validation modal position
@@ -70,10 +70,9 @@ public class UserSelectionService : IUserSelectionService
             var json = await File.ReadAllTextAsync(_selectionFilePath);
             var selection = JsonSerializer.Deserialize<UserSelection>(json, _jsonOptions);
 
-            _logger.LogDebug("Loaded selection: Project={Project}, SourceXml={SourceXml}, Xslt={Xslt}",
+            _logger.LogDebug("Loaded selection: Project={Project}, SourceXml={SourceXml}",
                 selection?.LastSelectedProject,
-                selection?.LastSelectedSourceXml,
-                selection?.LastSelectedXslt);
+                selection?.LastSelectedSourceXml);
 
             return selection ?? new UserSelection();
         }
@@ -96,10 +95,9 @@ public class UserSelectionService : IUserSelectionService
             var json = JsonSerializer.Serialize(selection, _jsonOptions);
             await File.WriteAllTextAsync(_selectionFilePath, json);
 
-            _logger.LogInformation("Saved selection: Project={Project}, SourceXml={SourceXml}, Xslt={Xslt}",
+            _logger.LogInformation("Saved selection: Project={Project}, SourceXml={SourceXml}",
                 selection.LastSelectedProject,
-                selection.LastSelectedSourceXml,
-                selection.LastSelectedXslt);
+                selection.LastSelectedSourceXml);
         }
         catch (Exception ex)
         {
@@ -111,13 +109,12 @@ public class UserSelectionService : IUserSelectionService
         }
     }
 
-    public async Task UpdateSelectionAsync(string? projectId = null, string? sourceXml = null, string? xslt = null, string? hierarchyXml = null, List<string>? trainingHierarchies = null)
+    public async Task UpdateSelectionAsync(string? projectId = null, string? sourceXml = null, string? hierarchyXml = null, List<string>? trainingHierarchies = null)
     {
         var current = await GetSelectionAsync();
 
         if (projectId != null) current.LastSelectedProject = projectId;
         if (sourceXml != null) current.LastSelectedSourceXml = sourceXml;
-        if (xslt != null) current.LastSelectedXslt = xslt;
         if (hierarchyXml != null) current.LastSelectedHierarchyXml = hierarchyXml;
         if (trainingHierarchies != null) current.LastSelectedTrainingHierarchies = trainingHierarchies;
 

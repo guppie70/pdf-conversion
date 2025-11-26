@@ -1050,13 +1050,6 @@
                     }
                 }
 
-                // Restore XSLT selection
-                if (!string.IsNullOrEmpty(selection.LastSelectedXslt))
-                {
-                    SelectedXsltFile = selection.LastSelectedXslt;
-                    Logger.LogInformation("[OnInitializedAsync] Restored XSLT: {File}", SelectedXsltFile);
-                }
-
                 // If source XML was restored, load hierarchy files
                 if (!string.IsNullOrEmpty(SelectedSourceXml))
                 {

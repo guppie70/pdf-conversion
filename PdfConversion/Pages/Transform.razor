@@ -1378,8 +1378,7 @@
                 // SelectedProjectId is already in "customer/project-id" format
                 await UserSelectionService.UpdateSelectionAsync(
                     projectId: SelectedProjectId,
-                    sourceXml: SelectedFileName,
-                    xslt: SelectedXsltFile
+                    sourceXml: SelectedFileName
                 );
             }
         }
@@ -1424,8 +1423,7 @@
                 // SelectedProjectId is already in "customer/project-id" format
                 await UserSelectionService.UpdateSelectionAsync(
                     projectId: SelectedProjectId,
-                    sourceXml: SelectedFileName,
-                    xslt: SelectedXsltFile
+                    sourceXml: SelectedFileName
                 );
             }
         }
@@ -1559,8 +1557,7 @@
                 // SelectedProjectId is already in "customer/project-id" format
                 await UserSelectionService.UpdateSelectionAsync(
                     projectId: SelectedProjectId,
-                    sourceXml: SelectedFileName,
-                    xslt: SelectedXsltFile
+                    sourceXml: SelectedFileName
                 );
             }
         }
@@ -1602,8 +1599,7 @@
                 // SelectedProjectId is already in "customer/project-id" format
                 await UserSelectionService.UpdateSelectionAsync(
                     projectId: SelectedProjectId,
-                    sourceXml: SelectedFileName,
-                    xslt: SelectedXsltFile
+                    sourceXml: SelectedFileName
                 );
             }
             else
@@ -2788,8 +2784,8 @@
 
                 if (selection != null && !string.IsNullOrEmpty(selection.LastSelectedProject))
                 {
-                    Logger.LogInformation("Loading selection from UserSelectionService JSON: Project={Project}, SourceXml={SourceXml}, Xslt={Xslt}",
-                        selection.LastSelectedProject, selection.LastSelectedSourceXml, selection.LastSelectedXslt);
+                    Logger.LogInformation("Loading selection from UserSelectionService JSON: Project={Project}, SourceXml={SourceXml}",
+                        selection.LastSelectedProject, selection.LastSelectedSourceXml);
 
                     // Validate ProjectId format (should be "customer/project-id")
                     if (!selection.LastSelectedProject.Contains('/'))
@@ -2801,11 +2797,12 @@
 
                     // UserSelection now stores full path format (e.g., "customer/project-id")
                     // Transform page uses the same format, so use it directly
+                    // Note: XsltFile is auto-determined from source filename, not restored
                     savedSelection = new SavedSelection
                     {
                         ProjectId = selection.LastSelectedProject,
                         FileName = selection.LastSelectedSourceXml ?? string.Empty,
-                        XsltFile = selection.LastSelectedXslt ?? "transformation.xslt"
+                        XsltFile = null // XSLT auto-determined from source file
                     };
                 }
                 else
@@ -2820,21 +2817,15 @@
                     var currentProject = $"{Customer}/{ProjectId}";
                     if (savedSelection.ProjectId.Equals(currentProject, StringComparison.OrdinalIgnoreCase))
                     {
-                        Logger.LogInformation("Restoring saved selection: Project={Project}, File={File}, XsltFile={XsltFile}",
-                            savedSelection.ProjectId, savedSelection.FileName, savedSelection.XsltFile);
+                        Logger.LogInformation("Restoring saved selection: Project={Project}, File={File}",
+                            savedSelection.ProjectId, savedSelection.FileName);
 
                         // Set flag to prevent saving during restoration
                         isRestoringFromStorage = true;
 
                         try
                         {
-                        // Restore XSLT file selection first
-                        if (!string.IsNullOrEmpty(savedSelection.XsltFile))
-                        {
-                            SelectedXsltFile = savedSelection.XsltFile;
-                            // Reload XSLT to use the restored file
-                            await LoadXsltAsync();
-                        }
+                        // Note: XSLT file is auto-determined from source filename, not restored
 
                         // Restore source XML file selection if available - reconstruct full path
                         if (!string.IsNullOrEmpty(savedSelection.ProjectId) && !string.IsNullOrEmpty(savedSelection.FileName))
