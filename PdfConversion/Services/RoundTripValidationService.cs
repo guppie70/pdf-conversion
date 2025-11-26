@@ -1,5 +1,6 @@
 using PdfConversion.Models;
 using PdfConversion.Utils;
+using System.Xml.Linq;
 
 namespace PdfConversion.Services;
 
@@ -40,6 +41,35 @@ public class RoundTripValidationService : IRoundTripValidationService
         _diffService = diffService;
         _xsltService = xsltService;
         _projectService = projectService;
+    }
+
+    /// <summary>
+    /// Normalizes XML for comparison by removing insignificant whitespace and applying consistent formatting
+    /// </summary>
+    /// <param name="xml">The XML string to normalize</param>
+    /// <returns>Normalized XML string with consistent formatting</returns>
+    private string NormalizeXmlForComparison(string xml)
+    {
+        try
+        {
+            _logger.LogDebug("Normalizing XML for comparison (size: {Size} chars)", xml.Length);
+
+            // Parse the XML without preserving insignificant whitespace
+            var document = XDocument.Parse(xml, LoadOptions.None);
+
+            // Re-serialize with consistent pretty-printing
+            // SaveOptions.None = pretty-printed with indentation
+            var normalizedXml = document.ToString(SaveOptions.None);
+
+            _logger.LogDebug("XML normalized successfully (new size: {Size} chars)", normalizedXml.Length);
+            return normalizedXml;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to normalize XML, using original content. XML preview: {Preview}",
+                xml.Length > 200 ? xml.Substring(0, 200) + "..." : xml);
+            return xml;
+        }
     }
 
     public async Task<RoundTripValidationResult> ValidateRoundTripAsync(string projectId, string sourceFile, string hierarchyFile)
@@ -101,73 +131,86 @@ public class RoundTripValidationService : IRoundTripValidationService
                 return result;
             }
 
-            // 4. Perform fresh XSLT transformation
-            _logger.LogInformation("Performing fresh XSLT transformation on source XML");
-
+            // 4. Get original XML content
             // Read source XML content
             var sourceXmlContent = await _projectService.ReadInputFileAsync(projectId, sourceFile);
             _logger.LogInformation("Source XML size: {Size} characters", sourceXmlContent.Length);
 
-            // Auto-detect XSLT based on source filename
-            var xsltPath = XsltPathResolver.GetTransformationPath(sourceFile);
+            string originalXml;
 
-            _logger.LogInformation("Using XSLT file: {XsltPath} (detected from source: {SourceFile})", xsltPath, sourceFile);
-
-            if (!File.Exists(xsltPath))
+            // Check if source file is already normalized (in normalized/ folder)
+            // If so, use it directly instead of re-transforming
+            if (sourceFile.StartsWith("normalized/", StringComparison.OrdinalIgnoreCase))
             {
-                result.Success = false;
-                result.ErrorMessage = $"XSLT transformation file not found: {xsltPath}";
-                _logger.LogWarning("Validation failed: {Error}", result.ErrorMessage);
-                return result;
+                _logger.LogInformation("Source file is already normalized ({SourceFile}), using content directly without XSLT transformation", sourceFile);
+                originalXml = sourceXmlContent;
             }
-
-            var xsltContent = await File.ReadAllTextAsync(xsltPath);
-
-            // Configure transformation options
-            var transformOptions = new TransformationOptions
+            else
             {
-                UseXslt3Service = true,
-                NormalizeHeaders = false, // Headers are normalized per section
-                Parameters = new Dictionary<string, string>
+                // Perform fresh XSLT transformation for non-normalized source files
+                _logger.LogInformation("Performing fresh XSLT transformation on source XML");
+
+                // Auto-detect XSLT based on source filename
+                var xsltPath = XsltPathResolver.GetTransformationPath(sourceFile);
+
+                _logger.LogInformation("Using XSLT file: {XsltPath} (detected from source: {SourceFile})", xsltPath, sourceFile);
+
+                if (!File.Exists(xsltPath))
                 {
-                    { "project-id", projectId },
-                    { "file-name", sourceFile },
-                    { "generate-ids", "true" }
+                    result.Success = false;
+                    result.ErrorMessage = $"XSLT transformation file not found: {xsltPath}";
+                    _logger.LogWarning("Validation failed: {Error}", result.ErrorMessage);
+                    return result;
                 }
-            };
 
-            _logger.LogInformation("XSLT transformation options: UseXslt3Service={UseXslt3}, NormalizeHeaders={NormalizeHeaders}, Parameters={Parameters}",
-                transformOptions.UseXslt3Service,
-                transformOptions.NormalizeHeaders,
-                string.Join(", ", transformOptions.Parameters.Select(p => $"{p.Key}={p.Value}")));
+                var xsltContent = await File.ReadAllTextAsync(xsltPath);
 
-            // Perform transformation (pass xsltPath so includes can be resolved)
-            _logger.LogInformation("Starting XSLT transformation - Source size: {Size} chars, XSLT size: {XsltSize} chars",
-                sourceXmlContent.Length, xsltContent.Length);
+                // Configure transformation options
+                var transformOptions = new TransformationOptions
+                {
+                    UseXslt3Service = true,
+                    NormalizeHeaders = false, // Headers are normalized per section
+                    Parameters = new Dictionary<string, string>
+                    {
+                        { "project-id", projectId },
+                        { "file-name", sourceFile },
+                        { "generate-ids", "true" }
+                    }
+                };
 
-            var transformResult = await _xsltService.TransformAsync(sourceXmlContent, xsltContent, transformOptions, xsltPath);
+                _logger.LogInformation("XSLT transformation options: UseXslt3Service={UseXslt3}, NormalizeHeaders={NormalizeHeaders}, Parameters={Parameters}",
+                    transformOptions.UseXslt3Service,
+                    transformOptions.NormalizeHeaders,
+                    string.Join(", ", transformOptions.Parameters.Select(p => $"{p.Key}={p.Value}")));
 
-            _logger.LogInformation("XSLT transformation result - Success: {Success}, Output size: {Size} chars, Error: {Error}",
-                transformResult.IsSuccess,
-                transformResult.OutputContent?.Length ?? 0,
-                transformResult.ErrorMessage ?? "none");
+                // Perform transformation (pass xsltPath so includes can be resolved)
+                _logger.LogInformation("Starting XSLT transformation - Source size: {Size} chars, XSLT size: {XsltSize} chars",
+                    sourceXmlContent.Length, xsltContent.Length);
 
-            if (!transformResult.IsSuccess)
-            {
-                result.Success = false;
-                result.ErrorMessage = $"XSLT transformation failed: {transformResult.ErrorMessage}";
-                _logger.LogWarning("Validation failed: {Error}", result.ErrorMessage);
+                var transformResult = await _xsltService.TransformAsync(sourceXmlContent, xsltContent, transformOptions, xsltPath);
 
-                // Save error details for debugging
-                var errorLogPath = Path.Combine(debugOutputDirectory, "transformation-error.txt");
-                await File.WriteAllTextAsync(errorLogPath, $"Transformation Error:\n{transformResult.ErrorMessage}");
-                _logger.LogInformation("Error details saved to: {ErrorLogPath}", errorLogPath);
+                _logger.LogInformation("XSLT transformation result - Success: {Success}, Output size: {Size} chars, Error: {Error}",
+                    transformResult.IsSuccess,
+                    transformResult.OutputContent?.Length ?? 0,
+                    transformResult.ErrorMessage ?? "none");
 
-                return result;
+                if (!transformResult.IsSuccess)
+                {
+                    result.Success = false;
+                    result.ErrorMessage = $"XSLT transformation failed: {transformResult.ErrorMessage}";
+                    _logger.LogWarning("Validation failed: {Error}", result.ErrorMessage);
+
+                    // Save error details for debugging
+                    var errorLogPath = Path.Combine(debugOutputDirectory, "transformation-error.txt");
+                    await File.WriteAllTextAsync(errorLogPath, $"Transformation Error:\n{transformResult.ErrorMessage}");
+                    _logger.LogInformation("Error details saved to: {ErrorLogPath}", errorLogPath);
+
+                    return result;
+                }
+
+                originalXml = transformResult.OutputContent;
+                _logger.LogInformation("Fresh transformation completed successfully, output size: {Size} characters", originalXml.Length);
             }
-
-            var originalXml = transformResult.OutputContent;
-            _logger.LogInformation("Fresh transformation completed successfully, output size: {Size} characters", originalXml.Length);
 
             // DEBUG: Save fresh transformation output
             var freshTransformPath = Path.Combine(debugOutputDirectory, "1-fresh-transformation.xml");
@@ -206,16 +249,29 @@ public class RoundTripValidationService : IRoundTripValidationService
                 // Non-critical, continue
             }
 
-            // 6. Generate diff
-            _logger.LogInformation("Generating diff between freshly transformed and reconstructed XML");
-            var diffResult = _diffService.GenerateXmlDiff(originalXml, reconstructedXml, debugOutputDirectory);
+            // 6. Normalize both XML documents before comparison
+            _logger.LogInformation("Normalizing both XML documents for whitespace-insensitive comparison");
+            var normalizedOriginalXml = NormalizeXmlForComparison(originalXml);
+            var normalizedReconstructedXml = NormalizeXmlForComparison(reconstructedXml);
+
+            // DEBUG: Save normalized versions for inspection
+            var normalizedOriginalPath = Path.Combine(debugOutputDirectory, "3-normalized-original.xml");
+            var normalizedReconstructedPath = Path.Combine(debugOutputDirectory, "4-normalized-reconstructed.xml");
+            await File.WriteAllTextAsync(normalizedOriginalPath, normalizedOriginalXml);
+            await File.WriteAllTextAsync(normalizedReconstructedPath, normalizedReconstructedXml);
+            _logger.LogInformation("Saved normalized documents: {NormOrig} and {NormRecon}",
+                normalizedOriginalPath, normalizedReconstructedPath);
+
+            // 7. Generate diff
+            _logger.LogInformation("Generating diff between normalized XML documents");
+            var diffResult = _diffService.GenerateXmlDiff(normalizedOriginalXml, normalizedReconstructedXml, debugOutputDirectory);
 
             // DEBUG: Save what's being compared after body extraction (from DiffService internals)
             _logger.LogInformation("Diff generation complete");
             _logger.LogInformation("Diff statistics - Unchanged: {Unchanged}, Modified: {Modified}, Added: {Added}, Deleted: {Deleted}",
                 diffResult.LinesUnchanged, diffResult.LinesModified, diffResult.LinesAdded, diffResult.LinesDeleted);
 
-            // 7. Populate result
+            // 8. Populate result
             result.Success = true;
             result.IsPerfectMatch = diffResult.IsPerfectMatch;
             result.MatchPercentage = diffResult.MatchPercentage;

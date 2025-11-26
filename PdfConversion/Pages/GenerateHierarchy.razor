@@ -215,7 +215,7 @@
                     }
                 </div>
             </div>
-            <div class="panel-content" tabindex="0" @onkeydown="HandleKeyDown" @onkeydown:preventDefault="false">
+            <div class="panel-content" tabindex="0" @ref="_panelContentRef" @onkeydown="HandleKeyDown" @onkeydown:preventDefault="false">
                 @if (_currentMode == HierarchyMode.Restricted)
                 {
                     <!-- Manual Mode: Tree View -->
@@ -646,6 +646,7 @@
     private List<string> _technicalLogs = new();
     private GenerationStatistics? _generationStats = null;
     private ElementReference _logScrollContainer;
+    private ElementReference _panelContentRef;
 
     // Manual Mode fields
     private enum HierarchyMode
@@ -1003,21 +1004,26 @@
 
             Logger.LogInformation("[OnInitializedAsync] Loaded {Count} project file groups", ProjectFileGroups.Count);
 
-            // Try to restore last selection
+            // Set project from URL parameters (NOT from saved selection - URL is the source of truth)
+            SelectedProject = $"{Customer}/{ProjectId}";
+            Logger.LogInformation("[OnInitializedAsync] Using project from URL: {Project}", SelectedProject);
+
+            // Try to restore last selection for files within the current project
             var selection = await UserSelectionService.GetSelectionAsync();
             if (selection != null)
             {
                 Logger.LogInformation("[OnInitializedAsync] Found user selections");
 
-                // Restore project selection
-                if (!string.IsNullOrEmpty(selection.LastSelectedProject))
+                // Only restore file selections if they were for the SAME project
+                var selectionMatchesProject = selection.LastSelectedProject == SelectedProject;
+                if (!selectionMatchesProject)
                 {
-                    SelectedProject = selection.LastSelectedProject;
-                    Logger.LogInformation("[OnInitializedAsync] Restored project: {Project}", SelectedProject);
+                    Logger.LogInformation("[OnInitializedAsync] Saved selection is for different project ({SavedProject}), not restoring file selections",
+                        selection.LastSelectedProject);
                 }
 
-                // Restore source XML if available - reconstruct full path
-                if (!string.IsNullOrEmpty(selection.LastSelectedSourceXml) && !string.IsNullOrEmpty(SelectedProject))
+                // Restore source XML if available - only if same project
+                if (selectionMatchesProject && !string.IsNullOrEmpty(selection.LastSelectedSourceXml) && !string.IsNullOrEmpty(SelectedProject))
                 {
                     var sourceXmlFilename = selection.LastSelectedSourceXml;
                     var parts = SelectedProject.Split('/');
@@ -2029,6 +2035,8 @@
                 _manualHeaders = headers.ToList();
                 _manualHierarchyItems = ManualHierarchyBuilder.ConvertToHierarchy(_manualHeaders);
                 AssignSequentialOrderToTree(_manualHierarchyItems);
+                // CRITICAL: Sync IDs back to _manualHeaders to prevent ID mismatch
+                _manualHeaders = FlattenHierarchyToHeaders(_manualHierarchyItems);
                 StateHasChanged();
             }
         }
@@ -2058,6 +2066,10 @@
 
             // Assign sequential order for display badges
             AssignSequentialOrderToTree(_manualHierarchyItems);
+
+            // CRITICAL: Sync IDs back to _manualHeaders to prevent ID mismatch
+            // ConvertToHierarchy() regenerates IDs with timestamps, so we must update _manualHeaders
+            _manualHeaders = FlattenHierarchyToHeaders(_manualHierarchyItems);
 
             // Sync to CurrentHierarchy for saving
             SyncManualHierarchyToCurrentHierarchy();
@@ -2256,7 +2268,9 @@
             CanOutdentCurrentSelection());
 
         StateHasChanged();
-        await Task.CompletedTask;
+
+        // Set focus on panel-content so keyboard shortcuts (Tab/Shift+Tab) work
+        await _panelContentRef.FocusAsync();
     }
 
     /// <summary>

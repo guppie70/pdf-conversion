@@ -274,4 +274,8 @@
         </h3>
     </xsl:template>
 
+    <xsl:template match="div[@class='document-content' or @class='page']" priority="20">
+            <xsl:apply-templates/>
+    </xsl:template>
+
 </xsl:stylesheet>
