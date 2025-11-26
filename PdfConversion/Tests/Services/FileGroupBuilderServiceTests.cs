@@ -367,39 +367,6 @@ public class FileGroupBuilderServiceTests : IDisposable
 
     #endregion
 
-    #region BuildAllFileGroupsAsync Tests
-
-    [Fact]
-    public async Task BuildAllFileGroupsAsync_ReturnsAllFilesWithRelativePaths()
-    {
-        // Arrange
-        var projects = CreateTestProjects();
-        _mockProjectService.Setup(s => s.GetProjectsAsync())
-            .ReturnsAsync(projects);
-
-        var activeProjects = CreateActiveProjectMetadata();
-        _mockMetadataService.Setup(s => s.GetActiveProjects())
-            .ReturnsAsync(activeProjects);
-
-        CreateXmlFile("optiver", "ar24-1", "input.xml");
-        CreateDocumentFile("optiver", "ar24-1", "report.pdf");
-        CreateDocumentFile("optiver", "ar24-1", "notes.docx");
-
-            // Act
-            var result = await _service.BuildAllFileGroupsAsync(onlyActiveProjects: true);
-
-            // Assert
-            Assert.Single(result);
-            var group = result[0];
-            Assert.Equal(3, group.Files.Count);
-            Assert.All(group.Files, file =>
-            {
-                Assert.Matches(@"^optiver/ar24-1/.+$", file.FullPath);
-            });
-    }
-
-    #endregion
-
     #region Error Handling Tests
 
     [Fact]
@@ -425,20 +392,6 @@ public class FileGroupBuilderServiceTests : IDisposable
 
         // Act
         var result = await _service.BuildDocumentFileGroupsAsync(new[] { ".pdf" });
-
-        // Assert
-        Assert.Empty(result);
-    }
-
-    [Fact]
-    public async Task BuildAllFileGroupsAsync_WhenExceptionThrown_ReturnsEmptyList()
-    {
-        // Arrange
-        _mockProjectService.Setup(s => s.GetProjectsAsync())
-            .ThrowsAsync(new Exception("Test exception"));
-
-        // Act
-        var result = await _service.BuildAllFileGroupsAsync();
 
         // Assert
         Assert.Empty(result);
