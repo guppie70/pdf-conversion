@@ -23,7 +23,20 @@
         </img>
     </xsl:template>
 
-    <xsl:template match="figure">
+    <!-- Transform figure with figcaption into img with caption as alt and data-rendercaption -->
+    <xsl:template match="figure[figcaption and img]" priority="25">
+        <xsl:variable name="caption-text" select="normalize-space(figcaption//div[@class='caption'])"/>
+        <xsl:variable name="original-src" select="img/@src"/>
+        <xsl:variable name="taxxor-path" select="concat('/dataserviceassets/{projectid}/images/from-conversion/', $original-src)"/>
+
+        <img src="{$taxxor-path}" alt="{$caption-text}" data-rendercaption="true">
+            <!-- Copy other attributes from original img except src and alt -->
+            <xsl:apply-templates select="img/@*[not(name()='src' or name()='alt')]"/>
+        </img>
+    </xsl:template>
+
+    <!-- Fallback for figure without figcaption (just unwrap) -->
+    <xsl:template match="figure[not(figcaption)]" priority="15">
         <xsl:apply-templates/>
     </xsl:template>
 

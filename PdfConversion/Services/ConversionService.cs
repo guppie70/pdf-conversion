@@ -1083,11 +1083,21 @@ public class ConversionService : IConversionService
                         }
                     }
 
+                    // Detect if this is the last section in the hierarchy
+                    // Note: currentHierarchyIndex is already defined at line 960
+                    bool isLastSection = (currentHierarchyIndex >= hierarchyItems.Count - 1) || nextHeader == null;
+
+                    if (isLastSection)
+                    {
+                        logCallback($"{progress} ℹ Last section detected - extracting to end of document");
+                    }
+
                     // Extract content with explicit boundary
                     var extractedContent = _contentExtractionService.ExtractContent(
                         transformedXhtml,
                         match.MatchedHeader,
-                        nextHeader); // Pass the selected next header as explicit boundary
+                        nextHeader, // Pass the selected next header as explicit boundary
+                        extractToEndOfDocument: isLastSection); // Disable fallback header-stopping for last section
 
                     // Check if extracted content is empty or null
                     var xhtmlNs = XNamespace.Get("http://www.w3.org/1999/xhtml");

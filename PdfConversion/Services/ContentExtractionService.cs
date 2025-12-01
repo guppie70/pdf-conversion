@@ -19,15 +19,17 @@ public class ContentExtractionService : IContentExtractionService
     public XDocument ExtractContent(
         XDocument transformedXhtml,
         XElement startHeader,
-        XElement? endHeader = null)
+        XElement? endHeader = null,
+        bool extractToEndOfDocument = false)
     {
         ArgumentNullException.ThrowIfNull(transformedXhtml);
         ArgumentNullException.ThrowIfNull(startHeader);
 
         _logger.LogInformation(
-            "Starting content extraction from header: {HeaderText} (level: {Level})",
+            "Starting content extraction from header: {HeaderText} (level: {Level}), extractToEndOfDocument: {ExtractToEnd}",
             startHeader.Value.Trim(),
-            GetHeaderLevel(startHeader));
+            GetHeaderLevel(startHeader),
+            extractToEndOfDocument);
 
         // Verify startHeader is in the document
         if (!IsElementInDocument(transformedXhtml, startHeader))
@@ -42,7 +44,10 @@ public class ContentExtractionService : IContentExtractionService
         }
 
         // Determine the endpoint for extraction
-        XElement? actualEndHeader = endHeader ?? FindNextHeader(transformedXhtml, startHeader);
+        // When extractToEndOfDocument is true, skip the fallback FindNextHeader logic
+        XElement? actualEndHeader = extractToEndOfDocument
+            ? endHeader  // Only use explicit end header (which is null for last section)
+            : endHeader ?? FindNextHeader(transformedXhtml, startHeader);
 
         if (actualEndHeader != null)
         {
@@ -57,7 +62,7 @@ public class ContentExtractionService : IContentExtractionService
         }
 
         // Extract elements between start and end
-        var extractedElements = GetElementsBetween(startHeader, actualEndHeader);
+        var extractedElements = GetElementsBetween(startHeader, actualEndHeader, extractToEndOfDocument);
         var elementCount = extractedElements.Count();
 
         _logger.LogInformation("Extracted {Count} elements", elementCount);
@@ -152,7 +157,10 @@ public class ContentExtractionService : IContentExtractionService
     /// Gets all elements between the start element (inclusive) and end element (exclusive).
     /// If end is null, returns all elements from start to the end of the parent container.
     /// </summary>
-    private IEnumerable<XElement> GetElementsBetween(XElement start, XElement? end)
+    /// <param name="start">The starting element (inclusive).</param>
+    /// <param name="end">The ending element (exclusive), or null to extract to document end.</param>
+    /// <param name="extractToEndOfDocument">If true, disables fallback header-stopping logic. Use for last section in hierarchy.</param>
+    private IEnumerable<XElement> GetElementsBetween(XElement start, XElement? end, bool extractToEndOfDocument = false)
     {
         var elements = new List<XElement>();
         var collecting = false;
@@ -203,9 +211,11 @@ public class ContentExtractionService : IContentExtractionService
                 // or elements that are siblings of the start element
                 if (IsDirectDescendantOfBody(element, body) || IsSiblingOrDescendant(element, start))
                 {
-                    // Only use fallback stopping logic if NO explicit end boundary was specified
-                    // When hierarchy provides explicit boundary, respect it instead of guessing
-                    if (end == null && IsHeader(element) && element != start)
+                    // Only use fallback stopping logic if:
+                    // 1. NO explicit end boundary was specified (end == null)
+                    // 2. NOT extracting to end of document (extractToEndOfDocument == false)
+                    // When hierarchy provides explicit boundary or this is the last section, respect it instead of guessing
+                    if (!extractToEndOfDocument && end == null && IsHeader(element) && element != start)
                     {
                         var startLevel = GetHeaderLevel(start);
                         var currentLevel = GetHeaderLevel(element);

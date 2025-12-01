@@ -15,13 +15,15 @@ public interface IContentExtractionService
     /// <param name="transformedXhtml">The transformed XHTML document to extract from.</param>
     /// <param name="startHeader">The header element to start extraction from.</param>
     /// <param name="endHeader">Optional end header to stop extraction at.</param>
+    /// <param name="extractToEndOfDocument">If true, disables fallback header-stopping logic and extracts to document end. Use for last section in hierarchy.</param>
     /// <returns>A new XHTML document containing the extracted content.</returns>
     /// <exception cref="ArgumentNullException">If transformedXhtml or startHeader is null.</exception>
     /// <exception cref="ArgumentException">If startHeader is not in the document or endHeader is specified but not found.</exception>
     XDocument ExtractContent(
         XDocument transformedXhtml,
         XElement startHeader,
-        XElement? endHeader = null);
+        XElement? endHeader = null,
+        bool extractToEndOfDocument = false);
 
     /// <summary>
     /// Finds the next header at the same or higher level after the specified start header.

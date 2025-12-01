@@ -190,6 +190,17 @@
         </xsl:if>
     </xsl:template>
 
+    <!-- Fix nesting: <a><u>text</u></a> → <u><a>text</a></u> -->
+    <xsl:template match="a[u and count(*) = 1 and not(text()[normalize-space()])]" priority="15">
+        <u>
+            <xsl:apply-templates select="u/@*"/>
+            <a>
+                <xsl:apply-templates select="@*"/>
+                <xsl:apply-templates select="u/node()"/>
+            </a>
+        </u>
+    </xsl:template>
+
     <xsl:template match="div | span | a | img | br" priority="10">
         <xsl:copy>
             <xsl:apply-templates select="@*"/>
