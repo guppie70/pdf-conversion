@@ -138,4 +138,36 @@ public class SelectionRestorationHelper
 
         return availableFiles.Contains(fileName);
     }
+
+    /// <summary>
+    /// Validates if a file is a normalized file (from normalized/ folder).
+    /// Used by pages that should only accept normalized XMLs (GenerateHierarchy, Convert).
+    /// </summary>
+    public bool IsNormalizedFile(string? fileName)
+    {
+        if (string.IsNullOrEmpty(fileName))
+            return false;
+
+        // Check if filename starts with "normalized/" (case-insensitive)
+        return fileName.StartsWith("normalized/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Validates that a file both exists in the available files list AND is a normalized file.
+    /// </summary>
+    public bool ValidateNormalizedFileExists(string? fileName, List<string>? availableFiles)
+    {
+        if (!IsNormalizedFile(fileName))
+        {
+            if (!string.IsNullOrEmpty(fileName))
+            {
+                _logger.LogWarning(
+                    "[ValidateNormalizedFileExists] Rejecting non-normalized file: {File}",
+                    fileName);
+            }
+            return false;
+        }
+
+        return ValidateFileExists(fileName, availableFiles);
+    }
 }

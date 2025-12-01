@@ -1022,35 +1022,46 @@
                         selection.LastSelectedProject);
                 }
 
-                // Restore source XML if available - only if same project
+                // Restore source XML if available - only if same project AND normalized file
                 if (selectionMatchesProject && !string.IsNullOrEmpty(selection.LastSelectedSourceXml) && !string.IsNullOrEmpty(SelectedProject))
                 {
                     var sourceXmlFilename = selection.LastSelectedSourceXml;
-                    var parts = SelectedProject.Split('/');
-                    if (parts.Length == 2)
-                    {
-                        var customer = parts[0];
-                        var projectId = parts[1];
 
-                        // Try input directory first
-                        var inputPath = $"/app/data/input/{customer}/projects/{projectId}/{sourceXmlFilename}";
-                        if (File.Exists(inputPath))
+                    // ONLY restore normalized files (never source files)
+                    if (!sourceXmlFilename.StartsWith("normalized/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Logger.LogWarning(
+                            "[OnInitializedAsync] Ignoring non-normalized source file: {File} (hierarchy generation requires normalized XMLs)",
+                            sourceXmlFilename);
+                    }
+                    else
+                    {
+                        var parts = SelectedProject.Split('/');
+                        if (parts.Length == 2)
                         {
-                            SelectedSourceXml = inputPath;
-                            Logger.LogInformation("[OnInitializedAsync] Restored source XML from input: {File}", SelectedSourceXml);
-                        }
-                        else
-                        {
-                            // Try output directory as fallback
-                            var outputPath = $"/app/data/output/{customer}/projects/{projectId}/{sourceXmlFilename}";
-                            if (File.Exists(outputPath))
+                            var customer = parts[0];
+                            var projectId = parts[1];
+
+                            // Try input directory first
+                            var inputPath = $"/app/data/input/{customer}/projects/{projectId}/{sourceXmlFilename}";
+                            if (File.Exists(inputPath))
                             {
-                                SelectedSourceXml = outputPath;
-                                Logger.LogInformation("[OnInitializedAsync] Restored source XML from output: {File}", SelectedSourceXml);
+                                SelectedSourceXml = inputPath;
+                                Logger.LogInformation("[OnInitializedAsync] Restored normalized XML from input: {File}", SelectedSourceXml);
                             }
                             else
                             {
-                                Logger.LogWarning("[OnInitializedAsync] Source XML file not found: {File}", sourceXmlFilename);
+                                // Try output directory as fallback
+                                var outputPath = $"/app/data/output/{customer}/projects/{projectId}/{sourceXmlFilename}";
+                                if (File.Exists(outputPath))
+                                {
+                                    SelectedSourceXml = outputPath;
+                                    Logger.LogInformation("[OnInitializedAsync] Restored normalized XML from output: {File}", SelectedSourceXml);
+                                }
+                                else
+                                {
+                                    Logger.LogWarning("[OnInitializedAsync] Normalized XML file not found: {File}", sourceXmlFilename);
+                                }
                             }
                         }
                     }

@@ -356,11 +356,11 @@
             // Only restore source/hierarchy if they belong to the current project
             if (restored.ProjectFound && restored.ProjectId == projectPath)
             {
-                // Restore source file selection
-                if (SelectionHelper.ValidateFileExists(restored.SourceFile, SourceFiles))
+                // Restore source file selection - ONLY normalized files
+                if (SelectionHelper.ValidateNormalizedFileExists(restored.SourceFile, SourceFiles))
                 {
                     _config.SourceFile = restored.SourceFile;
-                    Logger.LogInformation("Restored source file: {File}", restored.SourceFile);
+                    Logger.LogInformation("Restored normalized source file: {File}", restored.SourceFile);
                 }
 
                 // Restore hierarchy file selection
