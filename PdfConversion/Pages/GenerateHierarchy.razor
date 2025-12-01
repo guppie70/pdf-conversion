@@ -1131,6 +1131,18 @@
                 Logger.LogWarning("[OnInitializedAsync] No user selections found");
             }
 
+            // Auto-select if there's only one normalized XML available
+            if (string.IsNullOrEmpty(SelectedSourceXml))
+            {
+                AutoSelectSingleSourceFile();
+
+                // Trigger source change handling if auto-selected
+                if (!string.IsNullOrEmpty(SelectedSourceXml))
+                {
+                    await OnSourceXmlChangedAsync();
+                }
+            }
+
             // Restore the saved mode from localStorage
             await RestoreModeFromLocalStorage();
 
@@ -1156,6 +1168,23 @@
     public bool ShouldWarnBeforeUnload()
     {
         return HasChanges;
+    }
+
+    /// <summary>
+    /// Auto-selects the source XML if there's only one normalized file available.
+    /// </summary>
+    private void AutoSelectSingleSourceFile()
+    {
+        var allFiles = ProjectFileGroups
+            .SelectMany(g => g.Files)
+            .ToList();
+
+        if (allFiles.Count == 1)
+        {
+            var file = allFiles[0];
+            SelectedSourceXml = file.FullPath;
+            Logger.LogInformation("[AutoSelect] Single normalized XML available, auto-selecting: {File}", file.FileName);
+        }
     }
 
     private async Task OnSourceXmlChangedAsync()

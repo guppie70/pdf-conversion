@@ -371,6 +371,12 @@
                 }
             }
 
+            // Auto-select if there's only one normalized XML with a ready hierarchy
+            if (string.IsNullOrEmpty(_config.SourceFile))
+            {
+                await AutoSelectSingleReadyFileAsync();
+            }
+
             StateHasChanged();
         }
         catch (Exception ex)
@@ -629,6 +635,25 @@
             hierarchyXml: _config.HierarchyFile ?? string.Empty);
 
         StateHasChanged();
+    }
+
+    /// <summary>
+    /// Auto-selects the normalized XML if there's only one file with a ready hierarchy.
+    /// </summary>
+    private async Task AutoSelectSingleReadyFileAsync()
+    {
+        // Get all files with ready hierarchies
+        var readyFiles = ProjectFileGroups
+            .SelectMany(g => g.Files)
+            .Where(f => _hierarchyStatus.ContainsKey(f.FullPath) && _hierarchyStatus[f.FullPath])
+            .ToList();
+
+        if (readyFiles.Count == 1)
+        {
+            var file = readyFiles[0];
+            Logger.LogInformation("Auto-selecting single ready file: {File}", file.FileName);
+            await SelectNormalizedXml(file.FullPath, file.FileName, hasHierarchy: true);
+        }
     }
 
     private async Task OnHierarchyFileChanged(ChangeEventArgs e)
