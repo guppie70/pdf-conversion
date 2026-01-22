@@ -12,7 +12,8 @@
         <xsl:param name="text" as="xs:string"/>
         <xsl:choose>
             <!-- Match prefix patterns: "14. Text" or "2.1 Text" or "3.1.2 Text" -->
-            <xsl:when test="matches($text, '^\s*\d+(?:\.\d+)*\.?\s+')">
+            <!-- Exclude 4-digit years (20xx range) - e.g., 2000-2099 -->
+            <xsl:when test="matches($text, '^\s*\d+(?:\.\d+)*\.?\s+') and not(matches($text, '^\s*20\d{2}\s+'))">
                 <xsl:value-of select="replace($text, '^\s*(\d+(?:\.\d+)*\.?)\s+.*$', '$1')"/>
             </xsl:when>
             <!-- Match parenthetical prefixes: "(1) Text", "(i) Text", "(a) Text" -->
@@ -39,7 +40,7 @@
             <xsl:when test="$section-number != ''">
                 <!-- Remove the matched section number from the start -->
                 <xsl:choose>
-                    <xsl:when test="matches($text, '^\s*\d+(?:\.\d+)*\.?\s+')">
+                    <xsl:when test="matches($text, '^\s*\d+(?:\.\d+)*\.?\s+') and not(matches($text, '^\s*20\d{2}\s+'))">
                         <xsl:value-of select="normalize-space(replace($text, '^\s*\d+(?:\.\d+)*\.?\s+', ''))"/>
                     </xsl:when>
                     <xsl:when test="matches($text, '^\s*\([0-9]+\)\s+')">

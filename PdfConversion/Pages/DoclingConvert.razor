@@ -222,6 +222,7 @@
 
     private System.Timers.Timer? _conversionTimer;
     private bool _monacoInitialized = false;
+    private DateTime? _conversionStartedAt = null;
 
     private bool IsReadyToConvert
     {
@@ -592,6 +593,7 @@
             }
 
             CurrentJobId = jobStartResponse.JobId;
+            _conversionStartedAt = DateTime.UtcNow;
             Logger.LogInformation($"Job started: {CurrentJobId}");
 
             // Subscribe to SignalR updates for this job
@@ -742,8 +744,35 @@
                     Directory.CreateDirectory(sourceDir);
 
                     var outputPath = Path.Combine(sourceDir, sourceFilename);
+
+                    // Check if source file exists and was modified after conversion started
+                    if (File.Exists(outputPath) && _conversionStartedAt.HasValue)
+                    {
+                        var existingModified = File.GetLastWriteTimeUtc(outputPath);
+
+                        if (existingModified > _conversionStartedAt.Value)
+                        {
+                            // File was manually edited after conversion started - DON'T OVERWRITE
+                            var timeDiff = (existingModified - _conversionStartedAt.Value).TotalSeconds;
+                            Logger.LogWarning($"Source file was modified {timeDiff:F1}s after conversion started. Skipping save to prevent data loss.");
+
+                            // Show warning in UI
+                            ErrorMessage = $"⚠️ Source file was manually edited after conversion started. Your edits were preserved and the conversion result was NOT saved to prevent data loss. If you want to replace your edits with the conversion result, please run the conversion again.";
+
+                            // Update Monaco display with NEW conversion result (don't clear it)
+                            DoclingOutput = outputContent;
+
+                            await InvokeAsync(StateHasChanged);
+                            return; // DON'T SAVE
+                        }
+                    }
+
+                    // Safe to save - no manual edits detected
                     await File.WriteAllTextAsync(outputPath, outputContent, System.Text.Encoding.UTF8);
                     Logger.LogInformation($"Saved output to: {outputPath}");
+
+                    // Reset timestamp after safe save
+                    _conversionStartedAt = null;
 
                     // Update Monaco display
                     DoclingOutput = outputContent;

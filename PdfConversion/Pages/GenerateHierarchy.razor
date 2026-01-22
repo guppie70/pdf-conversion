@@ -1159,7 +1159,20 @@
     {
         if (firstRender)
         {
-            await JSRuntime.InvokeVoidAsync("setupBeforeUnload", DotNetObjectReference.Create(this));
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("setupBeforeUnload", DotNetObjectReference.Create(this));
+                Logger.LogDebug("[OnAfterRenderAsync] setupBeforeUnload initialized successfully");
+            }
+            catch (JSException ex)
+            {
+                // Script may not be loaded yet - this is non-critical, just log it
+                Logger.LogWarning(ex, "[OnAfterRenderAsync] Failed to initialize setupBeforeUnload (script may not be loaded yet)");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "[OnAfterRenderAsync] Unexpected error initializing setupBeforeUnload");
+            }
         }
         await base.OnAfterRenderAsync(firstRender);
     }

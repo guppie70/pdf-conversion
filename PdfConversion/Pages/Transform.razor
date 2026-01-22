@@ -1037,6 +1037,54 @@
         UpdateToolbarState();
     }
 
+    protected override async Task OnParametersSetAsync()
+    {
+        Logger.LogInformation("OnParametersSetAsync: Detected navigation to {Customer}/{ProjectId}", Customer, ProjectId);
+
+        // Validate project parameters (same as OnInitializedAsync)
+        if (!ProjectValidation.IsValidProjectParameters(Customer, ProjectId))
+        {
+            Logger.LogWarning("Invalid project parameters in Transform page: {Customer}/{ProjectId}", Customer, ProjectId);
+            NavigationManager.NavigateTo("/");
+            return;
+        }
+
+        if (!ProjectValidation.ProjectExists(Customer, ProjectId))
+        {
+            Logger.LogWarning("Project not found in Transform page: {Customer}/{ProjectId}", Customer, ProjectId);
+            NavigationManager.NavigateTo("/");
+            return;
+        }
+
+        // Build the expected SelectedProjectId
+        var expectedProjectId = $"{Customer}/{ProjectId}";
+
+        // Check if we're navigating to a different project
+        if (SelectedProjectId != expectedProjectId)
+        {
+            Logger.LogInformation("Project changed during navigation: '{Old}' -> '{New}'. Clearing state.",
+                SelectedProjectId, expectedProjectId);
+
+            // Clear all state
+            SelectedProjectId = expectedProjectId;
+            SelectedFileName = null;
+            XmlContent = null;
+            OutputContent = null;
+            ProjectFiles = null;
+
+            // Reload data for new project
+            await LoadProjectsAsync();
+            await LoadXsltAsync();
+
+            UpdateToolbarState();
+            StateHasChanged();
+        }
+        else
+        {
+            Logger.LogDebug("Same project on navigation, keeping existing state");
+        }
+    }
+
     private void UpdateToolbarState()
     {
         ToolbarState.Projects = Projects;
@@ -2134,11 +2182,11 @@
             await File.WriteAllTextAsync(xmlFilePath, XmlContent!);
 
             // Success toast removed - file save is logged
-            Logger.LogInformation("Source XML saved to {Path}, waiting 2 seconds for file watcher...", xmlFilePath);
+            Logger.LogInformation("Source XML saved to {Path}, waiting 5 seconds for file watcher...", xmlFilePath);
 
             // Wait longer to ensure file watcher processes the change with flag set
-            // File watcher on macOS can have variable delays
-            await Task.Delay(2000);
+            // File watcher on macOS Docker can have variable delays (increased to 5s for Docker filesystem virtualization)
+            await Task.Delay(5000);
 
             Logger.LogInformation("SaveXmlAsync: Clearing isSavingXmlToFile flag to FALSE");
         }
