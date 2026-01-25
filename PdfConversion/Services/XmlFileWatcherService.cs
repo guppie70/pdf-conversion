@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Timers;
 using Timer = System.Timers.Timer;
 
@@ -6,6 +8,7 @@ namespace PdfConversion.Services;
 /// <summary>
 /// Watches XML files for external changes and notifies subscribers.
 /// Handles editor save patterns (write-rename-delete) and debounces rapid changes.
+/// Uses content hash comparison to avoid unnecessary reloads when file is saved by the application itself.
 /// </summary>
 public class XmlFileWatcherService : IXmlFileWatcherService
 {
@@ -15,6 +18,7 @@ public class XmlFileWatcherService : IXmlFileWatcherService
     private string? _currentFilePath;
     private bool _disposed;
     private EventHandler<XmlFileChangedEventArgs>? _callback;
+    private string? _lastKnownContentHash;
 
     // Debounce settings
     private const int DebounceDelayMs = 500;
@@ -52,6 +56,19 @@ public class XmlFileWatcherService : IXmlFileWatcherService
         StopWatching();
 
         _currentFilePath = filePath;
+
+        // Initialize content hash with current file content
+        try
+        {
+            var initialContent = File.ReadAllText(filePath);
+            _lastKnownContentHash = ComputeHash(initialContent);
+            _logger.LogDebug("Initialized content hash for {Path}: {Hash}", filePath, _lastKnownContentHash?.Substring(0, 8));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not initialize content hash for {Path}", filePath);
+        }
+
         var directory = Path.GetDirectoryName(filePath);
         var fileName = Path.GetFileName(filePath);
 
@@ -181,12 +198,30 @@ public class XmlFileWatcherService : IXmlFileWatcherService
 
         try
         {
-            _logger.LogInformation("XML file changed externally, reloading: {Path}", _currentFilePath);
-
             // Wait a bit to ensure file is fully written
             await Task.Delay(100);
 
             var content = await GetFileContentAsync();
+            var currentHash = ComputeHash(content);
+
+            // Check if content actually changed (prevents unnecessary reloads when app saves file)
+            if (currentHash == _lastKnownContentHash)
+            {
+                _logger.LogDebug(
+                    "File {Path} changed but content hash matches last known state - ignoring (hash: {Hash})",
+                    _currentFilePath,
+                    currentHash?.Substring(0, 8));
+                return;
+            }
+
+            _logger.LogInformation(
+                "External file change detected for {Path} (hash changed: {OldHash} -> {NewHash})",
+                _currentFilePath,
+                _lastKnownContentHash?.Substring(0, 8),
+                currentHash?.Substring(0, 8));
+
+            // Update hash before notifying (so subsequent saves don't trigger reload)
+            _lastKnownContentHash = currentHash;
 
             var eventArgs = new XmlFileChangedEventArgs
             {
@@ -210,6 +245,31 @@ public class XmlFileWatcherService : IXmlFileWatcherService
         {
             _logger.LogError(ex, "Error notifying file change for {Path}", _currentFilePath);
         }
+    }
+
+    /// <summary>
+    /// Update the known content hash (call after application saves file to prevent reload loop)
+    /// </summary>
+    public void UpdateContentHash(string content)
+    {
+        _lastKnownContentHash = ComputeHash(content);
+        _logger.LogDebug("Updated content hash: {Hash}", _lastKnownContentHash?.Substring(0, 8));
+    }
+
+    /// <summary>
+    /// Compute SHA256 hash of content for comparison
+    /// </summary>
+    private string? ComputeHash(string? content)
+    {
+        if (string.IsNullOrEmpty(content))
+        {
+            return null;
+        }
+
+        using var sha256 = SHA256.Create();
+        var bytes = Encoding.UTF8.GetBytes(content);
+        var hash = sha256.ComputeHash(bytes);
+        return Convert.ToBase64String(hash);
     }
 
     public void Dispose()

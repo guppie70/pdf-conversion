@@ -31,6 +31,11 @@ public interface IXmlFileWatcherService : IDisposable
     /// This prevents multiple subscriptions from prerendering
     /// </summary>
     void SetFileChangedCallback(EventHandler<XmlFileChangedEventArgs>? callback);
+
+    /// <summary>
+    /// Update the known content hash (call after application saves file to prevent reload loop)
+    /// </summary>
+    void UpdateContentHash(string content);
 }
 
 /// <summary>

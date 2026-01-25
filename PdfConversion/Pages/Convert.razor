@@ -6,7 +6,6 @@
 @using PdfConversion.Models
 @using PdfConversion.Components
 @using PdfConversion.Utils
-@using PdfConversion.Helpers
 @inject IProjectManagementService ProjectService
 @inject IConversionService ConversionService
 @inject IRoundTripValidationService ValidationService
@@ -18,7 +17,6 @@
 @inject IProjectValidationService ProjectValidation
 @inject NavigationManager NavigationManager
 @inject IProjectLoadingService ProjectLoader
-@inject SelectionRestorationHelper SelectionHelper
 @inject ISourceDetectionService SourceDetectionService
 @implements IDisposable
 
@@ -270,6 +268,19 @@
     [Parameter]
     public string ProjectId { get; set; } = string.Empty;
 
+    // Query String Parameters (Phase 2)
+    [Parameter, SupplyParameterFromQuery(Name = "sourceFile")]
+    public string? SourceFileParam { get; set; }
+
+    [Parameter, SupplyParameterFromQuery(Name = "hierarchyFile")]
+    public string? HierarchyFileParam { get; set; }
+
+    // Tracking fields for detecting parameter changes
+    private string? _currentSourceFile;
+    private string? _currentHierarchyFile;
+    private int _navigationLoopCount = 0;
+    private const int MAX_NAVIGATIONS = 5;
+
     // Configuration
     private readonly ConversionConfiguration _config = new();
 
@@ -337,6 +348,80 @@
         await InitializeFromUrlParametersAsync();
     }
 
+    protected override async Task OnParametersSetAsync()
+    {
+        // Navigation loop detection
+        if (_navigationLoopCount++ > MAX_NAVIGATIONS)
+        {
+            Logger.LogError("Navigation loop detected! OnParametersSetAsync called {Count} times. Aborting to prevent infinite loop.", _navigationLoopCount);
+            _navigationLoopCount = 0;
+            return;
+        }
+
+        Logger.LogInformation("OnParametersSetAsync: Detected navigation to {Customer}/{ProjectId} (loop count: {Count})", Customer, ProjectId, _navigationLoopCount);
+
+        // Detect which parameters changed
+        var projectChanged = (_config.ProjectId != $"{Customer}/{ProjectId}");
+        var sourceFileChanged = (SourceFileParam != _currentSourceFile);
+        var hierarchyFileChanged = (HierarchyFileParam != _currentHierarchyFile);
+
+        // Log parameter changes for debugging
+        if (projectChanged || sourceFileChanged || hierarchyFileChanged)
+        {
+            Logger.LogInformation(
+                "Parameters changed - Project: {ProjectChanged}, Source: {SourceChanged}, Hierarchy: {HierarchyChanged}",
+                projectChanged, sourceFileChanged, hierarchyFileChanged);
+
+            // Clear state if parameters changed
+            if (projectChanged)
+            {
+                // Clear project-specific state
+                _config.SourceFile = null;
+                _config.HierarchyFile = null;
+                SourceFiles = null;
+                HierarchyFiles = null;
+                ProjectFileGroups.Clear();
+                _hierarchyStatus.Clear();
+                _matchingHierarchies.Clear();
+            }
+
+            // Update tracking variables
+            _config.ProjectId = $"{Customer}/{ProjectId}";
+            _currentSourceFile = SourceFileParam;
+            _currentHierarchyFile = HierarchyFileParam;
+
+            // Reload from disk based on URL parameters
+            if (projectChanged)
+            {
+                await LoadProjectsAsync();
+            }
+
+            // Apply source file parameter
+            if (!string.IsNullOrEmpty(_currentSourceFile))
+            {
+                _config.SourceFile = _currentSourceFile;
+                Logger.LogInformation("Applied sourceFile from URL: {File}", _currentSourceFile);
+            }
+
+            // Apply hierarchy file parameter
+            if (!string.IsNullOrEmpty(_currentHierarchyFile))
+            {
+                _config.HierarchyFile = _currentHierarchyFile;
+                Logger.LogInformation("Applied hierarchyFile from URL: {File}", _currentHierarchyFile);
+            }
+
+            // Reset navigation loop counter on successful parameter application
+            _navigationLoopCount = 0;
+            StateHasChanged();
+        }
+        else
+        {
+            Logger.LogDebug("No parameter changes detected, keeping existing state");
+            // Reset navigation loop counter
+            _navigationLoopCount = 0;
+        }
+    }
+
     private async Task InitializeFromUrlParametersAsync()
     {
         try
@@ -350,24 +435,26 @@
             // Load files for this specific project
             await LoadProjectFilesAsync(projectPath);
 
-            // Try to restore source/hierarchy selections for THIS project
-            var restored = await SelectionHelper.RestoreProjectSelectionAsync(Projects);
+            // Try to restore source/hierarchy selections for THIS project from project-scoped selections
+            var projectSelection = await UserSelectionService.GetProjectSelectionAsync(projectPath);
 
-            // Only restore source/hierarchy if they belong to the current project
-            if (restored.ProjectFound && restored.ProjectId == projectPath)
+            if (projectSelection != null)
             {
                 // Restore source file selection - ONLY normalized files
-                if (SelectionHelper.ValidateNormalizedFileExists(restored.SourceFile, SourceFiles))
+                if (!string.IsNullOrEmpty(projectSelection.SourceFile)
+                    && projectSelection.SourceFile.StartsWith("normalized/", StringComparison.OrdinalIgnoreCase)
+                    && SourceFiles?.Contains(projectSelection.SourceFile) == true)
                 {
-                    _config.SourceFile = restored.SourceFile;
-                    Logger.LogInformation("Restored normalized source file: {File}", restored.SourceFile);
+                    _config.SourceFile = projectSelection.SourceFile;
+                    Logger.LogInformation("Restored normalized source file from project selection: {File}", projectSelection.SourceFile);
                 }
 
                 // Restore hierarchy file selection
-                if (SelectionHelper.ValidateFileExists(restored.HierarchyFile, HierarchyFiles))
+                if (!string.IsNullOrEmpty(projectSelection.HierarchyFile)
+                    && HierarchyFiles?.Contains(projectSelection.HierarchyFile) == true)
                 {
-                    _config.HierarchyFile = restored.HierarchyFile;
-                    Logger.LogInformation("Restored hierarchy file: {File}", restored.HierarchyFile);
+                    _config.HierarchyFile = projectSelection.HierarchyFile;
+                    Logger.LogInformation("Restored hierarchy file from project selection: {File}", projectSelection.HierarchyFile);
                 }
             }
 
@@ -634,7 +721,13 @@
             sourceXml: _config.SourceFile,
             hierarchyXml: _config.HierarchyFile ?? string.Empty);
 
-        StateHasChanged();
+        // Update URL with new sourceFile and hierarchyFile parameters
+        var url = BuildUrlWithParams(
+            sourceFile: _config.SourceFile,
+            hierarchyFile: _config.HierarchyFile
+        );
+        NavigationManager.NavigateTo(url);
+        // OnParametersSetAsync will trigger and reload from disk
     }
 
     /// <summary>
@@ -665,13 +758,21 @@
             await UserSelectionService.UpdateSelectionAsync(hierarchyXml: _config.HierarchyFile);
 
             AddLogEntry($"Hierarchy file selected: {_config.HierarchyFile}");
+
+            // Update URL with new hierarchyFile parameter, preserve sourceFile
+            var url = BuildUrlWithParams(
+                sourceFile: _currentSourceFile,
+                hierarchyFile: _config.HierarchyFile
+            );
+            NavigationManager.NavigateTo(url);
+            // OnParametersSetAsync will trigger and reload from disk
         }
         else
         {
             // Clear UserSelectionService
             await UserSelectionService.UpdateSelectionAsync(hierarchyXml: string.Empty);
+            StateHasChanged();
         }
-        StateHasChanged();
     }
 
     private async Task StartConversion()
@@ -1005,5 +1106,21 @@
     {
         public DateTime Time { get; set; }
         public string Message { get; set; } = string.Empty;
+    }
+
+    private string BuildUrlWithParams(string? sourceFile, string? hierarchyFile)
+    {
+        var baseUrl = $"/convert/{Customer}/{ProjectId}";
+        var queryParams = new List<string>();
+
+        if (!string.IsNullOrEmpty(sourceFile))
+            queryParams.Add($"sourceFile={Uri.EscapeDataString(sourceFile)}");
+
+        if (!string.IsNullOrEmpty(hierarchyFile))
+            queryParams.Add($"hierarchyFile={Uri.EscapeDataString(hierarchyFile)}");
+
+        return queryParams.Count > 0
+            ? $"{baseUrl}?{string.Join("&", queryParams)}"
+            : baseUrl;
     }
 }

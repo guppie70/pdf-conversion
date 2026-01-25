@@ -612,6 +612,22 @@
     [Parameter]
     public string ProjectId { get; set; } = string.Empty;
 
+    // Query String Parameters (Phase 2)
+    [Parameter, SupplyParameterFromQuery(Name = "sourceFile")]
+    public string? SourceFileParam { get; set; }
+
+    [Parameter, SupplyParameterFromQuery(Name = "hierarchyFile")]
+    public string? HierarchyFileParam { get; set; }
+
+    [Parameter, SupplyParameterFromQuery(Name = "mode")]
+    public string? ModeParam { get; set; }  // "restricted", "free", or "manual"
+
+    // Tracking fields for detecting parameter changes
+    private string? _currentSourceFile;
+    private string? _currentHierarchyFile;
+    private int _navigationLoopCount = 0;
+    private const int MAX_NAVIGATIONS = 5;
+
     private HierarchyStructure? CurrentHierarchy { get; set; }
     private HierarchyItem? SelectedItem { get; set; }
     private bool HasChanges { get; set; }
@@ -731,8 +747,20 @@
             await UserSelectionService.UpdateSelectionAsync(sourceXml: SelectedFileName);
             Logger.LogInformation("Saved source XML selection: {File}", SelectedFileName);
 
-            await OnSourceXmlChangedAsync();
-            LoadHierarchyXmlFiles();
+            // Update URL with new sourceFile parameter, preserve hierarchy and mode
+            var modeString = _currentMode switch
+            {
+                HierarchyMode.Restricted => "restricted",
+                HierarchyMode.Free => "free",
+                _ => "restricted"
+            };
+            var url = BuildUrlWithParams(
+                sourceFile: SelectedFileName,
+                hierarchyFile: _currentHierarchyFile,
+                mode: modeString
+            );
+            NavigationManager.NavigateTo(url);
+            // OnParametersSetAsync will trigger and reload from disk
         }
         catch (Exception ex)
         {
@@ -769,6 +797,21 @@
 
             await OnSourceXmlChangedAsync();
             LoadHierarchyXmlFiles();
+
+            // Update URL with sourceFile parameter after successful load
+            var modeString = _currentMode switch
+            {
+                HierarchyMode.Restricted => "restricted",
+                HierarchyMode.Free => "free",
+                _ => "restricted"
+            };
+            var url = BuildUrlWithParams(
+                sourceFile: parsed.FileName,
+                hierarchyFile: _currentHierarchyFile,
+                mode: modeString
+            );
+            NavigationManager.NavigateTo(url, forceLoad: false);
+            Logger.LogInformation("Updated URL to reflect file selection: {Url}", url);
         }
     }
 
@@ -830,6 +873,21 @@
             var filename = Path.GetFileName(SelectedHierarchyXml);
             await UserSelectionService.UpdateSelectionAsync(hierarchyXml: filename);
             Logger.LogInformation("Saved hierarchy XML selection: {File}", filename);
+
+            // Update URL with new hierarchyFile parameter, preserve source and mode
+            var modeString = _currentMode switch
+            {
+                HierarchyMode.Restricted => "restricted",
+                HierarchyMode.Free => "free",
+                _ => "restricted"
+            };
+            var url = BuildUrlWithParams(
+                sourceFile: _currentSourceFile,
+                hierarchyFile: filename,
+                mode: modeString
+            );
+            NavigationManager.NavigateTo(url);
+            // OnParametersSetAsync will trigger and reload from disk
 
             await OnLoadHierarchyClickedAsync();
         }
@@ -1152,6 +1210,91 @@
         {
             Logger.LogError(ex, "[OnInitializedAsync] Error during initialization");
             ToastNotification.ShowError($"Initialization error: {ex.Message}");
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Navigation loop detection
+        if (_navigationLoopCount++ > MAX_NAVIGATIONS)
+        {
+            Logger.LogError("Navigation loop detected! OnParametersSetAsync called {Count} times. Aborting to prevent infinite loop.", _navigationLoopCount);
+            _navigationLoopCount = 0;
+            return;
+        }
+
+        Logger.LogInformation("OnParametersSetAsync: Detected navigation to {Customer}/{ProjectId} (loop count: {Count})", Customer, ProjectId, _navigationLoopCount);
+
+        // Detect which parameters changed
+        var projectChanged = (SelectedProject != $"{Customer}/{ProjectId}");
+        var sourceFileChanged = (SourceFileParam != _currentSourceFile);
+        var hierarchyFileChanged = (HierarchyFileParam != _currentHierarchyFile);
+
+        // Convert mode parameter string to enum for comparison
+        var modeFromParam = string.IsNullOrEmpty(ModeParam) ? HierarchyMode.Restricted : ModeParam switch
+        {
+            "restricted" => HierarchyMode.Restricted,
+            "free" => HierarchyMode.Free,
+            _ => HierarchyMode.Restricted
+        };
+        var modeChanged = (modeFromParam != _currentMode);
+
+        // Log parameter changes for debugging
+        if (projectChanged || sourceFileChanged || hierarchyFileChanged || modeChanged)
+        {
+            Logger.LogInformation(
+                "Parameters changed - Project: {ProjectChanged}, Source: {SourceChanged}, Hierarchy: {HierarchyChanged}, Mode: {ModeChanged}",
+                projectChanged, sourceFileChanged, hierarchyFileChanged, modeChanged);
+
+            // Clear state if parameters changed
+            if (projectChanged)
+            {
+                // Clear project-specific state
+                SelectedSourceXml = null;
+                SelectedHierarchyXml = null;
+                NormalizedXmlPath = null;
+                CurrentHierarchy = null;
+                ProjectFileGroups.Clear();
+            }
+
+            // Update tracking variables
+            SelectedProject = $"{Customer}/{ProjectId}";
+            _currentSourceFile = SourceFileParam;
+            _currentHierarchyFile = HierarchyFileParam;
+
+            // Note: Project file groups are already loaded in OnInitializedAsync
+            // We don't need to reload them here unless we implement a LoadProjectsAsync method
+
+            // Apply source file parameter
+            if (!string.IsNullOrEmpty(_currentSourceFile) && _currentSourceFile != SelectedSourceXml)
+            {
+                SelectedSourceXml = _currentSourceFile;
+                await OnSourceXmlChangedAsync();
+            }
+
+            // Apply hierarchy file parameter
+            if (!string.IsNullOrEmpty(_currentHierarchyFile) && _currentHierarchyFile != SelectedHierarchyXml)
+            {
+                SelectedHierarchyXml = _currentHierarchyFile;
+                await OnLoadHierarchyClickedAsync();
+            }
+
+            // Apply mode parameter
+            if (modeChanged)
+            {
+                _currentMode = modeFromParam;
+                StateHasChanged();
+            }
+
+            // Reset navigation loop counter on successful parameter application
+            _navigationLoopCount = 0;
+            StateHasChanged();
+        }
+        else
+        {
+            Logger.LogDebug("No parameter changes detected, keeping existing state");
+            // Reset navigation loop counter
+            _navigationLoopCount = 0;
         }
     }
 
@@ -2053,6 +2196,23 @@
     {
         var oldMode = _currentMode;
         _currentMode = newMode;
+
+        // Convert mode to string for URL parameter
+        var modeString = newMode switch
+        {
+            HierarchyMode.Restricted => "restricted",
+            HierarchyMode.Free => "free",
+            _ => "restricted"
+        };
+
+        // Update URL with new mode parameter, preserve source and hierarchy
+        var url = BuildUrlWithParams(
+            sourceFile: _currentSourceFile,
+            hierarchyFile: _currentHierarchyFile,
+            mode: modeString
+        );
+        NavigationManager.NavigateTo(url);
+        // OnParametersSetAsync will trigger and reload state
 
         // Clear hierarchy state
         CurrentHierarchy = null;
@@ -3373,5 +3533,24 @@
 
         Flatten(items);
         return headers;
+    }
+
+    private string BuildUrlWithParams(string? sourceFile, string? hierarchyFile, string? mode)
+    {
+        var baseUrl = $"/generate-hierarchy/{Customer}/{ProjectId}";
+        var queryParams = new List<string>();
+
+        if (!string.IsNullOrEmpty(sourceFile))
+            queryParams.Add($"sourceFile={Uri.EscapeDataString(sourceFile)}");
+
+        if (!string.IsNullOrEmpty(hierarchyFile))
+            queryParams.Add($"hierarchyFile={Uri.EscapeDataString(hierarchyFile)}");
+
+        if (!string.IsNullOrEmpty(mode))
+            queryParams.Add($"mode={Uri.EscapeDataString(mode)}");
+
+        return queryParams.Count > 0
+            ? $"{baseUrl}?{string.Join("&", queryParams)}"
+            : baseUrl;
     }
 }

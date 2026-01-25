@@ -3,7 +3,6 @@
 @using PdfConversion.Models
 @using PdfConversion.Shared
 @using PdfConversion.Utils
-@using PdfConversion.Helpers
 @using Microsoft.JSInterop
 @using static PdfConversion.Shared.LoadingSkeleton
 @implements IAsyncDisposable
@@ -23,7 +22,6 @@
 @inject IProjectValidationService ProjectValidation
 @inject NavigationManager NavigationManager
 @inject IProjectLoadingService ProjectLoader
-@inject SelectionRestorationHelper SelectionHelper
 @inject ISourceDetectionService SourceDetectionService
 @inject IHtmlToXhtmlConversionService HtmlToXhtmlConversionService
 
@@ -855,6 +853,16 @@
     [Parameter]
     public string ProjectId { get; set; } = string.Empty;
 
+    // Query Parameters (Phase 1: URL-based state management)
+    [Parameter, SupplyParameterFromQuery(Name = "sourceFile")]
+    public string? SourceFileParam { get; set; }
+
+    [Parameter, SupplyParameterFromQuery(Name = "xsltFile")]
+    public string? XsltFileParam { get; set; }
+
+    [Parameter, SupplyParameterFromQuery(Name = "view")]
+    public string? ViewParam { get; set; }  // "source" or "rendered"
+
     // LocalStorage models
     private class SavedSelection
     {
@@ -885,6 +893,17 @@
     private string? TransformationError;
     private XhtmlValidationResult? ValidationResult;
     private string? SavedNormalizedXmlPath;
+
+    // Phase 0 Safety Infrastructure
+    private bool _hasUnsavedChanges = false;
+    private string? _originalXmlContent;
+    private int _navigationLoopCount = 0;
+    private const int MAX_NAVIGATIONS = 5;
+
+    // Phase 1: Query parameter tracking (for detecting changes)
+    private string? _currentSourceFile;
+    private string? _currentXsltFile;
+    private string? _currentView;
 
     // UI State
     private bool IsLoading = false;
@@ -938,6 +957,15 @@
     {
         // ShowRendered is already updated by @bind-value
         Logger.LogInformation("Rendered toggle changed: ShowRendered = {ShowRendered}", ShowRendered);
+
+        // Phase 1: Update URL with new view parameter (use replace: true to not add history)
+        var viewMode = ShowRendered ? "rendered" : "source";
+        var url = BuildUrlWithParams(
+            sourceFile: _currentSourceFile,
+            xsltFile: _currentXsltFile,
+            view: viewMode
+        );
+        NavigationManager.NavigateTo(url, replace: true);
 
         // If Source view is now active (Rendered OFF), ensure Monaco viewer is initialized or updated
         // Note: The viewer container stays in DOM (just hidden/shown with CSS), so we only
@@ -1039,7 +1067,15 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        Logger.LogInformation("OnParametersSetAsync: Detected navigation to {Customer}/{ProjectId}", Customer, ProjectId);
+        // Phase 0 Safety: Navigation loop detection
+        if (_navigationLoopCount++ > MAX_NAVIGATIONS)
+        {
+            Logger.LogError("Navigation loop detected! OnParametersSetAsync called {Count} times. Aborting to prevent infinite loop.", _navigationLoopCount);
+            _navigationLoopCount = 0;
+            return;
+        }
+
+        Logger.LogInformation("OnParametersSetAsync: Detected navigation to {Customer}/{ProjectId} (loop count: {Count})", Customer, ProjectId, _navigationLoopCount);
 
         // Validate project parameters (same as OnInitializedAsync)
         if (!ProjectValidation.IsValidProjectParameters(Customer, ProjectId))
@@ -1059,29 +1095,76 @@
         // Build the expected SelectedProjectId
         var expectedProjectId = $"{Customer}/{ProjectId}";
 
-        // Check if we're navigating to a different project
-        if (SelectedProjectId != expectedProjectId)
-        {
-            Logger.LogInformation("Project changed during navigation: '{Old}' -> '{New}'. Clearing state.",
-                SelectedProjectId, expectedProjectId);
+        // Phase 1: Detect which parameters changed
+        var projectChanged = (SelectedProjectId != expectedProjectId);
+        var sourceFileChanged = (SourceFileParam != _currentSourceFile);
+        var xsltFileChanged = (XsltFileParam != _currentXsltFile);
+        var viewChanged = (ViewParam != _currentView);
 
-            // Clear all state
+        // Log parameter changes for debugging
+        if (projectChanged || sourceFileChanged || xsltFileChanged || viewChanged)
+        {
+            Logger.LogInformation(
+                "Parameters changed - Project: {ProjectChanged}, Source: {SourceChanged}, XSLT: {XsltChanged}, View: {ViewChanged}",
+                projectChanged, sourceFileChanged, xsltFileChanged, viewChanged
+            );
+
+            // Clear all in-memory state
             SelectedProjectId = expectedProjectId;
             SelectedFileName = null;
             XmlContent = null;
             OutputContent = null;
             ProjectFiles = null;
+            XsltContent = null;
+            SelectedXsltFile = null;
+            TransformationStats = null;
+            TransformationError = null;
+            ValidationResult = null;
+            SavedNormalizedXmlPath = null;
 
-            // Reload data for new project
+            // Update tracking variables
+            _currentSourceFile = SourceFileParam;
+            _currentXsltFile = XsltFileParam;
+            _currentView = ViewParam;
+
+            // Reload from disk based on URL parameters
             await LoadProjectsAsync();
             await LoadXsltAsync();
 
+            // Load selected files if specified in URL
+            if (!string.IsNullOrEmpty(SourceFileParam))
+            {
+                SelectedFileName = SourceFileParam;
+                await LoadFileContent(SourceFileParam);
+            }
+
+            if (!string.IsNullOrEmpty(XsltFileParam))
+            {
+                SelectedXsltFile = XsltFileParam;
+                await LoadXsltContent(XsltFileParam);
+            }
+
+            // Apply view mode parameter
+            if (!string.IsNullOrEmpty(ViewParam))
+            {
+                ShowRendered = (ViewParam.ToLowerInvariant() == "rendered");
+            }
+            else
+            {
+                ShowRendered = false; // Default to source view
+            }
+
             UpdateToolbarState();
             StateHasChanged();
+
+            // Phase 0 Safety: Reset navigation loop counter on successful load
+            _navigationLoopCount = 0;
         }
         else
         {
-            Logger.LogDebug("Same project on navigation, keeping existing state");
+            Logger.LogDebug("No parameter changes detected, keeping existing state");
+            // Phase 0 Safety: Reset navigation loop counter on successful load
+            _navigationLoopCount = 0;
         }
     }
 
@@ -1098,6 +1181,143 @@
         ToolbarState.CanSave = CanSave;
         ToolbarState.ShowSettings = ShowSettings;
         ToolbarState.NotifyStateChanged();
+    }
+
+    // Phase 1: Helper to build URLs with query parameters
+    private string BuildUrlWithParams(string? sourceFile, string? xsltFile, string? view)
+    {
+        var baseUrl = $"/transform/{Customer}/{ProjectId}";
+        var queryParams = new List<string>();
+
+        if (!string.IsNullOrEmpty(sourceFile))
+            queryParams.Add($"sourceFile={Uri.EscapeDataString(sourceFile)}");
+
+        if (!string.IsNullOrEmpty(xsltFile))
+            queryParams.Add($"xsltFile={Uri.EscapeDataString(xsltFile)}");
+
+        if (!string.IsNullOrEmpty(view))
+            queryParams.Add($"view={Uri.EscapeDataString(view)}");
+
+        return queryParams.Count > 0
+            ? $"{baseUrl}?{string.Join("&", queryParams)}"
+            : baseUrl;
+    }
+
+    // Phase 1: Helper to load XML file content from disk
+    private async Task LoadFileContent(string fileName)
+    {
+        if (string.IsNullOrEmpty(SelectedProjectId) || string.IsNullOrEmpty(fileName))
+            return;
+
+        try
+        {
+            IsLoadingXml = true;
+            StateHasChanged();
+
+            var xmlFilePath = Path.Combine("/app/data/input/optiver/projects", SelectedProjectId, fileName);
+            XmlContent = await ProjectService.ReadInputFileAsync(SelectedProjectId, fileName);
+            _originalXmlContent = XmlContent;
+            _hasUnsavedChanges = false;
+            Logger.LogInformation("Loaded file {FileName} from project {ProjectId}", fileName, SelectedProjectId);
+
+            // If HTML source file, convert to XHTML
+            if (fileName.EndsWith(".source.html", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    XmlContent = await HtmlToXhtmlConversionService.ConvertHtmlToXhtmlAsync(XmlContent);
+                    Logger.LogInformation("Converted HTML source to XHTML for file {FileName}", fileName);
+                }
+                catch (Exception convEx)
+                {
+                    Logger.LogError(convEx, "Failed to convert HTML to XHTML for file {FileName}", fileName);
+                    ToastNotification.ShowError($"Failed to convert HTML to XHTML: {convEx.Message}");
+                }
+            }
+
+            // Start watching file for external changes
+            try
+            {
+                XmlFileWatcher.StartWatching(xmlFilePath);
+                Logger.LogInformation("Started watching XML file: {Path}", xmlFilePath);
+            }
+            catch (Exception watchEx)
+            {
+                Logger.LogError(watchEx, "Failed to start XML file watcher");
+            }
+
+            // Auto-transform if enabled
+            if (AutoTransform && CanTransform)
+            {
+                await TransformAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading XML file");
+            ToastNotification.ShowError($"Failed to load XML file: {ex.Message}");
+        }
+        finally
+        {
+            IsLoadingXml = false;
+            StateHasChanged();
+        }
+    }
+
+    // Phase 1: Helper to load XSLT file content from disk
+    private async Task LoadXsltContent(string xsltFileName)
+    {
+        if (string.IsNullOrEmpty(xsltFileName))
+            return;
+
+        try
+        {
+            IsLoadingXslt = true;
+            StateHasChanged();
+
+            var xsltPath = $"/app/xslt/{xsltFileName}";
+            if (File.Exists(xsltPath))
+            {
+                isUpdatingFromExternalFile = true;
+                XsltContent = await File.ReadAllTextAsync(xsltPath);
+                Logger.LogInformation("Loaded XSLT file from {Path}", xsltPath);
+
+                // Start watching XSLT file
+                try
+                {
+                    XsltFileWatcher.StartWatching(xsltPath);
+                    Logger.LogInformation("Started watching XSLT file: {Path}", xsltPath);
+                }
+                catch (Exception watchEx)
+                {
+                    Logger.LogError(watchEx, "Failed to start XSLT file watcher");
+                }
+
+                // Auto-transform if enabled
+                if (AutoTransform && CanTransform)
+                {
+                    await TransformAsync();
+                }
+
+                isUpdatingFromExternalFile = false;
+            }
+            else
+            {
+                Logger.LogWarning("XSLT file not found: {Path}", xsltPath);
+                ToastNotification.ShowError($"XSLT file not found: {xsltFileName}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading XSLT file");
+            ToastNotification.ShowError($"Failed to load XSLT file: {ex.Message}");
+            isUpdatingFromExternalFile = false;
+        }
+        finally
+        {
+            IsLoadingXslt = false;
+            StateHasChanged();
+        }
     }
 
     private async Task LoadProjectsAsync()
@@ -1243,6 +1463,24 @@
 
     private async Task OnFilePathChanged(string filePath)
     {
+        // Phase 0 Safety: Check for unsaved changes before navigating
+        if (_hasUnsavedChanges)
+        {
+            var confirmed = await JSRuntime.InvokeAsync<bool>(
+                "confirm",
+                "You have unsaved changes to the current XML file. Discard them?"
+            );
+
+            if (!confirmed)
+            {
+                // User cancelled - stay on current file
+                Logger.LogInformation("User cancelled file change due to unsaved changes");
+                return;
+            }
+
+            Logger.LogInformation("User confirmed discarding unsaved changes");
+        }
+
         try
         {
             // Use centralized ProjectPathParser
@@ -1323,6 +1561,8 @@
             // Use the provided absolute path directly (no need to construct)
             var xmlFilePath = filePath;
             XmlContent = await ProjectService.ReadInputFileAsync(SelectedProjectId, SelectedFileName);
+            _originalXmlContent = XmlContent; // Phase 0 Safety: Store original content for dirty tracking
+            _hasUnsavedChanges = false; // Phase 0 Safety: Reset dirty flag on load
             Logger.LogInformation("Loaded file {FileName} from project {ProjectId}", SelectedFileName, SelectedProjectId);
 
             // If HTML source file, convert to XHTML before processing
@@ -1356,6 +1596,11 @@
             {
                 await TransformAsync();
             }
+
+            // Update URL with sourceFile parameter after successful load
+            var url = $"/transform/{Customer}/{ProjectId}?sourceFile={Uri.EscapeDataString(SelectedFileName)}";
+            NavigationManager.NavigateTo(url, forceLoad: false);
+            Logger.LogInformation("Updated URL to reflect file selection: {Url}", url);
         }
         catch (Exception ex)
         {
@@ -1434,6 +1679,24 @@
 
     private async Task OnProjectChanged(ChangeEventArgs e)
     {
+        // Phase 0 Safety: Check for unsaved changes before changing projects
+        if (_hasUnsavedChanges)
+        {
+            var confirmed = await JSRuntime.InvokeAsync<bool>(
+                "confirm",
+                "You have unsaved changes to the current XML file. Discard them?"
+            );
+
+            if (!confirmed)
+            {
+                // User cancelled - stay on current project
+                Logger.LogInformation("User cancelled project change due to unsaved changes");
+                return;
+            }
+
+            Logger.LogInformation("User confirmed discarding unsaved changes");
+        }
+
         try
         {
             SelectedProjectId = e.Value?.ToString();
@@ -1441,6 +1704,8 @@
             XmlContent = null;
             OutputContent = null;
             ProjectFiles = null;
+            _hasUnsavedChanges = false; // Phase 0 Safety: Reset dirty flag when switching projects
+            _originalXmlContent = null; // Phase 0 Safety: Clear original content
 
             if (!string.IsNullOrEmpty(SelectedProjectId))
             {
@@ -1479,11 +1744,45 @@
 
     private async Task OnFileChanged(ChangeEventArgs e)
     {
+        // Phase 0 Safety: Check for unsaved changes before navigating
+        if (_hasUnsavedChanges)
+        {
+            var confirmed = await JSRuntime.InvokeAsync<bool>(
+                "confirm",
+                "You have unsaved changes to the current XML file. Discard them?"
+            );
+
+            if (!confirmed)
+            {
+                // User cancelled - stay on current file
+                Logger.LogInformation("User cancelled file change due to unsaved changes");
+                return;
+            }
+
+            Logger.LogInformation("User confirmed discarding unsaved changes");
+        }
+
+        // Phase 1: Update URL with new sourceFile parameter, preserve others
+        var fileName = e.Value?.ToString();
+        if (!string.IsNullOrEmpty(fileName))
+        {
+            var url = BuildUrlWithParams(
+                sourceFile: fileName,
+                xsltFile: _currentXsltFile,
+                view: _currentView
+            );
+            NavigationManager.NavigateTo(url);
+            // OnParametersSetAsync will trigger and reload from disk
+            return;
+        }
+
         try
         {
             SelectedFileName = e.Value?.ToString();
             XmlContent = null;
             OutputContent = null;
+            _hasUnsavedChanges = false; // Phase 0 Safety: Reset flag when switching files
+            _originalXmlContent = null; // Phase 0 Safety: Clear original content
             UpdateToolbarState();
             StateHasChanged();
 
@@ -1494,6 +1793,8 @@
 
                 var xmlFilePath = Path.Combine("/app/data/input/optiver/projects", SelectedProjectId, SelectedFileName);
                 XmlContent = await ProjectService.ReadInputFileAsync(SelectedProjectId, SelectedFileName);
+                _originalXmlContent = XmlContent; // Phase 0 Safety: Store original content for dirty tracking
+                _hasUnsavedChanges = false; // Phase 0 Safety: Reset dirty flag on load
                 Logger.LogInformation("Loaded file {FileName} from project {ProjectId}", SelectedFileName, SelectedProjectId);
 
                 // If HTML source file, convert to XHTML before processing
@@ -1613,6 +1914,20 @@
 
     private async Task OnXsltFileChanged(ChangeEventArgs e)
     {
+        // Phase 1: Update URL with new xsltFile parameter, preserve others
+        var xsltFileName = e.Value?.ToString();
+        if (!string.IsNullOrEmpty(xsltFileName))
+        {
+            var url = BuildUrlWithParams(
+                sourceFile: _currentSourceFile,
+                xsltFile: xsltFileName,
+                view: _currentView
+            );
+            NavigationManager.NavigateTo(url);
+            // OnParametersSetAsync will trigger and reload from disk
+            return;
+        }
+
         try
         {
             SelectedXsltFile = e.Value?.ToString();
@@ -2180,6 +2495,10 @@
             var xmlFilePath = Path.Combine("/app/data/input", organization, "projects", projectId, SelectedFileName!);
 
             await File.WriteAllTextAsync(xmlFilePath, XmlContent!);
+
+            // Phase 0 Safety: Reset dirty flag and update original content after successful save
+            _originalXmlContent = XmlContent;
+            _hasUnsavedChanges = false;
 
             // Success toast removed - file save is logged
             Logger.LogInformation("Source XML saved to {Path}, waiting 5 seconds for file watcher...", xmlFilePath);
@@ -2955,6 +3274,14 @@
         Logger.LogInformation("OnXmlContentChanged called - Flag: {Flag}, AutoTransform: {Auto}, CanTransform: {Can}, IsTransforming: {Trans}",
             isUpdatingFromExternalXmlFile, AutoTransform, CanTransform, IsTransforming);
 
+        // Phase 0 Safety: Track dirty flag when content changes
+        if (!isUpdatingFromExternalXmlFile && !string.IsNullOrEmpty(_originalXmlContent))
+        {
+            _hasUnsavedChanges = (content != _originalXmlContent);
+            Logger.LogDebug("Dirty flag updated: {HasUnsavedChanges} (content length: {Length}, original length: {OriginalLength})",
+                _hasUnsavedChanges, content?.Length ?? 0, _originalXmlContent?.Length ?? 0);
+        }
+
         // Don't trigger updates if we're syncing from external file
         if (isUpdatingFromExternalXmlFile)
         {
@@ -3025,6 +3352,13 @@
 
     public async ValueTask DisposeAsync()
     {
+        // Phase 0 Safety: Warn if component disposed with unsaved changes
+        if (_hasUnsavedChanges)
+        {
+            Logger.LogWarning("Transform component disposed with unsaved XML changes! File: {File}, Project: {Project}",
+                SelectedFileName ?? "unknown", SelectedProjectId ?? "unknown");
+        }
+
         // Clear file watcher callbacks
         XsltFileWatcher.SetFileChangedCallback(null);
         XmlFileWatcher.SetFileChangedCallback(null);

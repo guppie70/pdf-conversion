@@ -11,12 +11,19 @@ public class UserSelection
     public string LastSelectedProject { get; set; } = string.Empty;
 
     /// <summary>
-    /// Last selected source XML filename (e.g., "input.xml")
+    /// NEW: Project-scoped selections (key: "customer/projectId")
+    /// </summary>
+    public Dictionary<string, ProjectSelection> Projects { get; set; } = new();
+
+    /// <summary>
+    /// LEGACY: Last selected source XML filename (e.g., "input.xml")
+    /// Kept for backward compatibility during migration
     /// </summary>
     public string LastSelectedSourceXml { get; set; } = string.Empty;
 
     /// <summary>
-    /// Last selected hierarchy XML filename for Convert page (e.g., "hierarchy.xml")
+    /// LEGACY: Last selected hierarchy XML filename for Convert page (e.g., "hierarchy.xml")
+    /// Kept for backward compatibility during migration
     /// </summary>
     public string LastSelectedHierarchyXml { get; set; } = string.Empty;
 
@@ -60,4 +67,40 @@ public class UserSelection
     /// (e.g., ["/app/data/training-material/hierarchies/optiver/ar24-1/hierarchy.xml"])
     /// </summary>
     public List<string> LastSelectedTrainingHierarchies { get; set; } = new();
+}
+
+/// <summary>
+/// Project-scoped selections for a specific customer/projectId combination
+/// </summary>
+public class ProjectSelection
+{
+    /// <summary>
+    /// Selected source file (e.g., "input.xml", "normalized/docling-pdf.xml")
+    /// </summary>
+    public string? SourceFile { get; set; }
+
+    /// <summary>
+    /// Selected hierarchy file (e.g., "hierarchy.xml", "hierarchy-pdf-xml.xml")
+    /// </summary>
+    public string? HierarchyFile { get; set; }
+
+    /// <summary>
+    /// Selected XSLT file (e.g., "transformation.xslt", "modules/headers.xslt")
+    /// </summary>
+    public string? XsltFile { get; set; }
+
+    /// <summary>
+    /// View mode preference ("source" or "rendered")
+    /// </summary>
+    public string? ViewMode { get; set; }
+
+    /// <summary>
+    /// Hierarchy editing mode ("restricted", "free", or "manual")
+    /// </summary>
+    public string? HierarchyMode { get; set; }
+
+    /// <summary>
+    /// Last time this project was accessed
+    /// </summary>
+    public DateTime LastAccessed { get; set; }
 }

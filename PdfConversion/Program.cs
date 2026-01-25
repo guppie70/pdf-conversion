@@ -121,9 +121,6 @@ builder.Services.AddSingleton(new ProjectMetadataService(metadataPath));
 // Register ProjectLoadingService (centralizes project loading with metadata)
 builder.Services.AddScoped<IProjectLoadingService, ProjectLoadingService>();
 
-// Register SelectionRestorationHelper (centralizes selection restoration logic)
-builder.Services.AddScoped<SelectionRestorationHelper>();
-
 // Register performance optimization services
 builder.Services.AddSingleton<IDistributedCacheService, DistributedCacheService>();
 builder.Services.AddSingleton<IPerformanceMonitoringService, PerformanceMonitoringService>();
