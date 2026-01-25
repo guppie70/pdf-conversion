@@ -7,6 +7,8 @@
 @inject TransformToolbarState ToolbarState
 @inject IJSRuntime JSRuntime
 @inject IProjectLabelService ProjectLabelService
+@inject IUserSelectionService UserSelectionService
+@inject ILogger<MainLayout> Logger
 @implements IDisposable
 
 <PageTitle>PdfConversion</PageTitle>
@@ -20,10 +22,10 @@
             {
                 var (customer, projectId) = GetCurrentProject();
 
-                <NavLink href="@($"/docling-convert/{customer}/{projectId}")" class="nav-link">Convert</NavLink>
-                <NavLink href="@($"/transform/{customer}/{projectId}")" class="nav-link">Transform</NavLink>
-                <NavLink href="@($"/generate-hierarchy/{customer}/{projectId}")" class="nav-link">Generate Hierarchy</NavLink>
-                <NavLink href="@($"/convert/{customer}/{projectId}")" class="nav-link">Section Generation</NavLink>
+                <a href="@($"/docling-convert/{customer}/{projectId}")" class="nav-link @(IsActivePage("docling-convert") ? "active" : "")">Convert</a>
+                <a href="@(BuildTransformUrl(customer, projectId))" class="nav-link @(IsActivePage("transform") ? "active" : "")">Transform</a>
+                <a href="@(BuildHierarchyUrl(customer, projectId))" class="nav-link @(IsActivePage("generate-hierarchy") ? "active" : "")">Generate Hierarchy</a>
+                <a href="@(BuildConvertUrl(customer, projectId))" class="nav-link @(IsActivePage("convert") ? "active" : "")">Section Generation</a>
             }
 
             <!-- Production always visible as it operates outside project scope -->
@@ -101,6 +103,13 @@
         return workflowPages.Contains(segments[0], StringComparer.OrdinalIgnoreCase);
     }
 
+    private bool IsActivePage(string pageName)
+    {
+        // Match based on path only, ignoring query strings
+        var segments = new Uri(Navigation.Uri).AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length > 0 && segments[0].Equals(pageName, StringComparison.OrdinalIgnoreCase);
+    }
+
     private (string Customer, string ProjectId) GetCurrentProject()
     {
         var uri = Navigation.Uri;
@@ -124,6 +133,91 @@
 
         // Fallback to basic format while loading
         return $"{FilenameUtils.FormatCustomerDisplayName(customer)} / {projectId}";
+    }
+
+    private string BuildTransformUrl(string customer, string projectId)
+    {
+        var baseUrl = $"/transform/{customer}/{projectId}";
+        var selection = GetProjectSelectionSync($"{customer}/{projectId}");
+
+        if (selection == null)
+            return baseUrl;
+
+        var queryParams = new List<string>();
+
+        if (!string.IsNullOrEmpty(selection.SourceFile))
+            queryParams.Add($"sourceFile={Uri.EscapeDataString(selection.SourceFile)}");
+
+        if (!string.IsNullOrEmpty(selection.XsltFile))
+            queryParams.Add($"xsltFile={Uri.EscapeDataString(selection.XsltFile)}");
+
+        if (!string.IsNullOrEmpty(selection.ViewMode))
+            queryParams.Add($"view={Uri.EscapeDataString(selection.ViewMode)}");
+
+        return queryParams.Count > 0
+            ? $"{baseUrl}?{string.Join("&", queryParams)}"
+            : baseUrl;
+    }
+
+    private string BuildHierarchyUrl(string customer, string projectId)
+    {
+        var baseUrl = $"/generate-hierarchy/{customer}/{projectId}";
+        var selection = GetProjectSelectionSync($"{customer}/{projectId}");
+
+        if (selection == null)
+            return baseUrl;
+
+        var queryParams = new List<string>();
+
+        if (!string.IsNullOrEmpty(selection.SourceFile))
+            queryParams.Add($"sourceFile={Uri.EscapeDataString(selection.SourceFile)}");
+
+        if (!string.IsNullOrEmpty(selection.HierarchyFile))
+            queryParams.Add($"hierarchyFile={Uri.EscapeDataString(selection.HierarchyFile)}");
+
+        if (!string.IsNullOrEmpty(selection.HierarchyMode))
+            queryParams.Add($"mode={Uri.EscapeDataString(selection.HierarchyMode)}");
+
+        return queryParams.Count > 0
+            ? $"{baseUrl}?{string.Join("&", queryParams)}"
+            : baseUrl;
+    }
+
+    private string BuildConvertUrl(string customer, string projectId)
+    {
+        var baseUrl = $"/convert/{customer}/{projectId}";
+        var selection = GetProjectSelectionSync($"{customer}/{projectId}");
+
+        if (selection == null)
+            return baseUrl;
+
+        var queryParams = new List<string>();
+
+        if (!string.IsNullOrEmpty(selection.SourceFile))
+            queryParams.Add($"sourceFile={Uri.EscapeDataString(selection.SourceFile)}");
+
+        if (!string.IsNullOrEmpty(selection.HierarchyFile))
+            queryParams.Add($"hierarchyFile={Uri.EscapeDataString(selection.HierarchyFile)}");
+
+        return queryParams.Count > 0
+            ? $"{baseUrl}?{string.Join("&", queryParams)}"
+            : baseUrl;
+    }
+
+    private ProjectSelection? GetProjectSelectionSync(string projectId)
+    {
+        // Synchronous wrapper for async call - safe because we're in render context
+        // and we don't want to block UI with async NavLink href
+        try
+        {
+            return UserSelectionService.GetProjectSelectionAsync(projectId).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            // Log and return null on error - fallback to bare URL
+            Logger.LogError(ex, "Error retrieving project selection for {ProjectId}", projectId);
+            return null;
+        }
     }
 
     protected override async Task OnInitializedAsync()
