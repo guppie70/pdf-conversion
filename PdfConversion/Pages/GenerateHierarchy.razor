@@ -1272,11 +1272,28 @@
                 await OnSourceXmlChangedAsync();
             }
 
-            // Apply hierarchy file parameter
-            if (!string.IsNullOrEmpty(_currentHierarchyFile) && _currentHierarchyFile != SelectedHierarchyXml)
+            // Load hierarchy files after source is set (needed for file path resolution)
+            LoadHierarchyXmlFiles();
+
+            // Apply hierarchy file parameter - find full path from filename
+            if (!string.IsNullOrEmpty(_currentHierarchyFile))
             {
-                SelectedHierarchyXml = _currentHierarchyFile;
-                await OnLoadHierarchyClickedAsync();
+                // Find matching file in HierarchyXmlFiles list (URL contains filename only)
+                var matchingFile = HierarchyXmlFiles.FirstOrDefault(f =>
+                    Path.GetFileName(f).Equals(_currentHierarchyFile, StringComparison.OrdinalIgnoreCase));
+
+                if (matchingFile != null && matchingFile != SelectedHierarchyXml)
+                {
+                    SelectedHierarchyXml = matchingFile;
+                    Logger.LogInformation("[OnParametersSetAsync] Resolved hierarchy file: {File}", matchingFile);
+                    await OnLoadHierarchyClickedAsync();
+                }
+                else if (matchingFile == null)
+                {
+                    Logger.LogWarning("[OnParametersSetAsync] Hierarchy file not found in project: {File}", _currentHierarchyFile);
+                    // Clear the invalid parameter - don't show error, just ignore
+                    _currentHierarchyFile = null;
+                }
             }
 
             // Apply mode parameter
