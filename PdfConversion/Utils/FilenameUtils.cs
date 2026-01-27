@@ -87,8 +87,8 @@ public static class FilenameUtils
 
         // Remove apostrophes and other punctuation we don't want in filenames
         // Keep: letters, numbers, spaces, hyphens
-        // Remove: apostrophes, quotes, commas, periods, parentheses, brackets, asterisks, etc.
-        normalized = Regex.Replace(normalized, @"['`,:;!?()[\]{}\""*]", "");
+        // Remove: apostrophes, quotes, commas, periods, parentheses, brackets, ampersands, asterisks, etc.
+        normalized = Regex.Replace(normalized, @"['`,:;!?()[\]{}\""*&]", "");
         normalized = normalized.Replace(".", ""); // Remove periods separately
 
         // Replace spaces and multiple hyphens with single hyphen
@@ -101,9 +101,9 @@ public static class FilenameUtils
         // Trim hyphens from ends
         normalized = normalized.Trim('-');
 
-        // Limit length to reasonable filename size
-        if (normalized.Length > 50)
-            normalized = normalized.Substring(0, 50).TrimEnd('-');
+        // Limit length to 40 characters (Taxxor system limitation)
+        if (normalized.Length > 40)
+            normalized = normalized.Substring(0, 40).TrimEnd('-');
 
         // Apply postfix BEFORE returning (if provided and not just whitespace)
         if (!string.IsNullOrWhiteSpace(postfix))
