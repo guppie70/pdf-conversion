@@ -18,6 +18,7 @@
 @inject NavigationManager NavigationManager
 @inject IProjectLoadingService ProjectLoader
 @inject ISourceDetectionService SourceDetectionService
+@inject WorkflowStateService WorkflowState
 @implements IDisposable
 
 <PageTitle>Convert: PDF to Taxxor Sections</PageTitle>
@@ -96,6 +97,24 @@
                             No normalized XMLs available. Create one in the Transform page first.
                         </div>
                     }
+                </div>
+
+                <!-- Project Language Selection -->
+                <div class="col-12 col-md-6 mt-3">
+                    <label class="form-label">
+                        <i class="bi bi-globe me-1"></i>
+                        Content Language
+                    </label>
+                    <select class="form-select"
+                            @bind="_selectedLanguage"
+                            @bind:after="OnLanguageChangedAsync"
+                            disabled="@IsProcessing">
+                        @foreach (var lang in ProjectMetadata.SupportedLanguages)
+                        {
+                            <option value="@lang">@ProjectMetadata.LanguageDisplayNames[lang]</option>
+                        }
+                    </select>
+                    <small class="text-muted">Sets the lang attribute in generated section XML files</small>
                 </div>
             </div>
 
@@ -268,15 +287,15 @@
     [Parameter]
     public string ProjectId { get; set; } = string.Empty;
 
-    // Query String Parameters (Phase 2)
-    [Parameter, SupplyParameterFromQuery(Name = "sourceFile")]
-    public string? SourceFileParam { get; set; }
+    // Query String Parameters - URL is source of truth
+    [Parameter, SupplyParameterFromQuery(Name = "normalizedFile")]
+    public string? NormalizedFileParam { get; set; }
 
     [Parameter, SupplyParameterFromQuery(Name = "hierarchyFile")]
     public string? HierarchyFileParam { get; set; }
 
     // Tracking fields for detecting parameter changes
-    private string? _currentSourceFile;
+    private string? _currentNormalizedFile;
     private string? _currentHierarchyFile;
     private int _navigationLoopCount = 0;
     private const int MAX_NAVIGATIONS = 5;
@@ -300,6 +319,9 @@
 
     // Error message for validation failures
     private string? _validationError;
+
+    // Project language setting
+    private string _selectedLanguage = "en";
 
     // Progress tracking
     private int CurrentItemIndex = 0;
@@ -360,17 +382,20 @@
 
         Logger.LogInformation("OnParametersSetAsync: Detected navigation to {Customer}/{ProjectId} (loop count: {Count})", Customer, ProjectId, _navigationLoopCount);
 
+        // Sync project context with WorkflowStateService (clears state if project changed)
+        WorkflowState.SetProject(Customer, ProjectId);
+
         // Detect which parameters changed
         var projectChanged = (_config.ProjectId != $"{Customer}/{ProjectId}");
-        var sourceFileChanged = (SourceFileParam != _currentSourceFile);
+        var normalizedFileChanged = (NormalizedFileParam != _currentNormalizedFile);
         var hierarchyFileChanged = (HierarchyFileParam != _currentHierarchyFile);
 
         // Log parameter changes for debugging
-        if (projectChanged || sourceFileChanged || hierarchyFileChanged)
+        if (projectChanged || normalizedFileChanged || hierarchyFileChanged)
         {
             Logger.LogInformation(
-                "Parameters changed - Project: {ProjectChanged}, Source: {SourceChanged}, Hierarchy: {HierarchyChanged}",
-                projectChanged, sourceFileChanged, hierarchyFileChanged);
+                "Parameters changed - Project: {ProjectChanged}, NormalizedFile: {NormalizedChanged}, Hierarchy: {HierarchyChanged}",
+                projectChanged, normalizedFileChanged, hierarchyFileChanged);
 
             // Clear state if parameters changed
             if (projectChanged)
@@ -387,7 +412,7 @@
 
             // Update tracking variables
             _config.ProjectId = $"{Customer}/{ProjectId}";
-            _currentSourceFile = SourceFileParam;
+            _currentNormalizedFile = NormalizedFileParam;
             _currentHierarchyFile = HierarchyFileParam;
 
             // Reload from disk based on URL parameters
@@ -396,11 +421,11 @@
                 await LoadProjectsAsync();
             }
 
-            // Apply source file parameter
-            if (!string.IsNullOrEmpty(_currentSourceFile))
+            // Apply normalized file parameter
+            if (!string.IsNullOrEmpty(_currentNormalizedFile))
             {
-                _config.SourceFile = _currentSourceFile;
-                Logger.LogInformation("Applied sourceFile from URL: {File}", _currentSourceFile);
+                _config.SourceFile = _currentNormalizedFile;
+                Logger.LogInformation("Applied normalizedFile from URL: {File}", _currentNormalizedFile);
             }
 
             // Apply hierarchy file parameter
@@ -432,36 +457,48 @@
 
             Logger.LogInformation("Initialize Convert page for project: {Project}", projectPath);
 
+            // Load project language setting
+            var metadata = await MetadataService.GetProjectMetadata(Customer, ProjectId);
+            _selectedLanguage = metadata?.Language ?? "en";
+            Logger.LogInformation("Project language: {Language}", _selectedLanguage);
+
             // Load files for this specific project
             await LoadProjectFilesAsync(projectPath);
 
-            // Try to restore source/hierarchy selections for THIS project from project-scoped selections
-            var projectSelection = await UserSelectionService.GetProjectSelectionAsync(projectPath);
-
-            if (projectSelection != null)
+            // URL is source of truth - apply URL parameters if present
+            if (!string.IsNullOrEmpty(NormalizedFileParam))
             {
-                // Restore source file selection - ONLY normalized files
-                if (!string.IsNullOrEmpty(projectSelection.SourceFile)
-                    && projectSelection.SourceFile.StartsWith("normalized/", StringComparison.OrdinalIgnoreCase)
-                    && SourceFiles?.Contains(projectSelection.SourceFile) == true)
-                {
-                    _config.SourceFile = projectSelection.SourceFile;
-                    Logger.LogInformation("Restored normalized source file from project selection: {File}", projectSelection.SourceFile);
-                }
+                _config.SourceFile = NormalizedFileParam;
+                _currentNormalizedFile = NormalizedFileParam;
+                Logger.LogInformation("Applied normalizedFile from URL: {File}", NormalizedFileParam);
+            }
+            else if (!string.IsNullOrEmpty(WorkflowState.LastNormalizedOutput))
+            {
+                // Use normalized file from previous workflow stage
+                _config.SourceFile = WorkflowState.LastNormalizedOutput;
+                _currentNormalizedFile = WorkflowState.LastNormalizedOutput;
+                Logger.LogInformation("Applied normalizedFile from WorkflowState: {File}", WorkflowState.LastNormalizedOutput);
+            }
 
-                // Restore hierarchy file selection
-                if (!string.IsNullOrEmpty(projectSelection.HierarchyFile)
-                    && HierarchyFiles?.Contains(projectSelection.HierarchyFile) == true)
-                {
-                    _config.HierarchyFile = projectSelection.HierarchyFile;
-                    Logger.LogInformation("Restored hierarchy file from project selection: {File}", projectSelection.HierarchyFile);
-                }
+            if (!string.IsNullOrEmpty(HierarchyFileParam))
+            {
+                _config.HierarchyFile = HierarchyFileParam;
+                _currentHierarchyFile = HierarchyFileParam;
+                Logger.LogInformation("Applied hierarchyFile from URL: {File}", HierarchyFileParam);
+            }
+            else if (!string.IsNullOrEmpty(WorkflowState.LastHierarchyOutput))
+            {
+                // Use hierarchy file from previous workflow stage
+                _config.HierarchyFile = WorkflowState.LastHierarchyOutput;
+                _currentHierarchyFile = WorkflowState.LastHierarchyOutput;
+                Logger.LogInformation("Applied hierarchyFile from WorkflowState: {File}", WorkflowState.LastHierarchyOutput);
             }
 
             // Auto-select if there's only one normalized XML with a ready hierarchy
+            // (only if no file selected from URL or WorkflowState)
             if (string.IsNullOrEmpty(_config.SourceFile))
             {
-                await AutoSelectSingleReadyFileAsync();
+                AutoSelectSingleReadyFile();
             }
 
             StateHasChanged();
@@ -578,106 +615,6 @@
         await Task.CompletedTask;
     }
 
-    private async Task OnProjectChanged(ChangeEventArgs e)
-    {
-        try
-        {
-            _config.ProjectId = e.Value?.ToString();
-            _config.SourceFile = null;
-            _config.HierarchyFile = null;
-            SourceFiles = null;
-            HierarchyFiles = null;
-
-            if (!string.IsNullOrEmpty(_config.ProjectId))
-            {
-                await LoadProjectFilesAsync(_config.ProjectId);
-
-                // Save to UserSelectionService with FULL path format (e.g., "optiver/ar24-3")
-                await UserSelectionService.UpdateSelectionAsync(
-                    projectId: _config.ProjectId,  // Keep full path, don't strip!
-                    sourceXml: string.Empty,
-                    hierarchyXml: string.Empty);
-
-                AddLogEntry($"Project selected: {_config.ProjectId}");
-            }
-            else
-            {
-                // Clear UserSelectionService
-                await UserSelectionService.UpdateSelectionAsync(projectId: string.Empty, sourceXml: string.Empty, hierarchyXml: string.Empty);
-            }
-
-            StateHasChanged();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error loading project files");
-            AddLogEntry($"Error loading project files: {ex.Message}");
-        }
-    }
-
-    private async Task OnSourceFileChanged(ChangeEventArgs e)
-    {
-        _config.SourceFile = e.Value?.ToString();
-        if (!string.IsNullOrEmpty(_config.SourceFile))
-        {
-            // Save to UserSelectionService
-            await UserSelectionService.UpdateSelectionAsync(sourceXml: _config.SourceFile);
-
-            AddLogEntry($"Source file selected: {_config.SourceFile}");
-        }
-        else
-        {
-            // Clear UserSelectionService
-            await UserSelectionService.UpdateSelectionAsync(sourceXml: string.Empty);
-        }
-        StateHasChanged();
-    }
-
-    private async Task HandleSourceFileSelection(ProjectPathComponents parsed)
-    {
-        try
-        {
-            // Note: ProjectId and SourceFile are already updated via two-way binding
-            // Reset hierarchy selection
-            _config.HierarchyFile = null;
-            HierarchyFiles = null;
-
-            // Load hierarchy files for the selected project
-            await LoadProjectFilesAsync(_config.ProjectId!);
-
-            // Reconstruct full path from parsed components for dictionary lookup
-            var fullPath = ProjectPathParser.BuildPath(
-                parsed.InputOutput ?? "input",
-                parsed.Organization ?? "",
-                parsed.ProjectId ?? "",
-                parsed.FileName ?? "");
-
-            // Auto-select matching hierarchy if it exists
-            if (_matchingHierarchies.TryGetValue(fullPath, out var hierarchyPath)
-                && _hierarchyStatus.TryGetValue(fullPath, out var hasHierarchy)
-                && hasHierarchy)
-            {
-                _config.HierarchyFile = hierarchyPath;
-                Logger.LogInformation("Auto-selected matching hierarchy: {Hierarchy}", hierarchyPath);
-                AddLogEntry($"Auto-selected matching hierarchy: {Path.GetFileName(hierarchyPath)}");
-            }
-
-            // Save to UserSelectionService with FULL path format (e.g., "optiver/ar24-3")
-            await UserSelectionService.UpdateSelectionAsync(
-                projectId: _config.ProjectId,
-                sourceXml: _config.SourceFile,
-                hierarchyXml: _config.HierarchyFile ?? string.Empty);
-
-            AddLogEntry($"Source file selected: {_config.SourceFile}");
-            StateHasChanged();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error handling file selection");
-            AddLogEntry($"Error selecting file: {ex.Message}");
-        }
-    }
-
     private string GetExpectedHierarchyName(string normalizedFileName)
     {
         try
@@ -691,7 +628,7 @@
         }
     }
 
-    private async Task SelectNormalizedXml(string fullPath, string fileName, bool hasHierarchy)
+    private void SelectNormalizedXml(string fullPath, string fileName, bool hasHierarchy)
     {
         if (!hasHierarchy)
         {
@@ -716,24 +653,19 @@
             AddLogEntry($"Selected: {fileName} with {Path.GetFileName(hierarchyPath)}");
         }
 
-        // Save to UserSelectionService
-        await UserSelectionService.UpdateSelectionAsync(
-            sourceXml: _config.SourceFile,
-            hierarchyXml: _config.HierarchyFile ?? string.Empty);
-
-        // Update URL with new sourceFile and hierarchyFile parameters
+        // Update URL with new normalizedFile and hierarchyFile parameters
+        // OnParametersSetAsync will sync with WorkflowStateService
         var url = BuildUrlWithParams(
-            sourceFile: _config.SourceFile,
+            normalizedFile: _config.SourceFile,
             hierarchyFile: _config.HierarchyFile
         );
         NavigationManager.NavigateTo(url);
-        // OnParametersSetAsync will trigger and reload from disk
     }
 
     /// <summary>
     /// Auto-selects the normalized XML if there's only one file with a ready hierarchy.
     /// </summary>
-    private async Task AutoSelectSingleReadyFileAsync()
+    private void AutoSelectSingleReadyFile()
     {
         // Get all files with ready hierarchies
         var readyFiles = ProjectFileGroups
@@ -745,33 +677,44 @@
         {
             var file = readyFiles[0];
             Logger.LogInformation("Auto-selecting single ready file: {File}", file.FileName);
-            await SelectNormalizedXml(file.FullPath, file.FileName, hasHierarchy: true);
+            SelectNormalizedXml(file.FullPath, file.FileName, hasHierarchy: true);
         }
     }
 
-    private async Task OnHierarchyFileChanged(ChangeEventArgs e)
+    private void OnHierarchyFileChanged(ChangeEventArgs e)
     {
         _config.HierarchyFile = e.Value?.ToString();
         if (!string.IsNullOrEmpty(_config.HierarchyFile))
         {
-            // Save to UserSelectionService
-            await UserSelectionService.UpdateSelectionAsync(hierarchyXml: _config.HierarchyFile);
-
             AddLogEntry($"Hierarchy file selected: {_config.HierarchyFile}");
 
-            // Update URL with new hierarchyFile parameter, preserve sourceFile
+            // Update URL with new hierarchyFile parameter, preserve normalizedFile
+            // OnParametersSetAsync will sync with WorkflowStateService
             var url = BuildUrlWithParams(
-                sourceFile: _currentSourceFile,
+                normalizedFile: _currentNormalizedFile,
                 hierarchyFile: _config.HierarchyFile
             );
             NavigationManager.NavigateTo(url);
-            // OnParametersSetAsync will trigger and reload from disk
         }
         else
         {
-            // Clear UserSelectionService
-            await UserSelectionService.UpdateSelectionAsync(hierarchyXml: string.Empty);
             StateHasChanged();
+        }
+    }
+
+    private async Task OnLanguageChangedAsync()
+    {
+        try
+        {
+            await MetadataService.UpdateProjectLanguage(Customer, ProjectId, _selectedLanguage);
+            AddLogEntry($"Content language set to: {ProjectMetadata.LanguageDisplayNames[_selectedLanguage]}");
+            Logger.LogInformation("Updated project language to {Language} for {Customer}/{ProjectId}",
+                _selectedLanguage, Customer, ProjectId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to update project language");
+            AddLogEntry($"Error updating language: {ex.Message}");
         }
     }
 
@@ -1108,13 +1051,13 @@
         public string Message { get; set; } = string.Empty;
     }
 
-    private string BuildUrlWithParams(string? sourceFile, string? hierarchyFile)
+    private string BuildUrlWithParams(string? normalizedFile, string? hierarchyFile)
     {
         var baseUrl = $"/convert/{Customer}/{ProjectId}";
         var queryParams = new List<string>();
 
-        if (!string.IsNullOrEmpty(sourceFile))
-            queryParams.Add($"sourceFile={Uri.EscapeDataString(sourceFile)}");
+        if (!string.IsNullOrEmpty(normalizedFile))
+            queryParams.Add($"normalizedFile={Uri.EscapeDataString(normalizedFile)}");
 
         if (!string.IsNullOrEmpty(hierarchyFile))
             queryParams.Add($"hierarchyFile={Uri.EscapeDataString(hierarchyFile)}");

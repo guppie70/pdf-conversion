@@ -76,6 +76,7 @@ public class ConversionService : IConversionService
     private readonly IHeaderNormalizationService _headerNormalizationService;
     private readonly IProjectArchiveService _archiveService;
     private readonly IOptions<ConversionSettings> _conversionSettings;
+    private readonly ProjectMetadataService _metadataService;
     private const string TemplateFilePath = "/app/data/input/template.xml";
 
     public ConversionService(
@@ -86,7 +87,8 @@ public class ConversionService : IConversionService
         IContentExtractionService contentExtractionService,
         IHeaderNormalizationService headerNormalizationService,
         IProjectArchiveService archiveService,
-        IOptions<ConversionSettings> conversionSettings)
+        IOptions<ConversionSettings> conversionSettings,
+        ProjectMetadataService metadataService)
     {
         _logger = logger;
         _xsltService = xsltService;
@@ -96,6 +98,7 @@ public class ConversionService : IConversionService
         _headerNormalizationService = headerNormalizationService;
         _archiveService = archiveService;
         _conversionSettings = conversionSettings;
+        _metadataService = metadataService;
     }
 
     public async Task<List<HierarchyItem>> LoadHierarchyAsync(string path)
@@ -354,7 +357,9 @@ public class ConversionService : IConversionService
             }
 
             // 3. Validate hierarchy file exists and structure
-            var hierarchyFilePath = Path.Combine("/app/data/input", customer, "projects", project, "metadata", hierarchyFile);
+            // Hierarchy files are saved in output folder by GenerateHierarchy page
+            // hierarchyFile includes the "hierarchies/" prefix from URL
+            var hierarchyFilePath = Path.Combine("/app/data/output", customer, "projects", project, hierarchyFile);
             var hierarchyValidation = await ValidateHierarchyFileAsync(hierarchyFilePath);
             if (!hierarchyValidation.IsValid)
             {
@@ -750,9 +755,15 @@ public class ConversionService : IConversionService
             var customer = projectParts[0];
             var project = projectParts[1];
 
+            // Get project language (default to "en" if not set)
+            var projectMetadata = await _metadataService.GetProjectMetadata(customer, project);
+            var projectLanguage = projectMetadata?.Language ?? "en";
+            logCallback($"Project language: {projectLanguage}");
+
             // 2. Load hierarchy
+            // Hierarchy files are saved in output folder by GenerateHierarchy page
             logCallback("Loading hierarchy...");
-            var hierarchyPath = Path.Combine("/app/data/input", customer, "projects", project, "metadata", hierarchyFile);
+            var hierarchyPath = Path.Combine("/app/data/output", customer, "projects", project, hierarchyFile);
             var hierarchyItems = await LoadHierarchyAsync(hierarchyPath);
             result.TotalSections = hierarchyItems.Count;
             logCallback($"✓ Loaded {hierarchyItems.Count} hierarchy items");
@@ -794,6 +805,11 @@ public class ConversionService : IConversionService
             // Track resolved duplicates to avoid asking twice
             // Key is HierarchyItem.Id (unique per item) to prevent cache collisions when multiple items share the same LinkName
             var resolvedDuplicates = new Dictionary<string, HeaderMatch>();
+
+            // Track actually selected/used matches for computing lastProcessedHeader
+            // This is crucial: when computing position for filtering, we must use the SELECTED match,
+            // not all matches in the pre-built list (which includes unselected duplicates)
+            var selectedMatches = new List<HeaderMatch>();
 
             for (int i = 0; i < matches.Count; i++)
             {
@@ -840,18 +856,30 @@ public class ConversionService : IConversionService
                         // This ensures we don't mix duplicates from different hierarchy items with the same LinkName
                         // IMPORTANT: Only include FORWARD duplicates (in document order, not hierarchy order)
                         // Get the last processed header's position in the document
-                        var matchesProcessedSoFar = matches.Take(i).ToList();
-                        var lastProcessedHeader = matchesProcessedSoFar.LastOrDefault(m => m.MatchedHeader != null)?.MatchedHeader;
+                        // CRITICAL: Use selectedMatches (actually used matches) instead of the raw matches list
+                        // The raw matches list contains ALL duplicates for previous items, including unselected ones
+                        // This was causing the wrong "Actief" (pos 2077) to filter out the correct "Passief" (pos 839)
+                        var lastProcessedHeader = selectedMatches.LastOrDefault(m => m.MatchedHeader != null)?.MatchedHeader;
 
-                        var duplicateMatches = matches
+                        // First, get ALL duplicates for this hierarchy item (before position filtering)
+                        var allDuplicatesForItem = matches
                             .Where(m => m.HierarchyItem.Id == match.HierarchyItem.Id && m.IsDuplicate)
+                            .ToList();
+
+                        var duplicateMatches = allDuplicatesForItem
                             .Where(m => {
-                                // Only include duplicates that come AFTER the last processed header in document order
+                                // Only include duplicates that come AT OR AFTER the last processed header in document order
+                                // We use >= instead of > because:
+                                // 1. A previous section might have matched to the same element position
+                                // 2. The current section's first duplicate might be at the same position
+                                // 3. We want to give the user a choice even if positions overlap
                                 if (lastProcessedHeader == null || m.MatchedHeader == null)
                                     return true; // Include if no processed headers yet
 
-                                // Check document order: is m.MatchedHeader after lastProcessedHeader?
-                                return IsAfterInDocument(lastProcessedHeader, m.MatchedHeader);
+                                // Check document order: is m.MatchedHeader at or after lastProcessedHeader?
+                                var pos1 = GetDocumentPosition(lastProcessedHeader);
+                                var pos2 = GetDocumentPosition(m.MatchedHeader);
+                                return pos2 >= pos1; // Use >= to include elements at same position
                             })
                             .ToList();
 
@@ -859,6 +887,18 @@ public class ConversionService : IConversionService
                         if (duplicateMatches.Any() && duplicateMatches[0] == match)
                         {
                             logCallback($"{progress} ℹ Multiple headers found for '{linkName}'");
+
+                            // Log what was filtered out
+                            var lastProcessedPos = lastProcessedHeader != null ? GetDocumentPosition(lastProcessedHeader) : -1;
+                            logCallback($"{progress}   Last processed header at position: {lastProcessedPos}");
+                            logCallback($"{progress}   Total duplicates for this item: {allDuplicatesForItem.Count}, after position filter: {duplicateMatches.Count}");
+                            foreach (var dup in allDuplicatesForItem)
+                            {
+                                var dupPos = dup.MatchedHeader != null ? GetDocumentPosition(dup.MatchedHeader) : -1;
+                                var isIncluded = duplicateMatches.Contains(dup);
+                                var hasHeader = dup.MatchedHeader != null;
+                                logCallback($"{progress}     Duplicate {dup.DuplicateIndex + 1}: pos={dupPos}, hasHeader={hasHeader}, included={isIncluded}");
+                            }
 
                             // Get list of matches processed so far (for context visualization)
                             var processedMatches = matches.Take(i).ToList();
@@ -950,6 +990,10 @@ public class ConversionService : IConversionService
                     result.SkippedSections++;
                     continue;
                 }
+
+                // Track this match as "selected" for computing lastProcessedHeader in subsequent iterations
+                // This ensures we use the ACTUAL selected match position, not unselected duplicates
+                selectedMatches.Add(match);
 
                 try
                 {
@@ -1165,8 +1209,8 @@ public class ConversionService : IConversionService
                     // Normalize headers
                     var normalizedContent = _headerNormalizationService.NormalizeHeaders(extractedContent);
 
-                    // Populate template
-                    var sectionXml = PopulateTemplate(template, match.HierarchyItem, normalizedContent);
+                    // Populate template with project language
+                    var sectionXml = PopulateTemplate(template, match.HierarchyItem, normalizedContent, projectLanguage);
 
                     // Write to file (always complete current file write before cancelling)
                     var outputPath = Path.Combine("/app/data/output", customer, "projects", project, "data", match.HierarchyItem.DataRef);
@@ -1281,10 +1325,15 @@ public class ConversionService : IConversionService
     /// <summary>
     /// Populates the template XML with hierarchy item metadata and extracted content
     /// </summary>
+    /// <param name="template">The template document to populate</param>
+    /// <param name="hierarchyItem">The hierarchy item with metadata</param>
+    /// <param name="extractedContent">The extracted content to insert</param>
+    /// <param name="language">The project language code (e.g., "en", "nl", "de", "fr")</param>
     private XDocument PopulateTemplate(
         XDocument template,
         HierarchyItem hierarchyItem,
-        XDocument extractedContent)
+        XDocument extractedContent,
+        string language = "en")
     {
         // Clone template to avoid modifying original
         var populated = new XDocument(template);
@@ -1334,6 +1383,8 @@ public class ConversionService : IConversionService
         var contentElement = populated.Root?.Element(ns + "content");
         if (contentElement != null)
         {
+            // Set the language attribute on the content element
+            contentElement.SetAttributeValue("lang", language);
             // Find the section element in the article
             var articleElement = contentElement.Element(ns + "article");
 
@@ -1486,12 +1537,20 @@ public class ConversionService : IConversionService
 
             foreach (var duplicate in duplicateMatches)
             {
-                if (duplicate.MatchedHeader == null) continue;
+                if (duplicate.MatchedHeader == null)
+                {
+                    logCallback($"{progress}     Candidate {duplicate.DuplicateIndex + 1}: Skipped (no matched header reference)");
+                    continue;
+                }
 
                 int forwardScore = 0;
                 var duplicateIndex = allHeaders.IndexOf(duplicate.MatchedHeader);
 
-                if (duplicateIndex < 0) continue;
+                if (duplicateIndex < 0)
+                {
+                    logCallback($"{progress}     Candidate {duplicate.DuplicateIndex + 1}: Skipped (header not found in document)");
+                    continue;
+                }
 
                 // Get headers AFTER this specific candidate
                 var headersAfterCandidate = allHeaders.Skip(duplicateIndex + 1).ToList();
@@ -1550,13 +1609,15 @@ public class ConversionService : IConversionService
                 var best = sortedCandidates[0];
                 var secondBest = sortedCandidates.Count > 1 ? sortedCandidates[1] : null;
 
-                // Only auto-select if there's a clear winner
+                // Only auto-select if there's a clear winner AND the score is non-negative
+                // A negative score means expected headers weren't found - disambiguation failed
+                bool hasPositiveScore = best.ForwardLookingScore >= 0;
                 bool hasForwardWinner = secondBest == null || best.ForwardLookingScore - secondBest.ForwardLookingScore >= 3;
                 bool hasTiebreakerWinner = secondBest != null &&
                                            best.ForwardLookingScore == secondBest.ForwardLookingScore &&
                                            best.TiebreakerScore - secondBest.TiebreakerScore >= 2;
 
-                if (hasForwardWinner || hasTiebreakerWinner)
+                if (hasPositiveScore && (hasForwardWinner || hasTiebreakerWinner))
                 {
                     if (hasTiebreakerWinner)
                     {
@@ -1577,7 +1638,12 @@ public class ConversionService : IConversionService
                 }
                 else
                 {
-                    if (secondBest != null)
+                    // Log why we're not auto-selecting
+                    if (!hasPositiveScore)
+                    {
+                        logCallback($"{progress}   ⚠ Cannot auto-select: best score is negative ({best.ForwardLookingScore}) - expected headers not found");
+                    }
+                    else if (secondBest != null)
                     {
                         logCallback($"{progress}   Scores too close to auto-select (best: {best.TotalScore}, second: {secondBest.TotalScore})");
                     }

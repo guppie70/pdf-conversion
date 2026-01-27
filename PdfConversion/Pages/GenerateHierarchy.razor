@@ -20,6 +20,7 @@
 @inject HttpClient HttpClient
 @inject IProjectValidationService ProjectValidation
 @inject NavigationManager NavigationManager
+@inject WorkflowStateService WorkflowState
 
 <PageTitle>Generate Hierarchy</PageTitle>
 
@@ -612,18 +613,18 @@
     [Parameter]
     public string ProjectId { get; set; } = string.Empty;
 
-    // Query String Parameters (Phase 2)
-    [Parameter, SupplyParameterFromQuery(Name = "sourceFile")]
-    public string? SourceFileParam { get; set; }
+    // Query String Parameters - URL is the single source of truth
+    [Parameter, SupplyParameterFromQuery(Name = "normalizedFile")]
+    public string? NormalizedFileParam { get; set; }
 
     [Parameter, SupplyParameterFromQuery(Name = "hierarchyFile")]
     public string? HierarchyFileParam { get; set; }
 
     [Parameter, SupplyParameterFromQuery(Name = "mode")]
-    public string? ModeParam { get; set; }  // "restricted", "free", or "manual"
+    public string? ModeParam { get; set; }  // "restricted" or "free"
 
     // Tracking fields for detecting parameter changes
-    private string? _currentSourceFile;
+    private string? _currentNormalizedFile;
     private string? _currentHierarchyFile;
     private int _navigationLoopCount = 0;
     private const int MAX_NAVIGATIONS = 5;
@@ -738,16 +739,17 @@
         {
             // Note: SelectedProject and SelectedFileName already updated via two-way binding
             // SelectedSourceXml is updated via SelectedFileName setter
-            Logger.LogInformation("Source file selected: {Project} / {File}", SelectedProject, SelectedFileName);
+            Logger.LogInformation("Normalized file selected: {Project} / {File}", SelectedProject, SelectedFileName);
 
-            // Save selections
-            await UserSelectionService.UpdateSelectionAsync(projectId: SelectedProject);
-            Logger.LogInformation("Saved project selection: {Project}", SelectedProject);
+            // Navigate immediately - DO NOT update tracking variable first!
+            // OnParametersSetAsync will detect the change and reload from disk
+            if (SelectedFileName == _currentNormalizedFile)
+            {
+                // Same file selected, nothing to do
+                return;
+            }
 
-            await UserSelectionService.UpdateSelectionAsync(sourceXml: SelectedFileName);
-            Logger.LogInformation("Saved source XML selection: {File}", SelectedFileName);
-
-            // Update URL with new sourceFile parameter, preserve hierarchy and mode
+            // Update URL with new normalizedFile parameter, preserve hierarchy and mode
             var modeString = _currentMode switch
             {
                 HierarchyMode.Restricted => "restricted",
@@ -755,16 +757,17 @@
                 _ => "restricted"
             };
             var url = BuildUrlWithParams(
-                sourceFile: SelectedFileName,
+                normalizedFile: SelectedFileName,
                 hierarchyFile: _currentHierarchyFile,
                 mode: modeString
             );
             NavigationManager.NavigateTo(url);
+
             // OnParametersSetAsync will trigger and reload from disk
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error handling source file selection");
+            Logger.LogError(ex, "Error handling normalized file selection");
         }
     }
 
@@ -781,14 +784,6 @@
             {
                 SelectedProject = parsed.FullProjectId;
                 Logger.LogInformation("Auto-selected project from file path: {Project}", SelectedProject);
-
-                // Save project selection
-                await UserSelectionService.UpdateSelectionAsync(projectId: SelectedProject);
-                Logger.LogInformation("Saved project selection: {Project}", SelectedProject);
-
-                // Save source XML selection (just filename for portability)
-                await UserSelectionService.UpdateSelectionAsync(sourceXml: parsed.FileName);
-                Logger.LogInformation("Saved source XML selection: {File}", parsed.FileName);
             }
             else
             {
@@ -798,7 +793,10 @@
             await OnSourceXmlChangedAsync();
             LoadHierarchyXmlFiles();
 
-            // Update URL with sourceFile parameter after successful load
+            // Update tracking variable
+            _currentNormalizedFile = parsed.FileName;
+
+            // Update URL with normalizedFile parameter after successful load
             var modeString = _currentMode switch
             {
                 HierarchyMode.Restricted => "restricted",
@@ -806,7 +804,7 @@
                 _ => "restricted"
             };
             var url = BuildUrlWithParams(
-                sourceFile: parsed.FileName,
+                normalizedFile: parsed.FileName,
                 hierarchyFile: _currentHierarchyFile,
                 mode: modeString
             );
@@ -849,17 +847,15 @@
         StateHasChanged();
     }
 
-    private async Task OnHierarchyXmlSelectionChanged()
+    private Task OnHierarchyXmlSelectionChanged()
     {
         if (!string.IsNullOrEmpty(SelectedHierarchyXml))
         {
-            // Save to user selections (save just the filename for portability)
             var filename = Path.GetFileName(SelectedHierarchyXml);
-            await UserSelectionService.UpdateSelectionAsync(hierarchyXml: filename);
-            Logger.LogInformation("Saved hierarchy XML selection: {File}", filename);
-
+            Logger.LogInformation("Hierarchy XML selected: {File}", filename);
             // Do NOT auto-load - user must click Load button
         }
+        return Task.CompletedTask;
     }
 
     private async Task OnHierarchySelectionChangedAsync(ChangeEventArgs e)
@@ -869,12 +865,13 @@
         {
             SelectedHierarchyXml = newValue;
 
-            // Save to user selections (save just the filename for portability)
             var filename = Path.GetFileName(SelectedHierarchyXml);
-            await UserSelectionService.UpdateSelectionAsync(hierarchyXml: filename);
-            Logger.LogInformation("Saved hierarchy XML selection: {File}", filename);
+            // Include hierarchies/ prefix for URL parameter - services expect this format
+            var hierarchyRelativePath = $"hierarchies/{filename}";
+            _currentHierarchyFile = hierarchyRelativePath;
+            Logger.LogInformation("Hierarchy XML selection changed: {File}", hierarchyRelativePath);
 
-            // Update URL with new hierarchyFile parameter, preserve source and mode
+            // Update URL with new hierarchyFile parameter, preserve normalizedFile and mode
             var modeString = _currentMode switch
             {
                 HierarchyMode.Restricted => "restricted",
@@ -882,13 +879,13 @@
                 _ => "restricted"
             };
             var url = BuildUrlWithParams(
-                sourceFile: _currentSourceFile,
-                hierarchyFile: filename,
+                normalizedFile: _currentNormalizedFile,
+                hierarchyFile: hierarchyRelativePath,
                 mode: modeString
             );
             NavigationManager.NavigateTo(url);
-            // OnParametersSetAsync will trigger and reload from disk
 
+            // OnParametersSetAsync will trigger and reload from disk
             await OnLoadHierarchyClickedAsync();
         }
     }
@@ -1062,134 +1059,26 @@
 
             Logger.LogInformation("[OnInitializedAsync] Loaded {Count} project file groups", ProjectFileGroups.Count);
 
-            // Set project from URL parameters (NOT from saved selection - URL is the source of truth)
+            // Set project from URL parameters (URL is the source of truth)
             SelectedProject = $"{Customer}/{ProjectId}";
             Logger.LogInformation("[OnInitializedAsync] Using project from URL: {Project}", SelectedProject);
 
-            // Try to restore last selection for files within the current project
-            var selection = await UserSelectionService.GetSelectionAsync();
-            if (selection != null)
+            // NOTE: Removed user-selections.json restoration. URL is the single source of truth.
+            // OnParametersSetAsync handles URL parameters. Auto-select only if no URL params.
+
+            // If WorkflowState has a recent normalized output from Transform page, use it
+            // (only if no URL param is already specified)
+            if (string.IsNullOrEmpty(NormalizedFileParam) && !string.IsNullOrEmpty(WorkflowState.LastNormalizedOutput))
             {
-                Logger.LogInformation("[OnInitializedAsync] Found user selections");
+                Logger.LogInformation("[OnInitializedAsync] Using LastNormalizedOutput from WorkflowState: {Path}", WorkflowState.LastNormalizedOutput);
 
-                // Only restore file selections if they were for the SAME project
-                var selectionMatchesProject = selection.LastSelectedProject == SelectedProject;
-                if (!selectionMatchesProject)
-                {
-                    Logger.LogInformation("[OnInitializedAsync] Saved selection is for different project ({SavedProject}), not restoring file selections",
-                        selection.LastSelectedProject);
-                }
-
-                // Restore source XML if available - only if same project AND normalized file
-                if (selectionMatchesProject && !string.IsNullOrEmpty(selection.LastSelectedSourceXml) && !string.IsNullOrEmpty(SelectedProject))
-                {
-                    var sourceXmlFilename = selection.LastSelectedSourceXml;
-
-                    // ONLY restore normalized files (never source files)
-                    if (!sourceXmlFilename.StartsWith("normalized/", StringComparison.OrdinalIgnoreCase))
-                    {
-                        Logger.LogWarning(
-                            "[OnInitializedAsync] Ignoring non-normalized source file: {File} (hierarchy generation requires normalized XMLs)",
-                            sourceXmlFilename);
-                    }
-                    else
-                    {
-                        var parts = SelectedProject.Split('/');
-                        if (parts.Length == 2)
-                        {
-                            var customer = parts[0];
-                            var projectId = parts[1];
-
-                            // Try input directory first
-                            var inputPath = $"/app/data/input/{customer}/projects/{projectId}/{sourceXmlFilename}";
-                            if (File.Exists(inputPath))
-                            {
-                                SelectedSourceXml = inputPath;
-                                Logger.LogInformation("[OnInitializedAsync] Restored normalized XML from input: {File}", SelectedSourceXml);
-                            }
-                            else
-                            {
-                                // Try output directory as fallback
-                                var outputPath = $"/app/data/output/{customer}/projects/{projectId}/{sourceXmlFilename}";
-                                if (File.Exists(outputPath))
-                                {
-                                    SelectedSourceXml = outputPath;
-                                    Logger.LogInformation("[OnInitializedAsync] Restored normalized XML from output: {File}", SelectedSourceXml);
-                                }
-                                else
-                                {
-                                    Logger.LogWarning("[OnInitializedAsync] Normalized XML file not found: {File}", sourceXmlFilename);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // If source XML was restored, load hierarchy files
-                if (!string.IsNullOrEmpty(SelectedSourceXml))
-                {
-                    // Load hierarchy XML files from metadata folder
-                    LoadHierarchyXmlFiles();
-
-                    // Load the pre-normalized XML (no XSLT transformation needed)
-                    NormalizedXmlPath = SelectedSourceXml;
-                    Logger.LogInformation("Using pre-normalized XML: {Path}", NormalizedXmlPath);
-
-                    // Load headers into right panel
-                    if (HeadersPanel != null)
-                    {
-                        await HeadersPanel.LoadHeadersAsync(NormalizedXmlPath, HierarchyXmlPath);
-                    }
-
-                    // Restore hierarchy XML selection if available
-                    if (!string.IsNullOrEmpty(selection.LastSelectedHierarchyXml))
-                    {
-                        var hierarchyFilename = selection.LastSelectedHierarchyXml;
-
-                        // Find matching file in HierarchyXmlFiles list
-                        var matchingFile = HierarchyXmlFiles.FirstOrDefault(f =>
-                            Path.GetFileName(f).Equals(hierarchyFilename, StringComparison.OrdinalIgnoreCase));
-
-                        if (matchingFile != null)
-                        {
-                            SelectedHierarchyXml = matchingFile;
-                            Logger.LogInformation("[OnInitializedAsync] Restored hierarchy XML: {File}", matchingFile);
-
-                            // Auto-load the hierarchy on initialization (user doesn't need to click Load button on page load)
-                            await OnLoadHierarchyClickedAsync();
-                        }
-                        else
-                        {
-                            Logger.LogWarning("[OnInitializedAsync] Hierarchy file not found: {File}", hierarchyFilename);
-                            // No hierarchy file found, load flat list in Restricted Mode
-                            // Use LoadManualModeHeadersAsync() which transforms the source file first
-                            if (_currentMode == HierarchyMode.Restricted)
-                            {
-                                await LoadManualModeHeadersAsync();
-                            }
-                        }
-                    }
-                    else
-                    {
-                        // No saved hierarchy selection, load flat list in Restricted Mode
-                        // Use LoadManualModeHeadersAsync() which transforms the source file first
-                        if (_currentMode == HierarchyMode.Restricted)
-                        {
-                            await LoadManualModeHeadersAsync();
-                        }
-                    }
-                }
-                else
-                {
-                    Logger.LogInformation("[OnInitializedAsync] No source XML to restore");
-                }
-            }
-            else
-            {
-                Logger.LogWarning("[OnInitializedAsync] No user selections found");
+                // Navigate to URL with the normalized file parameter (URL is source of truth)
+                var url = BuildUrlWithParams(WorkflowState.LastNormalizedOutput, null, null);
+                NavigationManager.NavigateTo(url, replace: true);
+                return; // OnParametersSetAsync will handle the rest
             }
 
-            // Auto-select if there's only one normalized XML available
+            // Auto-select if there's only one normalized XML available (and no URL params)
             if (string.IsNullOrEmpty(SelectedSourceXml))
             {
                 AutoSelectSingleSourceFile();
@@ -1225,9 +1114,12 @@
 
         Logger.LogInformation("OnParametersSetAsync: Detected navigation to {Customer}/{ProjectId} (loop count: {Count})", Customer, ProjectId, _navigationLoopCount);
 
+        // Track project context in WorkflowStateService (clears state if project changed)
+        WorkflowState.SetProject(Customer, ProjectId);
+
         // Detect which parameters changed
         var projectChanged = (SelectedProject != $"{Customer}/{ProjectId}");
-        var sourceFileChanged = (SourceFileParam != _currentSourceFile);
+        var normalizedFileChanged = (NormalizedFileParam != _currentNormalizedFile);
         var hierarchyFileChanged = (HierarchyFileParam != _currentHierarchyFile);
 
         // Convert mode parameter string to enum for comparison
@@ -1240,11 +1132,11 @@
         var modeChanged = (modeFromParam != _currentMode);
 
         // Log parameter changes for debugging
-        if (projectChanged || sourceFileChanged || hierarchyFileChanged || modeChanged)
+        if (projectChanged || normalizedFileChanged || hierarchyFileChanged || modeChanged)
         {
             Logger.LogInformation(
-                "Parameters changed - Project: {ProjectChanged}, Source: {SourceChanged}, Hierarchy: {HierarchyChanged}, Mode: {ModeChanged}",
-                projectChanged, sourceFileChanged, hierarchyFileChanged, modeChanged);
+                "Parameters changed - Project: {ProjectChanged}, NormalizedFile: {NormalizedFileChanged}, Hierarchy: {HierarchyChanged}, Mode: {ModeChanged}",
+                projectChanged, normalizedFileChanged, hierarchyFileChanged, modeChanged);
 
             // Clear state if parameters changed
             if (projectChanged)
@@ -1259,17 +1151,33 @@
 
             // Update tracking variables
             SelectedProject = $"{Customer}/{ProjectId}";
-            _currentSourceFile = SourceFileParam;
+            _currentNormalizedFile = NormalizedFileParam;
             _currentHierarchyFile = HierarchyFileParam;
 
             // Note: Project file groups are already loaded in OnInitializedAsync
             // We don't need to reload them here unless we implement a LoadProjectsAsync method
 
-            // Apply source file parameter
-            if (!string.IsNullOrEmpty(_currentSourceFile) && _currentSourceFile != SelectedSourceXml)
+            // Apply normalized file parameter - resolve relative path to full path
+            if (!string.IsNullOrEmpty(_currentNormalizedFile))
             {
-                SelectedSourceXml = _currentSourceFile;
-                await OnSourceXmlChangedAsync();
+                // URL contains relative path (e.g., "normalized/docling-pdf.xml")
+                // Convert to full path using the same method as SelectedFileName setter
+                var fullSourcePath = ProjectPathParser.BuildPathFromFullId("input", SelectedProject, _currentNormalizedFile);
+
+                if (File.Exists(fullSourcePath))
+                {
+                    if (fullSourcePath != SelectedSourceXml)
+                    {
+                        SelectedSourceXml = fullSourcePath;
+                        Logger.LogInformation("[OnParametersSetAsync] Resolved normalized file: {File}", fullSourcePath);
+                        await OnSourceXmlChangedAsync();
+                    }
+                }
+                else
+                {
+                    Logger.LogWarning("[OnParametersSetAsync] Normalized file not found: {File}", fullSourcePath);
+                    _currentNormalizedFile = null;
+                }
             }
 
             // Load hierarchy files after source is set (needed for file path resolution)
@@ -1278,9 +1186,13 @@
             // Apply hierarchy file parameter - find full path from filename
             if (!string.IsNullOrEmpty(_currentHierarchyFile))
             {
-                // Find matching file in HierarchyXmlFiles list (URL contains filename only)
+                // Normalize: extract just filename from _currentHierarchyFile
+                // URL may contain "hierarchies/file.xml" or just "file.xml"
+                var hierarchyFileName = Path.GetFileName(_currentHierarchyFile);
+
+                // Find matching file in HierarchyXmlFiles list
                 var matchingFile = HierarchyXmlFiles.FirstOrDefault(f =>
-                    Path.GetFileName(f).Equals(_currentHierarchyFile, StringComparison.OrdinalIgnoreCase));
+                    Path.GetFileName(f).Equals(hierarchyFileName, StringComparison.OrdinalIgnoreCase));
 
                 if (matchingFile != null && matchingFile != SelectedHierarchyXml)
                 {
@@ -1300,7 +1212,6 @@
             if (modeChanged)
             {
                 _currentMode = modeFromParam;
-                StateHasChanged();
             }
 
             // Reset navigation loop counter on successful parameter application
@@ -1366,9 +1277,6 @@
         {
             if (!string.IsNullOrEmpty(SelectedSourceXml))
             {
-                // Save the relative path including subfolder (e.g., "normalized/docling-word.xml")
-                await UserSelectionService.UpdateSelectionAsync(sourceXml: SelectedFileName);
-
                 // Set NormalizedXmlPath to the selected file (it's already normalized)
                 NormalizedXmlPath = SelectedSourceXml;
                 Logger.LogInformation("Using pre-normalized XML: {Path}", NormalizedXmlPath);
@@ -1547,6 +1455,12 @@
 
             // Update SelectedHierarchyXml to point to the saved file
             SelectedHierarchyXml = filePath;
+
+            // Track output in WorkflowState for cross-page navigation
+            // Use relative path: hierarchies/filename.xml
+            var relativePath = $"hierarchies/{hierarchyFileName}";
+            WorkflowState.SetHierarchyOutput(relativePath);
+            Logger.LogInformation("Registered hierarchy output in WorkflowState: {RelativePath}", relativePath);
 
             // Refresh headers panel to update used status
             if (HeadersPanel != null)
@@ -2222,13 +2136,14 @@
             _ => "restricted"
         };
 
-        // Update URL with new mode parameter, preserve source and hierarchy
+        // Update URL with new mode parameter, preserve normalizedFile and hierarchy
         var url = BuildUrlWithParams(
-            sourceFile: _currentSourceFile,
+            normalizedFile: _currentNormalizedFile,
             hierarchyFile: _currentHierarchyFile,
             mode: modeString
         );
         NavigationManager.NavigateTo(url);
+
         // OnParametersSetAsync will trigger and reload state
 
         // Clear hierarchy state
@@ -3552,13 +3467,13 @@
         return headers;
     }
 
-    private string BuildUrlWithParams(string? sourceFile, string? hierarchyFile, string? mode)
+    private string BuildUrlWithParams(string? normalizedFile, string? hierarchyFile, string? mode)
     {
         var baseUrl = $"/generate-hierarchy/{Customer}/{ProjectId}";
         var queryParams = new List<string>();
 
-        if (!string.IsNullOrEmpty(sourceFile))
-            queryParams.Add($"sourceFile={Uri.EscapeDataString(sourceFile)}");
+        if (!string.IsNullOrEmpty(normalizedFile))
+            queryParams.Add($"normalizedFile={Uri.EscapeDataString(normalizedFile)}");
 
         if (!string.IsNullOrEmpty(hierarchyFile))
             queryParams.Add($"hierarchyFile={Uri.EscapeDataString(hierarchyFile)}");
