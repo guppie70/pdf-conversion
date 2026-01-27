@@ -4,7 +4,7 @@
 @using PdfConversion.Models
 @inject IProjectArchiveService ArchiveService
 @inject ILogger<ProjectFilesModal> Logger
-@inject IJSRuntime JSRuntime
+@inject NavigationManager NavigationManager
 
 @if (IsVisible)
 {
@@ -410,7 +410,7 @@
         }
     }
 
-    private async Task DownloadPackage()
+    private void DownloadPackage()
     {
         try
         {
@@ -426,6 +426,7 @@
             Logger.LogInformation("Downloading package: {Customer}/{ProjectId}/{Package}",
                 Customer, ProjectId, SelectedPackage);
 
+            // Validate package exists
             var packagePath = ArchiveService.GetPackagePath(Customer, ProjectId, SelectedPackage);
 
             if (packagePath == null || !File.Exists(packagePath))
@@ -434,14 +435,16 @@
                 return;
             }
 
-            var zipBytes = await File.ReadAllBytesAsync(packagePath);
+            // Build download URL - the endpoint will stream the file
+            var downloadUrl = $"/api/packages/download/{Uri.EscapeDataString(Customer)}/{Uri.EscapeDataString(ProjectId)}/{Uri.EscapeDataString(SelectedPackage)}";
 
-            // Trigger download using JavaScript
-            var jsCode = GenerateDownloadScript(zipBytes, SelectedPackage);
-            await JSRuntime.InvokeVoidAsync("eval", jsCode);
+            Logger.LogInformation("Triggering download via URL: {Url}", downloadUrl);
 
-            SuccessMessage = $"Package downloaded: {SelectedPackage}";
-            Logger.LogInformation("Package download triggered: {Filename}, {Size} bytes", SelectedPackage, zipBytes.Length);
+            // Navigate to download URL (browser handles file download)
+            NavigationManager.NavigateTo(downloadUrl, forceLoad: true);
+
+            SuccessMessage = $"Package download started: {SelectedPackage}";
+            Logger.LogInformation("Package download triggered: {Filename}", SelectedPackage);
         }
         catch (Exception ex)
         {
@@ -484,19 +487,6 @@
         return $"{len:0.##} {sizes[order]}";
     }
 
-    private string GenerateDownloadScript(byte[] zipBytes, string filename)
-    {
-        var byteArray = string.Join(",", zipBytes);
-        return $@"const blob = new Blob([new Uint8Array([{byteArray}])], {{ type: 'application/zip' }});
-                   const url = URL.createObjectURL(blob);
-                   const a = document.createElement('a');
-                   a.href = url;
-                   a.download = '{filename}';
-                   document.body.appendChild(a);
-                   a.click();
-                   document.body.removeChild(a);
-                   URL.revokeObjectURL(url);";
-    }
 
     private async Task LoadPackagesAsync()
     {

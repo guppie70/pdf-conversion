@@ -92,6 +92,7 @@ builder.Services.AddScoped<IHierarchyService, HierarchyService>();
 builder.Services.AddScoped<IHeaderExtractionService, HeaderExtractionService>();
 builder.Services.AddScoped<IManualHierarchyBuilder, ManualHierarchyBuilder>();
 builder.Services.AddScoped<TransformToolbarState>();
+builder.Services.AddScoped<WorkflowStateService>();
 builder.Services.AddSingleton<IXhtmlValidationService, XhtmlValidationService>();
 builder.Services.AddSingleton<ITransformationLogService, TransformationLogService>();
 builder.Services.AddSingleton<ThemeService>();
@@ -353,6 +354,55 @@ app.MapDelete("/api/projects/{customer}/{projectId}", async (
             success = false,
             message = $"Internal server error: {ex.Message}"
         }, statusCode: 500);
+    }
+});
+
+// Map GET endpoint for package download (streaming)
+app.MapGet("/api/packages/download/{customer}/{projectId}/{packageName}", async (
+    string customer,
+    string projectId,
+    string packageName,
+    IProjectArchiveService archiveService,
+    ILogger<Program> logger) =>
+{
+    try
+    {
+        logger.LogInformation("Package download request: {Customer}/{ProjectId}/{PackageName}",
+            customer, projectId, packageName);
+
+        // Get package path
+        var packagePath = archiveService.GetPackagePath(customer, projectId, packageName);
+
+        // Validate package exists
+        if (packagePath == null || !File.Exists(packagePath))
+        {
+            logger.LogWarning("Package not found: {Customer}/{ProjectId}/{PackageName}",
+                customer, projectId, packageName);
+            return Results.NotFound(new { error = "Package not found" });
+        }
+
+        // Get file info for logging
+        var fileInfo = new FileInfo(packagePath);
+        logger.LogInformation("Streaming package: {Path} ({Size} bytes)",
+            packagePath, fileInfo.Length);
+
+        // Stream file directly to response
+        return Results.File(
+            packagePath,
+            contentType: "application/zip",
+            fileDownloadName: packageName,
+            enableRangeProcessing: true  // Support resume/partial downloads
+        );
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Error downloading package: {Customer}/{ProjectId}/{PackageName}",
+            customer, projectId, packageName);
+        return Results.Problem(
+            detail: ex.Message,
+            statusCode: 500,
+            title: "Package download failed"
+        );
     }
 });
 
