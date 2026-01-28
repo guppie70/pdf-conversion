@@ -21,9 +21,16 @@ public class ConversionConfiguration
     public string? HierarchyFile { get; set; }
 
     /// <summary>
-    /// Validates that all required configuration fields are populated
+    /// When true, exports the entire document as a single section with a generated hierarchy.
+    /// This mode does not require a HierarchyFile to be selected.
+    /// </summary>
+    public bool ExportAsSingleSection { get; set; } = false;
+
+    /// <summary>
+    /// Validates that all required configuration fields are populated.
+    /// When ExportAsSingleSection is true, HierarchyFile is not required.
     /// </summary>
     public bool IsValid => !string.IsNullOrEmpty(ProjectId)
                         && !string.IsNullOrEmpty(SourceFile)
-                        && !string.IsNullOrEmpty(HierarchyFile);
+                        && (ExportAsSingleSection || !string.IsNullOrEmpty(HierarchyFile));
 }

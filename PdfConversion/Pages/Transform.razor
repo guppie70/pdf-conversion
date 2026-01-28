@@ -24,6 +24,7 @@
 @inject IProjectLoadingService ProjectLoader
 @inject ISourceDetectionService SourceDetectionService
 @inject IHtmlToXhtmlConversionService HtmlToXhtmlConversionService
+@inject WorkflowStateService WorkflowState
 
 <PageTitle>Transform</PageTitle>
 
@@ -853,9 +854,9 @@
     [Parameter]
     public string ProjectId { get; set; } = string.Empty;
 
-    // Query Parameters (Phase 1: URL-based state management)
-    [Parameter, SupplyParameterFromQuery(Name = "sourceFile")]
-    public string? SourceFileParam { get; set; }
+    // Query Parameters - URL is the single source of truth
+    [Parameter, SupplyParameterFromQuery(Name = "inputFile")]
+    public string? InputFileParam { get; set; }
 
     [Parameter, SupplyParameterFromQuery(Name = "xsltFile")]
     public string? XsltFileParam { get; set; }
@@ -900,8 +901,8 @@
     private int _navigationLoopCount = 0;
     private const int MAX_NAVIGATIONS = 5;
 
-    // Phase 1: Query parameter tracking (for detecting changes)
-    private string? _currentSourceFile;
+    // Query parameter tracking (for detecting changes)
+    private string? _currentInputFile;
     private string? _currentXsltFile;
     private string? _currentView;
 
@@ -915,7 +916,6 @@
     private bool ShowSettings = false;
     private bool ShowRendered = false; // Default to source view
     private bool ShowFormattedXml = true;
-    private bool isRestoringFromStorage = false;
     private bool isUpdatingFromExternalFile = false; // Prevents Monaco from triggering auto-transform during external updates
     private bool isUpdatingFromExternalXmlFile = false; // Prevents infinite loops when syncing XML from external file
     private bool isSavingXmlToFile = false; // True when actively saving XML to prevent reload loop
@@ -958,10 +958,10 @@
         // ShowRendered is already updated by @bind-value
         Logger.LogInformation("Rendered toggle changed: ShowRendered = {ShowRendered}", ShowRendered);
 
-        // Phase 1: Update URL with new view parameter (use replace: true to not add history)
+        // Update URL with new view parameter (use replace: true to not add history)
         var viewMode = ShowRendered ? "rendered" : "source";
         var url = BuildUrlWithParams(
-            sourceFile: _currentSourceFile,
+            inputFile: _currentInputFile,
             xsltFile: _currentXsltFile,
             view: viewMode
         );
@@ -1095,18 +1095,21 @@
         // Build the expected SelectedProjectId
         var expectedProjectId = $"{Customer}/{ProjectId}";
 
-        // Phase 1: Detect which parameters changed
+        // Track project context in WorkflowStateService (clears state if project changed)
+        WorkflowState.SetProject(Customer, ProjectId);
+
+        // Detect which parameters changed
         var projectChanged = (SelectedProjectId != expectedProjectId);
-        var sourceFileChanged = (SourceFileParam != _currentSourceFile);
+        var inputFileChanged = (InputFileParam != _currentInputFile);
         var xsltFileChanged = (XsltFileParam != _currentXsltFile);
         var viewChanged = (ViewParam != _currentView);
 
         // Log parameter changes for debugging
-        if (projectChanged || sourceFileChanged || xsltFileChanged || viewChanged)
+        if (projectChanged || inputFileChanged || xsltFileChanged || viewChanged)
         {
             Logger.LogInformation(
-                "Parameters changed - Project: {ProjectChanged}, Source: {SourceChanged}, XSLT: {XsltChanged}, View: {ViewChanged}",
-                projectChanged, sourceFileChanged, xsltFileChanged, viewChanged
+                "Parameters changed - Project: {ProjectChanged}, InputFile: {InputFileChanged}, XSLT: {XsltChanged}, View: {ViewChanged}",
+                projectChanged, inputFileChanged, xsltFileChanged, viewChanged
             );
 
             // Clear all in-memory state
@@ -1123,26 +1126,50 @@
             SavedNormalizedXmlPath = null;
 
             // Update tracking variables
-            _currentSourceFile = SourceFileParam;
+            _currentInputFile = InputFileParam;
             _currentXsltFile = XsltFileParam;
             _currentView = ViewParam;
 
-            // Reload from disk based on URL parameters
-            await LoadProjectsAsync();
-            await LoadXsltAsync();
-
-            // Load selected files if specified in URL
-            if (!string.IsNullOrEmpty(SourceFileParam))
-            {
-                SelectedFileName = SourceFileParam;
-                await LoadFileContent(SourceFileParam);
-            }
-
+            // Apply URL parameters BEFORE loading
+            // This ensures LoadXsltAsync respects the URL-specified XSLT file
             if (!string.IsNullOrEmpty(XsltFileParam))
             {
                 SelectedXsltFile = XsltFileParam;
-                await LoadXsltContent(XsltFileParam);
             }
+            else if (!string.IsNullOrEmpty(InputFileParam))
+            {
+                // Auto-detect XSLT based on input filename when no XSLT param specified
+                try
+                {
+                    var xsltPath = SourceDetectionService.GetXsltPathForSource(InputFileParam);
+                    var relativePath = xsltPath.Replace("/app/xslt/", "");
+                    SelectedXsltFile = relativePath;
+                    _currentXsltFile = relativePath; // Update tracking to prevent re-detection
+                    Logger.LogInformation("Auto-detected XSLT '{Xslt}' for input file '{Input}'", relativePath, InputFileParam);
+                }
+                catch (ArgumentException ex)
+                {
+                    Logger.LogWarning(ex, "Could not auto-detect XSLT for input file '{Input}'", InputFileParam);
+                    // Fall through to LoadXsltAsync default behavior
+                }
+            }
+
+            if (!string.IsNullOrEmpty(InputFileParam))
+            {
+                SelectedFileName = InputFileParam;
+            }
+
+            // Reload from disk based on URL parameters
+            await LoadProjectsAsync();
+            await LoadXsltAsync();  // Now respects SelectedXsltFile if pre-set from XsltFileParam
+
+            // Load selected files content
+            if (!string.IsNullOrEmpty(InputFileParam))
+            {
+                await LoadFileContent(InputFileParam);
+            }
+
+            // Note: LoadXsltAsync already loads the content, no need to call LoadXsltContent again
 
             // Apply view mode parameter
             if (!string.IsNullOrEmpty(ViewParam))
@@ -1157,13 +1184,13 @@
             UpdateToolbarState();
             StateHasChanged();
 
-            // Phase 0 Safety: Reset navigation loop counter on successful load
+            // Reset navigation loop counter on successful load
             _navigationLoopCount = 0;
         }
         else
         {
             Logger.LogDebug("No parameter changes detected, keeping existing state");
-            // Phase 0 Safety: Reset navigation loop counter on successful load
+            // Reset navigation loop counter on successful load
             _navigationLoopCount = 0;
         }
     }
@@ -1183,14 +1210,14 @@
         ToolbarState.NotifyStateChanged();
     }
 
-    // Phase 1: Helper to build URLs with query parameters
-    private string BuildUrlWithParams(string? sourceFile, string? xsltFile, string? view)
+    // Helper to build URLs with query parameters
+    private string BuildUrlWithParams(string? inputFile, string? xsltFile, string? view)
     {
         var baseUrl = $"/transform/{Customer}/{ProjectId}";
         var queryParams = new List<string>();
 
-        if (!string.IsNullOrEmpty(sourceFile))
-            queryParams.Add($"sourceFile={Uri.EscapeDataString(sourceFile)}");
+        if (!string.IsNullOrEmpty(inputFile))
+            queryParams.Add($"inputFile={Uri.EscapeDataString(inputFile)}");
 
         if (!string.IsNullOrEmpty(xsltFile))
             queryParams.Add($"xsltFile={Uri.EscapeDataString(xsltFile)}");
@@ -1281,6 +1308,21 @@
                 isUpdatingFromExternalFile = true;
                 XsltContent = await File.ReadAllTextAsync(xsltPath);
                 Logger.LogInformation("Loaded XSLT file from {Path}", xsltPath);
+
+                // Update Monaco editor if already initialized
+                // (If not initialized, OnAfterRenderAsync will handle it)
+                if (monacoInitialized)
+                {
+                    try
+                    {
+                        await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.setValue", XsltContent);
+                        Logger.LogInformation("Updated Monaco editor with XSLT content");
+                    }
+                    catch (Exception monacoEx)
+                    {
+                        Logger.LogWarning(monacoEx, "Could not update Monaco editor - will retry on render");
+                    }
+                }
 
                 // Start watching XSLT file
                 try
@@ -1597,8 +1639,10 @@
                 await TransformAsync();
             }
 
-            // Update URL with sourceFile parameter after successful load
-            var url = $"/transform/{Customer}/{ProjectId}?sourceFile={Uri.EscapeDataString(SelectedFileName)}";
+            // Update tracking variable and URL
+            _currentInputFile = SelectedFileName;
+            var viewMode = ShowRendered ? "rendered" : "source";
+            var url = BuildUrlWithParams(SelectedFileName, SelectedXsltFile, viewMode);
             NavigationManager.NavigateTo(url, forceLoad: false);
             Logger.LogInformation("Updated URL to reflect file selection: {Url}", url);
         }
@@ -1664,16 +1708,6 @@
             {
                 Logger.LogWarning("OnFilePathChanged: XmlContent is empty, skipping Source XML editor initialization");
             }
-
-            // Save selection to server-side UserSelectionService
-            if (!isRestoringFromStorage)
-            {
-                // SelectedProjectId is already in "customer/project-id" format
-                await UserSelectionService.UpdateSelectionAsync(
-                    projectId: SelectedProjectId,
-                    sourceXml: SelectedFileName
-                );
-            }
         }
     }
 
@@ -1727,18 +1761,8 @@
             UpdateToolbarState();
             StateHasChanged();
 
-            // Save selection to localStorage (unless we're restoring)
-            if (!isRestoringFromStorage)
-            {
-                await JSRuntime.InvokeVoidAsync("developmentStorage.saveSelection", SelectedProjectId, SelectedFileName, SelectedXsltFile);
-
-                // Save to server-side UserSelectionService
-                // SelectedProjectId is already in "customer/project-id" format
-                await UserSelectionService.UpdateSelectionAsync(
-                    projectId: SelectedProjectId,
-                    sourceXml: SelectedFileName
-                );
-            }
+            // Save selection to localStorage (for development convenience only)
+            await JSRuntime.InvokeVoidAsync("developmentStorage.saveSelection", SelectedProjectId, SelectedFileName, SelectedXsltFile);
         }
     }
 
@@ -1766,12 +1790,14 @@
         var fileName = e.Value?.ToString();
         if (!string.IsNullOrEmpty(fileName))
         {
+            _currentInputFile = fileName;
             var url = BuildUrlWithParams(
-                sourceFile: fileName,
+                inputFile: fileName,
                 xsltFile: _currentXsltFile,
                 view: _currentView
             );
             NavigationManager.NavigateTo(url);
+
             // OnParametersSetAsync will trigger and reload from disk
             return;
         }
@@ -1783,6 +1809,7 @@
             OutputContent = null;
             _hasUnsavedChanges = false; // Phase 0 Safety: Reset flag when switching files
             _originalXmlContent = null; // Phase 0 Safety: Clear original content
+
             UpdateToolbarState();
             StateHasChanged();
 
@@ -1897,135 +1924,24 @@
                 Logger.LogWarning("OnFileChanged: XmlContent is empty, skipping Source XML editor initialization");
             }
 
-            // Save selection to localStorage (unless we're restoring)
-            if (!isRestoringFromStorage)
-            {
-                await JSRuntime.InvokeVoidAsync("developmentStorage.saveSelection", SelectedProjectId, SelectedFileName, SelectedXsltFile);
-
-                // Save to server-side UserSelectionService
-                // SelectedProjectId is already in "customer/project-id" format
-                await UserSelectionService.UpdateSelectionAsync(
-                    projectId: SelectedProjectId,
-                    sourceXml: SelectedFileName
-                );
-            }
+            // Save selection to localStorage (for development convenience only)
+            await JSRuntime.InvokeVoidAsync("developmentStorage.saveSelection", SelectedProjectId, SelectedFileName, SelectedXsltFile);
         }
     }
 
-    private async Task OnXsltFileChanged(ChangeEventArgs e)
+    private void OnXsltFileChanged(ChangeEventArgs e)
     {
-        // Phase 1: Update URL with new xsltFile parameter, preserve others
+        // Navigate immediately - DO NOT update local state first!
+        // OnParametersSetAsync will detect the change and reload from disk
         var xsltFileName = e.Value?.ToString();
-        if (!string.IsNullOrEmpty(xsltFileName))
+        if (!string.IsNullOrEmpty(xsltFileName) && xsltFileName != _currentXsltFile)
         {
             var url = BuildUrlWithParams(
-                sourceFile: _currentSourceFile,
+                inputFile: _currentInputFile,
                 xsltFile: xsltFileName,
                 view: _currentView
             );
             NavigationManager.NavigateTo(url);
-            // OnParametersSetAsync will trigger and reload from disk
-            return;
-        }
-
-        try
-        {
-            SelectedXsltFile = e.Value?.ToString();
-            if (string.IsNullOrEmpty(SelectedXsltFile)) return;
-
-            Logger.LogInformation("XSLT file selection changed to {File}", SelectedXsltFile);
-
-            IsLoadingXslt = true;
-            StateHasChanged();
-
-            var xsltPath = $"/app/xslt/{SelectedXsltFile}";
-            if (File.Exists(xsltPath))
-            {
-                // Set flag to prevent auto-transform during file load
-                isUpdatingFromExternalFile = true;
-
-                XsltContent = await File.ReadAllTextAsync(xsltPath);
-                Logger.LogInformation("Loaded XSLT file from {Path}", xsltPath);
-
-                // Update file watcher to watch the new file
-                try
-                {
-                    XsltFileWatcher.StartWatching(xsltPath);
-                    Logger.LogInformation("Started watching XSLT file for external changes");
-                }
-                catch (Exception watchEx)
-                {
-                    Logger.LogError(watchEx, "Failed to start XSLT file watcher");
-                }
-
-                // Save selection to server-side UserSelectionService
-                // SelectedProjectId is already in "customer/project-id" format
-                await UserSelectionService.UpdateSelectionAsync(
-                    projectId: SelectedProjectId,
-                    sourceXml: SelectedFileName
-                );
-            }
-            else
-            {
-                Logger.LogWarning("XSLT file not found at {Path}", xsltPath);
-                ToastNotification.ShowWarning($"XSLT file not found: {SelectedXsltFile}");
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error loading XSLT file");
-            ToastNotification.ShowError($"Failed to load XSLT file: {ex.Message}");
-        }
-        finally
-        {
-            isUpdatingFromExternalFile = false;
-            IsLoadingXslt = false;
-            StateHasChanged();
-
-            // Re-initialize Monaco editor after skeleton disappears
-            // The LoadingSkeleton component may have destroyed the Monaco DOM
-            if (monacoInitialized && !string.IsNullOrEmpty(XsltContent))
-            {
-                _ = InvokeAsync(async () =>
-                {
-                    await Task.Delay(200); // Give Blazor time to render the container
-
-                    try
-                    {
-                        // Check if Monaco editor needs re-initialization
-                        var needsReinit = await JSRuntime.InvokeAsync<bool>("eval",
-                            "document.querySelector('#monaco-editor-container').innerHTML === ''");
-
-                        if (needsReinit)
-                        {
-                            Logger.LogWarning("Monaco editor container is empty, re-initializing");
-                            monacoInitialized = false;
-
-                            var theme = ThemeService.GetMonacoTheme();
-                            await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.initialize",
-                                "monaco-editor-container",
-                                XsltContent,
-                                dotNetRef,
-                                theme);
-                            monacoInitialized = true;
-                            Logger.LogInformation("Monaco editor re-initialized after file change");
-                        }
-                        else
-                        {
-                            // Monaco editor exists, just update content
-                            await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.setValue", XsltContent);
-                            await Task.Delay(50);
-                            await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.resize");
-                            Logger.LogInformation("Updated Monaco editor with new XSLT file content");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError(ex, "Error updating/re-initializing Monaco editor");
-                        ToastNotification.ShowError("Failed to update editor. Please refresh the page.");
-                    }
-                });
-            }
         }
     }
 
@@ -2272,6 +2188,12 @@
                             await File.WriteAllTextAsync(normalizedXmlPath, OutputContent);
                             SavedNormalizedXmlPath = normalizedXmlPath;
                             Logger.LogInformation("Saved normalized XML to {Path}", normalizedXmlPath);
+
+                            // Track output in WorkflowState for cross-page navigation
+                            // Use relative path format: normalized/filename.xml
+                            var relativePath = $"normalized/{derivedName}";
+                            WorkflowState.SetTransformOutput(relativePath);
+                            Logger.LogInformation("Registered normalized output in WorkflowState: {RelativePath}", relativePath);
 
                             // Also write to _work directory for development context (keep this)
                             try
@@ -3099,163 +3021,51 @@
                 Logger.LogWarning(ex, "Failed to store .NET reference for validation modal");
             }
 
-            // Initialize Monaco Editor for XSLT
-            if (!string.IsNullOrEmpty(XsltContent) && !monacoInitialized)
-            {
-                try
-                {
-                    var theme = ThemeService.GetMonacoTheme();
-                    await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.initialize",
-                        "monaco-editor-container",
-                        XsltContent,
-                        dotNetRef,
-                        theme);
-                    monacoInitialized = true;
-                    Logger.LogInformation("Monaco Editor initialized successfully");
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogError(ex, "Failed to initialize Monaco Editor");
-                    ToastNotification.ShowError("Failed to initialize code editor. Using fallback mode.");
-                }
-            }
+            // NOTE: Removed user-selections.json restoration code.
+            // URL is now the single source of truth for page state.
+            // WorkflowStateService handles cross-page navigation state.
+        }
 
-            // Initialize Source XML editor
-            if (!string.IsNullOrEmpty(XmlContent) && !_sourceXmlEditorInitialized)
-            {
-                try
-                {
-                    var sourceXmlTheme = ThemeService.GetMonacoTheme();
-                    await JSRuntime.InvokeVoidAsync("MonacoXmlEditorInterop.initialize",
-                        "source-xml-viewer",
-                        XmlContent ?? "",
-                        dotNetRef,
-                        sourceXmlTheme);
-                    _sourceXmlEditorInitialized = true;
-                    Logger.LogInformation("Source XML editor initialized successfully");
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogError(ex, "Failed to initialize Source XML editor");
-                    ToastNotification.ShowError("Failed to initialize XML editor. Using fallback mode.");
-                }
-            }
-
-            // Load saved selections from UserSelectionService JSON first, with localStorage as fallback
-
+        // Initialize Monaco editors on any render (not just firstRender)
+        // This handles the case where content is loaded asynchronously after first render
+        if (!string.IsNullOrEmpty(XsltContent) && !monacoInitialized && dotNetRef != null)
+        {
             try
             {
-                // First, try to load from UserSelectionService (server-side JSON)
-                var selection = await UserSelectionService.GetSelectionAsync();
-                SavedSelection savedSelection = null;
-
-                if (selection != null && !string.IsNullOrEmpty(selection.LastSelectedProject))
-                {
-                    Logger.LogInformation("Loading selection from UserSelectionService JSON: Project={Project}, SourceXml={SourceXml}",
-                        selection.LastSelectedProject, selection.LastSelectedSourceXml);
-
-                    // Validate ProjectId format (should be "customer/project-id")
-                    if (!selection.LastSelectedProject.Contains('/'))
-                    {
-                        Logger.LogWarning("⚠️ Invalid ProjectId format in user-selections.json: '{ProjectId}' (expected 'customer/project-id' format). Selections may not restore correctly.",
-                            selection.LastSelectedProject);
-                        ToastNotification.ShowWarning($"Invalid project format in saved selections: '{selection.LastSelectedProject}'. Please select your files manually.");
-                    }
-
-                    // UserSelection now stores full path format (e.g., "customer/project-id")
-                    // Transform page uses the same format, so use it directly
-                    // Note: XsltFile is auto-determined from source filename, not restored
-                    savedSelection = new SavedSelection
-                    {
-                        ProjectId = selection.LastSelectedProject,
-                        FileName = selection.LastSelectedSourceXml ?? string.Empty,
-                        XsltFile = null // XSLT auto-determined from source file
-                    };
-                }
-                else
-                {
-                    Logger.LogInformation("No selection found in UserSelectionService JSON");
-                }
-
-                if (savedSelection != null && !string.IsNullOrEmpty(savedSelection.ProjectId))
-                {
-                    // CRITICAL: Only restore selection if it matches the current project
-                    // Security fix: Never load content from a different project
-                    var currentProject = $"{Customer}/{ProjectId}";
-                    if (savedSelection.ProjectId.Equals(currentProject, StringComparison.OrdinalIgnoreCase))
-                    {
-                        Logger.LogInformation("Restoring saved selection: Project={Project}, File={File}",
-                            savedSelection.ProjectId, savedSelection.FileName);
-
-                        // Set flag to prevent saving during restoration
-                        isRestoringFromStorage = true;
-
-                        try
-                        {
-                        // Note: XSLT file is auto-determined from source filename, not restored
-
-                        // Restore source XML file selection if available - reconstruct full path
-                        if (!string.IsNullOrEmpty(savedSelection.ProjectId) && !string.IsNullOrEmpty(savedSelection.FileName))
-                        {
-                            var sourceXmlFilename = savedSelection.FileName;
-                            var parts = savedSelection.ProjectId.Split('/');
-                            if (parts.Length == 2)
-                            {
-                                var customer = parts[0];
-                                var projectId = parts[1];
-
-                                // Wait for projects to load
-                                await Task.Delay(800);
-
-                                // Transform page only uses input directory
-                                var inputPath = $"/app/data/input/{customer}/projects/{projectId}/{sourceXmlFilename}";
-                                if (File.Exists(inputPath))
-                                {
-                                    Logger.LogInformation("Restored source XML from input: {File}", inputPath);
-                                    await OnFilePathChanged(inputPath);
-                                }
-                                else
-                                {
-                                    Logger.LogWarning("Source XML file not found: {File}", inputPath);
-                                    ToastNotification.ShowWarning($"Previously selected file not found: {sourceXmlFilename}. Please select a file.");
-                                }
-                            }
-                            else
-                            {
-                                Logger.LogWarning("Invalid ProjectId format: '{ProjectId}' (expected 'customer/project-id')", savedSelection.ProjectId);
-                                ToastNotification.ShowWarning("Invalid project format in saved selections. Please select a file.");
-                            }
-                        }
-                        else
-                        {
-                            Logger.LogInformation("No source XML file to restore (ProjectId: '{Project}', FileName: '{File}')",
-                                savedSelection.ProjectId ?? "(empty)",
-                                savedSelection.FileName ?? "(empty)");
-                        }
-                    }
-                        finally
-                        {
-                            // Clear the flag after restoration is complete
-                            isRestoringFromStorage = false;
-                        }
-                    }
-                    else
-                    {
-                        // Saved selection exists but is from a different project - security check
-                        Logger.LogWarning("⚠️ SECURITY: Ignoring saved selection from different project. Saved: {SavedProject}, Current: {CurrentProject}",
-                            savedSelection.ProjectId, currentProject);
-                    }
-                }
-                else
-                {
-                    Logger.LogInformation("No saved selection found in UserSelectionService JSON or localStorage");
-                }
+                var theme = ThemeService.GetMonacoTheme();
+                await JSRuntime.InvokeVoidAsync("MonacoEditorInterop.initialize",
+                    "monaco-editor-container",
+                    XsltContent,
+                    dotNetRef,
+                    theme);
+                monacoInitialized = true;
+                Logger.LogInformation("Monaco Editor initialized successfully");
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "❌ Error loading saved selection from UserSelectionService");
-                ToastNotification.ShowWarning("Could not restore previous selections. Please select your files manually.");
-                isRestoringFromStorage = false;
+                Logger.LogError(ex, "Failed to initialize Monaco Editor");
+                ToastNotification.ShowError("Failed to initialize code editor. Using fallback mode.");
+            }
+        }
+
+        // Initialize Source XML editor
+        if (!string.IsNullOrEmpty(XmlContent) && !_sourceXmlEditorInitialized && dotNetRef != null)
+        {
+            try
+            {
+                var sourceXmlTheme = ThemeService.GetMonacoTheme();
+                await JSRuntime.InvokeVoidAsync("MonacoXmlEditorInterop.initialize",
+                    "source-xml-viewer",
+                    XmlContent ?? "",
+                    dotNetRef,
+                    sourceXmlTheme);
+                _sourceXmlEditorInitialized = true;
+                Logger.LogInformation("Source XML editor initialized successfully");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to initialize Source XML editor");
+                ToastNotification.ShowError("Failed to initialize XML editor. Using fallback mode.");
             }
         }
     }

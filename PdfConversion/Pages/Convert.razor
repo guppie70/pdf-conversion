@@ -38,7 +38,7 @@
             <div class="row g-3">
                 <!-- Normalized XML Selection with Status Indicators -->
                 <div class="col-12">
-                    <label class="form-label">Select Normalized XML</label>
+                    <label class="form-label mb-1">Select Normalized XML</label>
                     @if (ProjectFileGroups.Any() && ProjectFileGroups.SelectMany(g => g.Files).Any())
                     {
                         <div class="normalized-xml-list">
@@ -50,13 +50,13 @@
                                     var isSelected = _config.SourceFile?.EndsWith(file.FileName) == true;
                                     var hierarchyName = GetExpectedHierarchyName(file.FileName);
 
-                                    <div class="normalized-xml-item @(isSelected ? "selected" : "") @(hasHierarchy ? "ready" : "needs-hierarchy")"
+                                    <div class="normalized-xml-item @(isSelected ? "selected" : "") @(hasHierarchy || _exportAsSingleSection ? "ready" : "needs-hierarchy")"
                                          @onclick="@(() => SelectNormalizedXml(file.FullPath, file.FileName, hasHierarchy))"
                                          style="@(IsProcessing ? "pointer-events: none; opacity: 0.6;" : "")">
                                         <div class="item-content">
                                             <div class="item-main">
                                                 <span class="status-icon">
-                                                    @if (hasHierarchy)
+                                                    @if (hasHierarchy || _exportAsSingleSection)
                                                     {
                                                         <i class="bi bi-check-circle-fill text-success"></i>
                                                     }
@@ -66,16 +66,37 @@
                                                     }
                                                 </span>
                                                 <span class="file-name">@file.FileName</span>
-                                                <span class="status-badge @(hasHierarchy ? "badge-ready" : "badge-needs-hierarchy")">
-                                                    @(hasHierarchy ? "Ready" : "NEEDS HIERARCHY")
+                                                <span class="status-badge @(hasHierarchy || _exportAsSingleSection ? "badge-ready" : "badge-needs-hierarchy")">
+                                                    @if (hasHierarchy)
+                                                    {
+                                                        @("Ready")
+                                                    }
+                                                    else if (_exportAsSingleSection)
+                                                    {
+                                                        @("Single Section")
+                                                    }
+                                                    else
+                                                    {
+                                                        @("NEEDS HIERARCHY")
+                                                    }
                                                 </span>
                                             </div>
                                             @if (!hasHierarchy)
                                             {
-                                                <div class="item-hint">
-                                                    <i class="bi bi-info-circle"></i>
-                                                    Go to Generate Hierarchy to create @hierarchyName
-                                                </div>
+                                                @if (_exportAsSingleSection)
+                                                {
+                                                    <div class="item-hint item-hint-single-section">
+                                                        <i class="bi bi-check-circle"></i>
+                                                        Single section mode - no hierarchy needed
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="item-hint">
+                                                        <i class="bi bi-info-circle"></i>
+                                                        Go to Generate Hierarchy to create @hierarchyName
+                                                    </div>
+                                                }
                                             }
                                             else
                                             {
@@ -100,12 +121,12 @@
                 </div>
 
                 <!-- Project Language Selection -->
-                <div class="col-12 col-md-6 mt-3">
-                    <label class="form-label">
+                <div class="col-12 col-md-6 mt-2">
+                    <label class="form-label mb-1">
                         <i class="bi bi-globe me-1"></i>
                         Content Language
                     </label>
-                    <select class="form-select"
+                    <select class="form-select form-select-sm"
                             @bind="_selectedLanguage"
                             @bind:after="OnLanguageChangedAsync"
                             disabled="@IsProcessing">
@@ -114,12 +135,29 @@
                             <option value="@lang">@ProjectMetadata.LanguageDisplayNames[lang]</option>
                         }
                     </select>
-                    <small class="text-muted">Sets the lang attribute in generated section XML files</small>
+                    <small class="text-muted small">Sets the lang attribute in generated section XML files</small>
+                </div>
+
+                <!-- Single Section Export Option -->
+                <div class="col-12 col-md-6 mt-2">
+                    <div class="single-section-option">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="exportAsSingleSection"
+                                   @bind="_exportAsSingleSection"
+                                   @bind:after="OnExportModeChanged"
+                                   disabled="@IsProcessing">
+                            <label class="form-check-label" for="exportAsSingleSection">
+                                <i class="bi bi-file-earmark-text me-1"></i>
+                                Export as single section
+                            </label>
+                        </div>
+                        <small class="text-muted">Exports entire document as one section (full-document.xml)</small>
+                    </div>
                 </div>
             </div>
 
             <!-- Action Buttons -->
-            <div class="row mt-3">
+            <div class="row mt-2">
                 <div class="col-12">
                     <button class="btn btn-primary"
                             @onclick="StartConversion"
@@ -322,6 +360,9 @@
 
     // Project language setting
     private string _selectedLanguage = "en";
+
+    // Single section export mode
+    private bool _exportAsSingleSection = false;
 
     // Progress tracking
     private int CurrentItemIndex = 0;
@@ -630,7 +671,8 @@
 
     private void SelectNormalizedXml(string fullPath, string fileName, bool hasHierarchy)
     {
-        if (!hasHierarchy)
+        // In single section mode, hierarchy is not required
+        if (!hasHierarchy && !_exportAsSingleSection)
         {
             // Don't allow selection of items without hierarchy
             AddLogEntry($"Cannot select {fileName} - hierarchy not available");
@@ -644,13 +686,22 @@
         // The ConversionService expects paths like "normalized/docling-word.xml"
         _config.SourceFile = $"normalized/{fileName}";
 
-        // Auto-select matching hierarchy
+        // Sync export mode to configuration
+        _config.ExportAsSingleSection = _exportAsSingleSection;
+
+        // Auto-select matching hierarchy if available (not required in single section mode)
         if (_matchingHierarchies.TryGetValue(fullPath, out var hierarchyPath))
         {
             _config.HierarchyFile = hierarchyPath;
             Logger.LogInformation("Selected normalized XML: {Source} with hierarchy: {Hierarchy}",
                 _config.SourceFile, Path.GetFileName(hierarchyPath));
             AddLogEntry($"Selected: {fileName} with {Path.GetFileName(hierarchyPath)}");
+        }
+        else if (_exportAsSingleSection)
+        {
+            _config.HierarchyFile = null;
+            Logger.LogInformation("Selected normalized XML for single section export: {Source}", _config.SourceFile);
+            AddLogEntry($"Selected: {fileName} (single section mode)");
         }
 
         // Update URL with new normalizedFile and hierarchyFile parameters
@@ -718,8 +769,30 @@
         }
     }
 
+    private void OnExportModeChanged()
+    {
+        // Sync to config
+        _config.ExportAsSingleSection = _exportAsSingleSection;
+
+        // Log the change
+        if (_exportAsSingleSection)
+        {
+            AddLogEntry("Export mode: Single section (full document)");
+        }
+        else
+        {
+            AddLogEntry("Export mode: Standard (multi-section with hierarchy)");
+        }
+
+        // Trigger UI update to reflect changes in file list styling
+        StateHasChanged();
+    }
+
     private async Task StartConversion()
     {
+        // Sync export mode to configuration before validation
+        _config.ExportAsSingleSection = _exportAsSingleSection;
+
         if (!_config.IsValid) return;
 
         // Clear any previous validation error
@@ -738,20 +811,44 @@
         AddLogEntry("Starting conversion...");
         AddLogEntry($"Project: {_config.ProjectId}");
         AddLogEntry($"Source: {_config.SourceFile}");
-        AddLogEntry($"Hierarchy: {_config.HierarchyFile}");
+        if (_exportAsSingleSection)
+        {
+            AddLogEntry($"Mode: Single section export");
+        }
+        else
+        {
+            AddLogEntry($"Hierarchy: {_config.HierarchyFile}");
+        }
         AddLogEntry("");
 
         StateHasChanged();
 
         try
         {
-            var result = await ConversionService.StartConversionAsync(
-                _config.ProjectId!,
-                _config.SourceFile!,
-                _config.HierarchyFile!,
-                AddLogEntry,
-                HandleDuplicateSelection,
-                _cancellationTokenSource.Token);
+            ConversionResult result;
+
+            if (_exportAsSingleSection)
+            {
+                // Use single section conversion
+                var sourceFileName = Path.GetFileName(_config.SourceFile!);
+                result = await ConversionService.StartSingleSectionConversionAsync(
+                    _config.ProjectId!,
+                    _config.SourceFile!,
+                    sourceFileName,
+                    AddLogEntry,
+                    _cancellationTokenSource.Token);
+            }
+            else
+            {
+                // Use standard multi-section conversion
+                result = await ConversionService.StartConversionAsync(
+                    _config.ProjectId!,
+                    _config.SourceFile!,
+                    _config.HierarchyFile!,
+                    AddLogEntry,
+                    HandleDuplicateSelection,
+                    _cancellationTokenSource.Token);
+            }
 
             TotalItems = result.TotalSections;
             CurrentItemIndex = result.SuccessfulSections + result.FailedSections;

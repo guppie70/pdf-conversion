@@ -94,7 +94,8 @@ public class RoundTripValidationService : IRoundTripValidationService
             var project = projectParts[1];
 
             // 1. Define file paths
-            var hierarchyXmlPath = Path.Combine("/app/data/input", customer, "projects", project, "metadata", hierarchyFile);
+            // Hierarchy files are saved in output folder by GenerateHierarchy page
+            var hierarchyXmlPath = Path.Combine("/app/data/output", customer, "projects", project, hierarchyFile);
             var sectionsDirectory = Path.Combine("/app/data/output", customer, "projects", project, "data");
 
             // Debug output directory

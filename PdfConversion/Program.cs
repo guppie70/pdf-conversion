@@ -614,6 +614,25 @@ app.MapGet("/sandbox", async (
         logger);
 });
 
+// Map disambiguation debug endpoint for testing header matching and duplicate resolution
+// Example: curl "http://localhost:8085/api/debug/disambiguation?projectId=dutch-flower-group/ar24&hierarchyFile=hierarchies/hierarchy-pdf-xml.xml"
+app.MapGet("/api/debug/disambiguation", async (
+    HttpContext context,
+    IConversionService conversionService,
+    IProjectManagementService projectService,
+    IHeaderMatchingService headerMatchingService,
+    IHierarchyService hierarchyService,
+    ILogger<Program> logger) =>
+{
+    await PdfConversion.Endpoints.DisambiguationDebugEndpoint.HandleAsync(
+        context,
+        conversionService,
+        projectService,
+        headerMatchingService,
+        hierarchyService,
+        logger);
+});
+
 // Add health check endpoints
 app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
 {

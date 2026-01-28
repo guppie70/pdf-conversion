@@ -4,49 +4,36 @@ using PdfConversion.Models;
 namespace PdfConversion.Services;
 
 /// <summary>
-/// Service for persisting and retrieving user's file selections
+/// Service for persisting and retrieving user preferences.
+/// NOTE: Page-specific state (file selections, view modes) is managed via URL + WorkflowStateService.
+/// This service only stores cross-session UI preferences (modal positions, docling settings, AI training selections).
 /// </summary>
 public interface IUserSelectionService
 {
     /// <summary>
-    /// Get the current user selection
+    /// Get the current user preferences
     /// </summary>
     Task<UserSelection> GetSelectionAsync();
 
     /// <summary>
-    /// Save user selection
+    /// Save user preferences
     /// </summary>
     Task SaveSelectionAsync(UserSelection selection);
 
     /// <summary>
-    /// Update specific fields in user selection
+    /// Update AI training hierarchy selections
     /// </summary>
-    Task UpdateSelectionAsync(string? projectId = null, string? sourceXml = null, string? hierarchyXml = null, List<string>? trainingHierarchies = null);
+    Task UpdateSelectionAsync(List<string>? trainingHierarchies = null);
 
     /// <summary>
     /// Update validation modal position
     /// </summary>
     Task UpdateModalPositionAsync(int? x = null, int? y = null);
-
-    /// <summary>
-    /// Save project-scoped selection for a specific project
-    /// </summary>
-    Task SaveProjectSelectionAsync(
-        string projectId,
-        string? sourceFile = null,
-        string? hierarchyFile = null,
-        string? xsltFile = null,
-        string? viewMode = null,
-        string? hierarchyMode = null);
-
-    /// <summary>
-    /// Get project-scoped selection for a specific project
-    /// </summary>
-    Task<ProjectSelection?> GetProjectSelectionAsync(string projectId);
 }
 
 /// <summary>
-/// File-based implementation of user selection service using JSON storage
+/// File-based implementation of user preferences service using JSON storage.
+/// NOTE: Page-specific state is now managed via URL + WorkflowStateService.
 /// </summary>
 public class UserSelectionService : IUserSelectionService
 {
@@ -91,18 +78,12 @@ public class UserSelectionService : IUserSelectionService
                 return new UserSelection();
             }
 
-            // Auto-migrate from old format to new format
-            await MigrateIfNeededAsync(selection).ConfigureAwait(false);
-
-            _logger.LogDebug("Loaded selection: Project={Project}, SourceXml={SourceXml}",
-                selection?.LastSelectedProject,
-                selection?.LastSelectedSourceXml);
-
+            _logger.LogDebug("Loaded user preferences");
             return selection;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error reading user selection file");
+            _logger.LogError(ex, "Error reading user preferences file");
             return new UserSelection();
         }
         finally
@@ -116,7 +97,13 @@ public class UserSelectionService : IUserSelectionService
         await _lock.WaitAsync().ConfigureAwait(false);
         try
         {
-            await SaveSelectionInternalAsync(selection).ConfigureAwait(false);
+            var json = JsonSerializer.Serialize(selection, _jsonOptions);
+            await File.WriteAllTextAsync(_selectionFilePath, json).ConfigureAwait(false);
+            _logger.LogDebug("Saved user preferences");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving user preferences file");
         }
         finally
         {
@@ -124,34 +111,14 @@ public class UserSelectionService : IUserSelectionService
         }
     }
 
-    /// <summary>
-    /// Internal save method that doesn't acquire lock - caller must hold lock
-    /// </summary>
-    private async Task SaveSelectionInternalAsync(UserSelection selection)
-    {
-        try
-        {
-            var json = JsonSerializer.Serialize(selection, _jsonOptions);
-            await File.WriteAllTextAsync(_selectionFilePath, json).ConfigureAwait(false);
-
-            _logger.LogInformation("Saved selection: Project={Project}, SourceXml={SourceXml}",
-                selection.LastSelectedProject,
-                selection.LastSelectedSourceXml);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error saving user selection file");
-        }
-    }
-
-    public async Task UpdateSelectionAsync(string? projectId = null, string? sourceXml = null, string? hierarchyXml = null, List<string>? trainingHierarchies = null)
+    public async Task UpdateSelectionAsync(List<string>? trainingHierarchies = null)
     {
         var current = await GetSelectionAsync().ConfigureAwait(false);
 
-        if (projectId != null) current.LastSelectedProject = projectId;
-        if (sourceXml != null) current.LastSelectedSourceXml = sourceXml;
-        if (hierarchyXml != null) current.LastSelectedHierarchyXml = hierarchyXml;
-        if (trainingHierarchies != null) current.LastSelectedTrainingHierarchies = trainingHierarchies;
+        if (trainingHierarchies != null)
+        {
+            current.LastSelectedTrainingHierarchies = trainingHierarchies;
+        }
 
         await SaveSelectionAsync(current).ConfigureAwait(false);
     }
@@ -165,97 +132,5 @@ public class UserSelectionService : IUserSelectionService
 
         await SaveSelectionAsync(current).ConfigureAwait(false);
         _logger.LogInformation("Updated validation modal position: X={X}, Y={Y}", x, y);
-    }
-
-    /// <summary>
-    /// Save project-scoped selection for a specific project
-    /// </summary>
-    public async Task SaveProjectSelectionAsync(
-        string projectId,
-        string? sourceFile = null,
-        string? hierarchyFile = null,
-        string? xsltFile = null,
-        string? viewMode = null,
-        string? hierarchyMode = null)
-    {
-        var selections = await GetSelectionAsync().ConfigureAwait(false);
-
-        if (!selections.Projects.ContainsKey(projectId))
-        {
-            selections.Projects[projectId] = new ProjectSelection();
-        }
-
-        var projectSelection = selections.Projects[projectId];
-
-        // Update only non-null parameters (preserve others)
-        if (sourceFile != null)
-            projectSelection.SourceFile = sourceFile;
-
-        if (hierarchyFile != null)
-            projectSelection.HierarchyFile = hierarchyFile;
-
-        if (xsltFile != null)
-            projectSelection.XsltFile = xsltFile;
-
-        if (viewMode != null)
-            projectSelection.ViewMode = viewMode;
-
-        if (hierarchyMode != null)
-            projectSelection.HierarchyMode = hierarchyMode;
-
-        projectSelection.LastAccessed = DateTime.UtcNow;
-
-        await SaveSelectionAsync(selections).ConfigureAwait(false);
-
-        _logger.LogInformation(
-            "Saved project selection: Project={Project}, Source={Source}, Hierarchy={Hierarchy}, Xslt={Xslt}, View={View}, Mode={Mode}",
-            projectId, sourceFile, hierarchyFile, xsltFile, viewMode, hierarchyMode);
-    }
-
-    /// <summary>
-    /// Get project-scoped selection for a specific project
-    /// </summary>
-    public async Task<ProjectSelection?> GetProjectSelectionAsync(string projectId)
-    {
-        var selections = await GetSelectionAsync().ConfigureAwait(false);
-        return selections.Projects.TryGetValue(projectId, out var projectSelection)
-            ? projectSelection
-            : null;
-    }
-
-    /// <summary>
-    /// Migrate from old global selection format to new project-scoped format
-    /// </summary>
-    private async Task MigrateIfNeededAsync(UserSelection selection)
-    {
-        // Check if migration is needed:
-        // - No project-scoped selections exist yet
-        // - Has legacy LastSelectedProject value
-        // - Has legacy source or hierarchy values
-        if (selection.Projects.Count == 0
-            && !string.IsNullOrEmpty(selection.LastSelectedProject)
-            && (!string.IsNullOrEmpty(selection.LastSelectedSourceXml) || !string.IsNullOrEmpty(selection.LastSelectedHierarchyXml)))
-        {
-            _logger.LogInformation("Migrating user-selections.json from legacy format to project-scoped format");
-
-            var projectId = selection.LastSelectedProject;
-            selection.Projects[projectId] = new ProjectSelection
-            {
-                SourceFile = selection.LastSelectedSourceXml,
-                HierarchyFile = selection.LastSelectedHierarchyXml,
-                LastAccessed = DateTime.UtcNow
-            };
-
-            // Clear legacy fields after migration
-            selection.LastSelectedSourceXml = string.Empty;
-            selection.LastSelectedHierarchyXml = string.Empty;
-
-            // Use internal save since we're called from within GetSelectionAsync which already holds the lock
-            await SaveSelectionInternalAsync(selection).ConfigureAwait(false);
-
-            _logger.LogInformation(
-                "Migration complete: Moved selections for project '{Project}' to new format",
-                projectId);
-        }
     }
 }

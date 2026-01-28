@@ -5,6 +5,7 @@
 @using PdfConversion.Models
 @inject NavigationManager Navigation
 @inject TransformToolbarState ToolbarState
+@inject WorkflowStateService WorkflowState
 @inject IJSRuntime JSRuntime
 @inject IProjectLabelService ProjectLabelService
 @inject IUserSelectionService UserSelectionService
@@ -135,95 +136,216 @@
         return $"{FilenameUtils.FormatCustomerDisplayName(customer)} / {projectId}";
     }
 
+    /// <summary>
+    /// Get the current page's query string (if any) to preserve state when clicking same-page nav link
+    /// </summary>
+    private string? GetCurrentQueryString()
+    {
+        try
+        {
+            var uri = new Uri(Navigation.Uri);
+            return string.IsNullOrEmpty(uri.Query) ? null : uri.Query;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Parse query parameters from the current URL
+    /// </summary>
+    private Dictionary<string, string> GetCurrentQueryParams()
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var uri = new Uri(Navigation.Uri);
+            if (string.IsNullOrEmpty(uri.Query)) return result;
+
+            var query = uri.Query.TrimStart('?');
+            foreach (var param in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var parts = param.Split('=', 2);
+                if (parts.Length == 2)
+                {
+                    result[parts[0]] = Uri.UnescapeDataString(parts[1]);
+                }
+            }
+        }
+        catch { }
+        return result;
+    }
+
+    /// <summary>
+    /// Derive normalized file path from a source/input file path.
+    /// e.g., "source/docling-pdf.source.xml" → "normalized/docling-pdf.xml"
+    /// </summary>
+    private string? DeriveNormalizedFileFromInput(string? inputFile)
+    {
+        if (string.IsNullOrEmpty(inputFile)) return null;
+
+        var fileName = Path.GetFileName(inputFile);
+        // Remove .source.xml suffix to get base name
+        if (fileName.EndsWith(".source.xml", StringComparison.OrdinalIgnoreCase))
+        {
+            var baseName = fileName[..^11]; // Remove ".source.xml"
+            return $"normalized/{baseName}.xml";
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Derive input file path from a normalized file path (reverse derivation).
+    /// e.g., "normalized/docling-pdf.xml" → "source/docling-pdf.source.xml"
+    /// </summary>
+    private string? DeriveInputFileFromNormalized(string? normalizedFile)
+    {
+        if (string.IsNullOrEmpty(normalizedFile)) return null;
+
+        var fileName = Path.GetFileName(normalizedFile);
+        // Remove .xml suffix to get base name
+        if (fileName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+        {
+            var baseName = fileName[..^4]; // Remove ".xml"
+            return $"source/{baseName}.source.xml";
+        }
+        return null;
+    }
+
     private string BuildTransformUrl(string customer, string projectId)
     {
         var baseUrl = $"/transform/{customer}/{projectId}";
-        var selection = GetProjectSelectionSync($"{customer}/{projectId}");
 
-        if (selection == null)
-            return baseUrl;
+        // If we're currently on Transform page, preserve the current URL's query string
+        if (IsActivePage("transform"))
+        {
+            var query = GetCurrentQueryString();
+            return string.IsNullOrEmpty(query) ? baseUrl : $"{baseUrl}{query}";
+        }
 
-        var queryParams = new List<string>();
+        // For cross-page navigation, try to derive inputFile from current page's normalizedFile
+        var currentParams = GetCurrentQueryParams();
+        string? inputFile = null;
 
-        if (!string.IsNullOrEmpty(selection.SourceFile))
-            queryParams.Add($"sourceFile={Uri.EscapeDataString(selection.SourceFile)}");
+        if (currentParams.TryGetValue("normalizedFile", out var normalizedFile))
+        {
+            inputFile = DeriveInputFileFromNormalized(normalizedFile);
+        }
 
-        if (!string.IsNullOrEmpty(selection.XsltFile))
-            queryParams.Add($"xsltFile={Uri.EscapeDataString(selection.XsltFile)}");
+        if (!string.IsNullOrEmpty(inputFile))
+        {
+            return $"{baseUrl}?inputFile={Uri.EscapeDataString(inputFile)}";
+        }
 
-        if (!string.IsNullOrEmpty(selection.ViewMode))
-            queryParams.Add($"view={Uri.EscapeDataString(selection.ViewMode)}");
-
-        return queryParams.Count > 0
-            ? $"{baseUrl}?{string.Join("&", queryParams)}"
-            : baseUrl;
+        return baseUrl;
     }
 
     private string BuildHierarchyUrl(string customer, string projectId)
     {
         var baseUrl = $"/generate-hierarchy/{customer}/{projectId}";
-        var selection = GetProjectSelectionSync($"{customer}/{projectId}");
 
-        if (selection == null)
-            return baseUrl;
+        // If we're currently on Hierarchy page, preserve the current URL's query string
+        if (IsActivePage("generate-hierarchy"))
+        {
+            var query = GetCurrentQueryString();
+            return string.IsNullOrEmpty(query) ? baseUrl : $"{baseUrl}{query}";
+        }
 
-        var queryParams = new List<string>();
+        // For cross-page navigation, try multiple sources for normalizedFile:
+        // 1. WorkflowState.LastNormalizedOutput (from saved Transform output)
+        // 2. Derive from current Transform page's inputFile parameter
+        // 3. Current page's normalizedFile parameter (if on Convert page)
+        string? normalizedFile = null;
 
-        if (!string.IsNullOrEmpty(selection.SourceFile))
-            queryParams.Add($"sourceFile={Uri.EscapeDataString(selection.SourceFile)}");
+        if (customer == WorkflowState.CurrentCustomer && projectId == WorkflowState.CurrentProjectId)
+        {
+            normalizedFile = WorkflowState.LastNormalizedOutput;
+        }
 
-        if (!string.IsNullOrEmpty(selection.HierarchyFile))
-            queryParams.Add($"hierarchyFile={Uri.EscapeDataString(selection.HierarchyFile)}");
+        if (string.IsNullOrEmpty(normalizedFile))
+        {
+            var currentParams = GetCurrentQueryParams();
 
-        if (!string.IsNullOrEmpty(selection.HierarchyMode))
-            queryParams.Add($"mode={Uri.EscapeDataString(selection.HierarchyMode)}");
+            // If on Transform page, derive from inputFile
+            if (IsActivePage("transform") && currentParams.TryGetValue("inputFile", out var inputFile))
+            {
+                normalizedFile = DeriveNormalizedFileFromInput(inputFile);
+            }
+            // If on Convert page, use its normalizedFile
+            else if (IsActivePage("convert") && currentParams.TryGetValue("normalizedFile", out var normFile))
+            {
+                normalizedFile = normFile;
+            }
+        }
 
-        return queryParams.Count > 0
-            ? $"{baseUrl}?{string.Join("&", queryParams)}"
-            : baseUrl;
+        if (!string.IsNullOrEmpty(normalizedFile))
+        {
+            return $"{baseUrl}?normalizedFile={Uri.EscapeDataString(normalizedFile)}";
+        }
+
+        return baseUrl;
     }
 
     private string BuildConvertUrl(string customer, string projectId)
     {
         var baseUrl = $"/convert/{customer}/{projectId}";
-        var selection = GetProjectSelectionSync($"{customer}/{projectId}");
 
-        if (selection == null)
-            return baseUrl;
+        // If we're currently on Convert page, preserve the current URL's query string
+        if (IsActivePage("convert"))
+        {
+            var query = GetCurrentQueryString();
+            return string.IsNullOrEmpty(query) ? baseUrl : $"{baseUrl}{query}";
+        }
 
+        // For cross-page navigation, collect params from multiple sources
         var queryParams = new List<string>();
 
-        if (!string.IsNullOrEmpty(selection.SourceFile))
-            queryParams.Add($"sourceFile={Uri.EscapeDataString(selection.SourceFile)}");
+        // Try to get normalizedFile
+        string? normalizedFile = null;
+        string? hierarchyFile = null;
 
-        if (!string.IsNullOrEmpty(selection.HierarchyFile))
-            queryParams.Add($"hierarchyFile={Uri.EscapeDataString(selection.HierarchyFile)}");
-
-        return queryParams.Count > 0
-            ? $"{baseUrl}?{string.Join("&", queryParams)}"
-            : baseUrl;
-    }
-
-    private ProjectSelection? GetProjectSelectionSync(string projectId)
-    {
-        // Synchronous wrapper for async call - safe because we're in render context
-        // and we don't want to block UI with async NavLink href
-        try
+        if (customer == WorkflowState.CurrentCustomer && projectId == WorkflowState.CurrentProjectId)
         {
-            return UserSelectionService.GetProjectSelectionAsync(projectId).GetAwaiter().GetResult();
+            normalizedFile = WorkflowState.LastNormalizedOutput;
+            hierarchyFile = WorkflowState.LastHierarchyOutput;
         }
-        catch (Exception ex)
+
+        var currentParams = GetCurrentQueryParams();
+
+        // If on Transform page, derive normalizedFile from inputFile
+        if (string.IsNullOrEmpty(normalizedFile) && IsActivePage("transform") &&
+            currentParams.TryGetValue("inputFile", out var inputFile))
         {
-            // Log and return null on error - fallback to bare URL
-            Logger.LogError(ex, "Error retrieving project selection for {ProjectId}", projectId);
-            return null;
+            normalizedFile = DeriveNormalizedFileFromInput(inputFile);
         }
+
+        // If on Hierarchy page, use its normalizedFile and hierarchyFile
+        if (IsActivePage("generate-hierarchy"))
+        {
+            if (string.IsNullOrEmpty(normalizedFile) && currentParams.TryGetValue("normalizedFile", out var normFile))
+            {
+                normalizedFile = normFile;
+            }
+            if (string.IsNullOrEmpty(hierarchyFile) && currentParams.TryGetValue("hierarchyFile", out var hierFile))
+            {
+                hierarchyFile = hierFile;
+            }
+        }
+
+        if (!string.IsNullOrEmpty(normalizedFile))
+            queryParams.Add($"normalizedFile={Uri.EscapeDataString(normalizedFile)}");
+        if (!string.IsNullOrEmpty(hierarchyFile))
+            queryParams.Add($"hierarchyFile={Uri.EscapeDataString(hierarchyFile)}");
+
+        return queryParams.Count > 0 ? $"{baseUrl}?{string.Join("&", queryParams)}" : baseUrl;
     }
 
     protected override async Task OnInitializedAsync()
     {
         Navigation.LocationChanged += OnLocationChanged;
         ToolbarState.OnChange += StateHasChanged;
+        WorkflowState.OnChange += StateHasChanged;
 
         // Load all projects to populate cache
         await LoadProjectCacheAsync();
@@ -311,5 +433,6 @@
     {
         Navigation.LocationChanged -= OnLocationChanged;
         ToolbarState.OnChange -= StateHasChanged;
+        WorkflowState.OnChange -= StateHasChanged;
     }
 }

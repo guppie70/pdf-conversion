@@ -61,6 +61,23 @@ public interface IConversionService
         Action<string> logCallback,
         Func<List<HeaderMatch>, XDocument, List<HeaderMatch>, List<HierarchyItem>, HierarchyItem, Task<HeaderMatch?>>? duplicateSelectionCallback = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Starts a single-section conversion that exports the entire document body as one section.
+    /// This mode generates a simplified hierarchy with just a root item and a single "Full document" section.
+    /// </summary>
+    /// <param name="projectId">The project identifier (e.g., "customer/project-id")</param>
+    /// <param name="sourceFile">The source XML file name (e.g., "normalized/docling-word.xml")</param>
+    /// <param name="sourceFileName">The display name for the source (derived from filename)</param>
+    /// <param name="logCallback">Callback for real-time logging to UI</param>
+    /// <param name="cancellationToken">Token to cancel the operation</param>
+    /// <returns>Conversion result with statistics and created files</returns>
+    Task<ConversionResult> StartSingleSectionConversionAsync(
+        string projectId,
+        string sourceFile,
+        string sourceFileName,
+        Action<string> logCallback,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -1875,5 +1892,312 @@ public class ConversionService : IConversionService
 
         // Simple case-insensitive comparison
         return string.Equals(headerText, hierarchyLinkName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Starts a single-section conversion that exports the entire document body as one section.
+    /// </summary>
+    public async Task<ConversionResult> StartSingleSectionConversionAsync(
+        string projectId,
+        string sourceFile,
+        string sourceFileName,
+        Action<string> logCallback,
+        CancellationToken cancellationToken = default)
+    {
+        var startTime = DateTime.UtcNow;
+        var result = new ConversionResult
+        {
+            CreatedFiles = new List<string>(),
+            Errors = new List<string>(),
+            TotalSections = 1
+        };
+
+        try
+        {
+            logCallback("Starting single-section conversion...");
+            logCallback($"Mode: Export entire document as single section");
+
+            // Extract customer and project from projectId format "customer/projectId"
+            var projectParts = projectId.Split('/', 2);
+            if (projectParts.Length != 2)
+            {
+                result.Success = false;
+                result.Errors.Add($"Invalid projectId format: {projectId}. Expected 'customer/projectId'");
+                logCallback($"✗ Invalid projectId format: {projectId}");
+                return result;
+            }
+            var customer = projectParts[0];
+            var project = projectParts[1];
+
+            // Get project language (default to "en" if not set)
+            var projectMetadata = await _metadataService.GetProjectMetadata(customer, project);
+            var projectLanguage = projectMetadata?.Language ?? "en";
+            logCallback($"Project language: {projectLanguage}");
+
+            // 1. Transform source XML (or load pre-normalized)
+            logCallback($"Loading source XML: {sourceFile}");
+            var transformedXhtml = await TransformSourceXmlAsync(projectId, sourceFile);
+
+            if (transformedXhtml == null)
+            {
+                result.Success = false;
+                result.Errors.Add("Source XML transformation failed");
+                logCallback("✗ Source XML transformation failed");
+                return result;
+            }
+            logCallback("✓ Source XML loaded successfully");
+
+            // Check for cancellation
+            if (cancellationToken.IsCancellationRequested)
+            {
+                logCallback("⚠ Conversion cancelled by user");
+                result.Success = false;
+                result.WasCancelled = true;
+                result.Duration = DateTime.UtcNow - startTime;
+                return result;
+            }
+
+            // 2. Extract full document body
+            logCallback("Extracting full document body...");
+            var fullBodyContent = ExtractFullDocumentBody(transformedXhtml);
+
+            if (fullBodyContent == null || !fullBodyContent.Root?.Descendants().Any() == true)
+            {
+                result.Success = false;
+                result.Errors.Add("Document body is empty - no content to export");
+                logCallback("✗ Document body is empty");
+                return result;
+            }
+            logCallback("✓ Document body extracted");
+
+            // 3. Prepare output folder
+            logCallback("Preparing output folder...");
+            await PrepareOutputFolderAsync(projectId);
+            logCallback("✓ Output folder prepared");
+
+            // 4. Load template
+            logCallback("Loading template...");
+            var template = await LoadTemplateAsync();
+            logCallback("✓ Template loaded");
+
+            // 5. Create hierarchy item for full document
+            var displayName = GetDisplayNameFromFileName(sourceFileName);
+            var hierarchyItem = new HierarchyItem
+            {
+                Id = "full-document",
+                Level = 1,
+                DataRef = "full-document.xml",
+                LinkName = "Full document",
+                WebPagePath = "/"
+            };
+
+            // 6. Populate template and write section file
+            logCallback("Creating section file...");
+            var sectionXml = PopulateTemplate(template, hierarchyItem, fullBodyContent, projectLanguage);
+
+            var outputPath = Path.Combine("/app/data/output", customer, "projects", project, "data", hierarchyItem.DataRef);
+            var xhtmlContent = XhtmlSerializationHelper.SerializeXhtmlDocument(sectionXml);
+            await File.WriteAllTextAsync(outputPath, xhtmlContent, cancellationToken);
+
+            result.CreatedFiles.Add(hierarchyItem.DataRef);
+            result.SuccessfulSections++;
+            logCallback($"✓ Created: {hierarchyItem.DataRef}");
+
+            // 7. Generate simplified hierarchy
+            logCallback("Generating simplified hierarchy...");
+            var hierarchyXml = GenerateSingleSectionHierarchy(displayName);
+            var hierarchyFileName = $"hierarchy-{Path.GetFileNameWithoutExtension(sourceFileName)}.xml";
+            var hierarchyOutputPath = Path.Combine("/app/data/output", customer, "projects", project, "hierarchies", hierarchyFileName);
+
+            // Ensure hierarchies directory exists
+            var hierarchiesDir = Path.GetDirectoryName(hierarchyOutputPath);
+            if (!Directory.Exists(hierarchiesDir))
+            {
+                Directory.CreateDirectory(hierarchiesDir!);
+            }
+
+            await File.WriteAllTextAsync(hierarchyOutputPath, hierarchyXml.ToString(), cancellationToken);
+            logCallback($"✓ Created hierarchy: {hierarchyFileName}");
+
+            // 8. Create ZIP package
+            logCallback("");
+            logCallback("Creating download package...");
+
+            var packagePath = await _archiveService.CreateAndSavePackageAsync(
+                customer,
+                project,
+                hierarchyOutputPath,
+                Path.GetFileNameWithoutExtension(sourceFileName));
+
+            if (packagePath != null)
+            {
+                result.PackagePath = packagePath;
+                logCallback($"✓ Package created: {Path.GetFileName(packagePath)}");
+            }
+            else
+            {
+                logCallback("⚠ Failed to create download package");
+            }
+
+            // Final summary
+            result.Success = true;
+            result.Duration = DateTime.UtcNow - startTime;
+
+            logCallback("");
+            logCallback("=== Single-Section Conversion Complete ===");
+            logCallback($"Duration: {result.Duration.TotalSeconds:F1}s");
+            logCallback($"Output: {hierarchyItem.DataRef}");
+            logCallback($"Hierarchy: {hierarchyFileName}");
+
+            _logger.LogInformation("Single-section conversion completed successfully for project {ProjectId}", projectId);
+            return result;
+        }
+        catch (OperationCanceledException)
+        {
+            result.Success = false;
+            result.WasCancelled = true;
+            result.Duration = DateTime.UtcNow - startTime;
+            logCallback("✗ Conversion cancelled by user");
+            _logger.LogInformation("Single-section conversion cancelled for project {ProjectId}", projectId);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            result.Success = false;
+            result.Errors.Add(ex.Message);
+            result.Duration = DateTime.UtcNow - startTime;
+            logCallback($"✗ Conversion failed: {ex.Message}");
+            _logger.LogError(ex, "Single-section conversion failed for project {ProjectId}", projectId);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Extracts the full document body content as an XHTML document.
+    /// </summary>
+    private XDocument? ExtractFullDocumentBody(XDocument transformedXhtml)
+    {
+        try
+        {
+            var xhtmlNs = XNamespace.Get("http://www.w3.org/1999/xhtml");
+
+            // Find body element
+            var body = transformedXhtml.Descendants(xhtmlNs + "body").FirstOrDefault()
+                    ?? transformedXhtml.Descendants().FirstOrDefault(e => e.Name.LocalName.ToLowerInvariant() == "body");
+
+            if (body == null)
+            {
+                _logger.LogWarning("No body element found in transformed XHTML");
+                return null;
+            }
+
+            // Get all body content
+            var bodyElements = body.Elements().ToList();
+
+            if (!bodyElements.Any())
+            {
+                _logger.LogWarning("Body element is empty");
+                return null;
+            }
+
+            // Create XHTML document with all body content
+            var resultDoc = new XDocument(
+                new XDocumentType("html", null, null, null),
+                new XElement(xhtmlNs + "html",
+                    new XElement(xhtmlNs + "head",
+                        new XElement(xhtmlNs + "title", "Full Document")
+                    ),
+                    new XElement(xhtmlNs + "body",
+                        bodyElements.Select(e => CloneElementWithoutNamespace(e))
+                    )
+                )
+            );
+
+            _logger.LogInformation("Extracted {Count} elements from document body", bodyElements.Count);
+            return resultDoc;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error extracting full document body");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Clones an element and its descendants, stripping namespace prefixes.
+    /// </summary>
+    private XElement CloneElementWithoutNamespace(XElement element)
+    {
+        return new XElement(
+            element.Name.LocalName,
+            element.Attributes().Where(a => !a.IsNamespaceDeclaration),
+            element.Nodes().Select(n =>
+            {
+                if (n is XElement e)
+                    return CloneElementWithoutNamespace(e);
+                return n;
+            })
+        );
+    }
+
+    /// <summary>
+    /// Generates a simplified hierarchy XML with a root item and a single "Full document" section.
+    /// </summary>
+    private XDocument GenerateSingleSectionHierarchy(string displayName)
+    {
+        var hierarchyXml = new XDocument(
+            new XDeclaration("1.0", "UTF-8", null),
+            new XElement("items",
+                new XElement("structured",
+                    new XElement("item",
+                        new XAttribute("id", "report-root"),
+                        new XAttribute("level", "0"),
+                        new XAttribute("data-ref", "report-root.xml"),
+                        new XElement("web_page",
+                            new XElement("path", "/"),
+                            new XElement("linkname", displayName)
+                        ),
+                        new XElement("sub_items",
+                            new XElement("item",
+                                new XAttribute("id", "full-document"),
+                                new XAttribute("level", "1"),
+                                new XAttribute("data-ref", "full-document.xml"),
+                                new XAttribute("header-type", "H1"),
+                                new XElement("web_page",
+                                    new XElement("path", "/"),
+                                    new XElement("linkname", "Full document")
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        );
+
+        return hierarchyXml;
+    }
+
+    /// <summary>
+    /// Derives a readable display name from a source filename.
+    /// Converts patterns like "docling-word.xml" to "Docling Word".
+    /// </summary>
+    private string GetDisplayNameFromFileName(string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+            return "Document";
+
+        // Remove extension
+        var name = Path.GetFileNameWithoutExtension(fileName);
+
+        // Replace common separators with spaces
+        name = name.Replace("-", " ").Replace("_", " ");
+
+        // Title case each word
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var titleCased = words.Select(w =>
+            w.Length > 0 ? char.ToUpper(w[0]) + w.Substring(1).ToLower() : w
+        );
+
+        return string.Join(" ", titleCased);
     }
 }

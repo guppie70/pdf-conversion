@@ -795,11 +795,38 @@ pdf-conversion/
 
 | URL | Purpose | Usage |
 |-----|---------|-------|
+| `/api/debug/disambiguation` | **Debug duplicate header resolution** | See details below |
 | `/api/hierarchy/last-request-params` | Get last hierarchy request | Debug hierarchy generation |
 | `/api/projects/{customer}/{projectId}` | Delete project | `DELETE` method |
 | `/health` | Health check | Docker health probe |
 | `/health/liveness` | Liveness probe | Kubernetes/container orchestration |
 | `/health/readiness` | Readiness probe | Load balancer health checks |
+
+**Disambiguation Debug Endpoint** (`/api/debug/disambiguation`):
+
+This endpoint exposes the internal logic of duplicate header resolution for debugging. When multiple headers in a document match the same hierarchy item, this shows WHY specific candidates were selected or rejected.
+
+```bash
+# Basic usage
+curl "http://localhost:8085/api/debug/disambiguation?projectId=dutch-flower-group/ar24&hierarchyFile=hierarchies/hierarchy-pdf-xml.xml"
+
+# With explicit normalized file
+curl "http://localhost:8085/api/debug/disambiguation?projectId=dutch-flower-group/ar24&hierarchyFile=hierarchies/hierarchy-pdf-xml.xml&normalizedFile=normalized/docling-pdf.xml"
+```
+
+**Returns JSON with:**
+- `duplicateGroups[]` - Each group of duplicate headers
+  - `candidates[]` - Each candidate match with:
+    - `position` - Document position
+    - `includedAfterFilter` - Whether it passed position filtering
+    - `filterReason` - Why it was included/excluded
+    - `forwardLookingScore` - Score based on subsequent headers
+    - `expectedHeaders` / `foundHeaders` - What was checked
+    - `previousContext` / `nextContext` - Text around the header
+  - `autoSelectionResult` - Which candidate was auto-selected (or "MANUAL_REQUIRED")
+  - `autoSelectionReason` - Why that decision was made
+
+**Use this when:** Conversion stops for manual selection and you don't understand why the system can't auto-resolve.
 
 **Playwright pattern:** `mcp__playwright__browser_navigate({ url: "http://localhost:8085/[page]" })`
 
