@@ -56,8 +56,9 @@ services:
       start_period: 5s
 
   docling-service:
-    platform: linux/amd64  # Force x86_64 for ML library compatibility
+    platform: linux/arm64  # Native ARM for Apple Silicon Macs
     image: taxxor-docling-service:local
+    pull_policy: never  # Use locally built image, don't try to pull from registry
     container_name: taxxor-docling-service
     volumes:
       - ./docling-service:/app
