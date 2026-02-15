@@ -74,6 +74,13 @@
         </xsl:if>
     </xsl:template>
 
+    <!-- Replace <u> with <ins> (valid XHTML 1.0, renders as underlined) -->
+    <xsl:template match="u" mode="pass4" priority="10">
+        <ins>
+            <xsl:apply-templates select="@*|node()" mode="pass4"/>
+        </ins>
+    </xsl:template>
+
     <!-- Remove data-strip attributes from output -->
     <xsl:template match="@data-strip" mode="pass4" priority="10"/>
 

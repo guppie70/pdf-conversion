@@ -207,6 +207,34 @@
         </tbody>
     </xsl:template>
 
+    <!-- Fix invalid nesting: inline elements wrapping <p> (block) elements -->
+    <!-- Reverse nesting so <p> is outside: <em><p>content</p></em> → <p><em>content</em></p> -->
+    <!-- Covers: em, u, b, i, s, strong, sub, sup -->
+    <xsl:template match="(em|u|b|i|s|strong|sub|sup)[p]" mode="pass2" priority="15">
+        <xsl:variable name="inline-name" select="local-name()"/>
+        <xsl:for-each select="node()">
+            <xsl:choose>
+                <!-- p child: reverse the nesting -->
+                <xsl:when test="self::p">
+                    <p>
+                        <xsl:apply-templates select="@*" mode="pass2"/>
+                        <xsl:element name="{$inline-name}">
+                            <xsl:apply-templates select="node()" mode="pass2"/>
+                        </xsl:element>
+                    </p>
+                </xsl:when>
+                <!-- Non-p content (text, other inline elements): keep wrapped in inline element -->
+                <xsl:otherwise>
+                    <xsl:if test="normalize-space(.) != ''">
+                        <xsl:element name="{$inline-name}">
+                            <xsl:apply-templates select="." mode="pass2"/>
+                        </xsl:element>
+                    </xsl:if>
+                </xsl:otherwise>
+            </xsl:choose>
+        </xsl:for-each>
+    </xsl:template>
+
     <!-- Cell normalization: ensure thead uses th, tbody uses td -->
 
     <!-- Convert td to th when processing cells for thead -->

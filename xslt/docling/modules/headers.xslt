@@ -119,6 +119,9 @@
         </xsl:if>
     </xsl:template>
 
+    <!-- Strip empty headers (h1-h6 with no text content) -->
+    <xsl:template match="h1[normalize-space(.) = ''] | h2[normalize-space(.) = ''] | h3[normalize-space(.) = ''] | h4[normalize-space(.) = ''] | h5[normalize-space(.) = ''] | h6[normalize-space(.) = '']" priority="25"/>
+
     <!-- H1 with "(continued)" suppression - higher priority -->
     <xsl:template match="h1[contains(normalize-space(.), '(continued)')]" priority="20"/>
 

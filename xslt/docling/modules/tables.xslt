@@ -99,7 +99,7 @@
         </tr>
     </xsl:template>
 
-    <!-- Table header cells -->
+    <!-- Table header cells: flatten nested markup (em/strong/p) to plain text with spaces -->
     <xsl:template match="th" mode="table-header" priority="10">
         <th>
             <xsl:apply-templates select="@*"/>
@@ -108,7 +108,7 @@
                     <xsl:text>&#160;</xsl:text>
                 </xsl:when>
                 <xsl:otherwise>
-                    <xsl:apply-templates/>
+                    <xsl:value-of select="normalize-space(string-join(.//text(), ' '))"/>
                 </xsl:otherwise>
             </xsl:choose>
         </th>
@@ -122,13 +122,13 @@
                     <xsl:text>&#160;</xsl:text>
                 </xsl:when>
                 <xsl:otherwise>
-                    <xsl:apply-templates/>
+                    <xsl:value-of select="normalize-space(string-join(.//text(), ' '))"/>
                 </xsl:otherwise>
             </xsl:choose>
         </th>
     </xsl:template>
 
-    <!-- Table body cells -->
+    <!-- Table body cells: flatten nested markup (em/strong/p) to plain text with spaces -->
     <xsl:template match="td" mode="table-body" priority="10">
         <td>
             <xsl:apply-templates select="@*"/>
@@ -137,7 +137,7 @@
                     <xsl:text>&#160;</xsl:text>
                 </xsl:when>
                 <xsl:otherwise>
-                    <xsl:apply-templates/>
+                    <xsl:value-of select="normalize-space(string-join(.//text(), ' '))"/>
                 </xsl:otherwise>
             </xsl:choose>
         </td>
@@ -151,7 +151,7 @@
                     <xsl:text>&#160;</xsl:text>
                 </xsl:when>
                 <xsl:otherwise>
-                    <xsl:apply-templates/>
+                    <xsl:value-of select="normalize-space(string-join(.//text(), ' '))"/>
                 </xsl:otherwise>
             </xsl:choose>
         </th>
