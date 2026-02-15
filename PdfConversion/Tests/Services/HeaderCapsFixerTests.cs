@@ -38,11 +38,26 @@ public class HeaderCapsFixerTests
     [InlineData("strategy & Activities", "Strategy & Activities")]
     [InlineData("the Board Report", "The Board Report")]
     [InlineData("Strategy & Activities", "Strategy & Activities")]  // already uppercase
-    [InlineData("123 numbers first", "123 numbers first")]  // starts with number, no change
+    [InlineData("123 numbers first", "123 Numbers first")]  // first alpha char 'n' is lowercase -> capitalize
     [InlineData("", "")]  // empty
+    [InlineData("4.2\tfinancial Assets & Financial Liabilities", "4.2\tFinancial Assets & Financial Liabilities")]  // number prefix with tab
+    [InlineData("4.3 financial Assets at Fvoci", "4.3 Financial Assets at Fvoci")]  // number prefix with space
     public void CapitalizeFirstLetter_CapitalizesCorrectly(string input, string expected)
     {
         var result = HeaderCapsHelper.CapitalizeFirstLetter(input);
+        Assert.Equal(expected, result);
+    }
+
+    [Theory]
+    [InlineData("strategy & Activities", true)]
+    [InlineData("Strategy & Activities", false)]
+    [InlineData("4.2\tfinancial Assets", true)]   // first alpha char is lowercase
+    [InlineData("4.2\tFinancial Assets", false)]   // first alpha char is uppercase
+    [InlineData("123 456", false)]                  // no alpha chars
+    [InlineData("", false)]
+    public void StartsWithLowercase_DetectsCorrectly(string input, bool expected)
+    {
+        var result = HeaderCapsHelper.StartsWithLowercase(input);
         Assert.Equal(expected, result);
     }
 }

@@ -60,13 +60,38 @@ public static class HeaderCapsHelper
     }
 
     /// <summary>
-    /// Capitalizes the first letter of text if it starts with a lowercase character.
+    /// Capitalizes the first alphabetic character if it is lowercase.
+    /// Handles text that starts with numbers/symbols (e.g., "4.2 financial..." -> "4.2 Financial...").
     /// </summary>
     public static string CapitalizeFirstLetter(string text)
     {
-        if (string.IsNullOrEmpty(text) || !char.IsLower(text[0]))
+        if (string.IsNullOrEmpty(text))
             return text;
 
-        return char.ToUpperInvariant(text[0]) + text[1..];
+        var index = 0;
+        while (index < text.Length && !char.IsLetter(text[index]))
+            index++;
+
+        if (index >= text.Length || !char.IsLower(text[index]))
+            return text;
+
+        return text[..index] + char.ToUpperInvariant(text[index]) + text[(index + 1)..];
+    }
+
+    /// <summary>
+    /// Returns true if the first alphabetic character in the text is lowercase.
+    /// </summary>
+    public static bool StartsWithLowercase(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return false;
+
+        foreach (var c in text)
+        {
+            if (char.IsLetter(c))
+                return char.IsLower(c);
+        }
+
+        return false;
     }
 }

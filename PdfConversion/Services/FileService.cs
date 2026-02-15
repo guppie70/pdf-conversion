@@ -475,7 +475,7 @@ public class FileService : IFileService
                     convertedCount++;
                 }
                 // Check 2: Starts with lowercase -> capitalize first letter (only if not already converted by Check 1)
-                else if (newText.Length > 0 && char.IsLower(newText[0]))
+                else if (HeaderCapsHelper.StartsWithLowercase(newText))
                 {
                     newText = HeaderCapsHelper.CapitalizeFirstLetter(newText);
                     _logger.LogInformation("Capitalizing first letter of header '{Original}' -> '{Converted}'", trimmedText, newText);

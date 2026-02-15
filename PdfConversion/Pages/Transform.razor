@@ -2528,8 +2528,9 @@
                     await Task.Delay(500); // Brief delay to ensure file is written
 
                     // Reload the XML file
-                    var filePath = $"{SelectedProjectId}/{SelectedFileName}";
-                    await OnFilePathChanged(filePath);
+                    var filePath = ProjectPathParser.BuildPathFromFullId("input", SelectedProjectId, SelectedFileName);
+                    if (!string.IsNullOrEmpty(filePath))
+                        await OnFilePathChanged(filePath);
                 }
             }
             else
@@ -2639,8 +2640,9 @@
                     Logger.LogInformation("Reloading XML content after converting {Count} headers", convertedCount);
                     await Task.Delay(500);
 
-                    var filePath = $"{SelectedProjectId}/{SelectedFileName}";
-                    await OnFilePathChanged(filePath);
+                    var filePath = ProjectPathParser.BuildPathFromFullId("input", SelectedProjectId, SelectedFileName);
+                    if (!string.IsNullOrEmpty(filePath))
+                        await OnFilePathChanged(filePath);
                 }
             }
             else
