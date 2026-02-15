@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Xml;
+using System.Xml.Linq;
 using PdfConversion.Models;
 
 namespace PdfConversion.Services;
@@ -16,6 +17,7 @@ public interface IFileService
     IEnumerable<string> GetXsltFiles();
     Task<(bool Success, string Message, int AmpersandCount, int LessThanCount, int GreaterThanCount)> FixInvalidXmlCharactersAsync(string projectId, string fileName);
     Task<(bool Success, string Message)> SanitizeXmlFileAsync(string projectId, string fileName);
+    Task<(bool Success, string Message, int ConvertedCount)> FixHeaderCapsAsync(string projectId, string fileName);
 }
 
 public class FileService : IFileService
@@ -429,6 +431,81 @@ public class FileService : IFileService
             var message = $"Failed to sanitize XML: {ex.Message}";
             _logger.LogError(ex, "Error during XML sanitization");
             return (false, message);
+        }
+    }
+
+    public async Task<(bool Success, string Message, int ConvertedCount)> FixHeaderCapsAsync(string projectId, string fileName)
+    {
+        try
+        {
+            var (organization, id) = ParseProjectId(projectId);
+            var filePath = Path.Combine("/app/data/input", organization, "projects", id, fileName);
+
+            if (!File.Exists(filePath))
+            {
+                _logger.LogWarning("File not found: {Path}", filePath);
+                return (false, "File not found", 0);
+            }
+
+            var content = await File.ReadAllTextAsync(filePath);
+            var doc = XDocument.Parse(content);
+
+            var headerNames = new[] { "h1", "h2", "h3", "h4", "h5", "h6", "H1", "H2", "H3", "H4", "H5", "H6" };
+            var headers = doc.Descendants()
+                .Where(e => headerNames.Contains(e.Name.LocalName))
+                .ToList();
+
+            var totalHeaders = headers.Count;
+            var convertedCount = 0;
+
+            foreach (var header in headers)
+            {
+                var text = header.Value;
+                if (string.IsNullOrWhiteSpace(text))
+                    continue;
+
+                if (HeaderCapsHelper.IsAllCaps(text))
+                {
+                    var converted = HeaderCapsHelper.ToSmartTitleCase(text.Trim());
+                    _logger.LogInformation("Converting header '{Original}' -> '{Converted}'", text.Trim(), converted);
+
+                    header.RemoveNodes();
+                    header.Value = converted;
+                    convertedCount++;
+                }
+            }
+
+            if (convertedCount > 0)
+            {
+                using var writer = new StreamWriter(filePath);
+                if (doc.Declaration != null)
+                {
+                    await writer.WriteAsync(doc.Declaration.ToString());
+                    await writer.WriteLineAsync();
+                }
+                await writer.WriteAsync(doc.ToString());
+            }
+
+            string message;
+            if (totalHeaders == 0)
+            {
+                message = "No headers found in document";
+            }
+            else if (convertedCount == 0)
+            {
+                message = $"No ALL CAPS headers found (checked {totalHeaders} header{(totalHeaders == 1 ? "" : "s")})";
+            }
+            else
+            {
+                message = $"Converted {convertedCount} of {totalHeaders} header{(totalHeaders == 1 ? "" : "s")} to Smart Title Case";
+            }
+
+            return (true, message, convertedCount);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fixing header caps in {FileName} for project {ProjectId}", fileName, projectId);
+            return (false, $"Error: {ex.Message}", 0);
         }
     }
 
