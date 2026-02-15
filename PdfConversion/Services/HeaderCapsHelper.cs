@@ -58,4 +58,15 @@ public static class HeaderCapsHelper
 
         return char.ToUpperInvariant(word[0]) + word[1..].ToLowerInvariant();
     }
+
+    /// <summary>
+    /// Capitalizes the first letter of text if it starts with a lowercase character.
+    /// </summary>
+    public static string CapitalizeFirstLetter(string text)
+    {
+        if (string.IsNullOrEmpty(text) || !char.IsLower(text[0]))
+            return text;
+
+        return char.ToUpperInvariant(text[0]) + text[1..];
+    }
 }

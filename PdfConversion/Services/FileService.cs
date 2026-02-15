@@ -464,14 +464,29 @@ public class FileService : IFileService
                 if (string.IsNullOrWhiteSpace(text))
                     continue;
 
-                if (HeaderCapsHelper.IsAllCaps(text))
-                {
-                    var converted = HeaderCapsHelper.ToSmartTitleCase(text.Trim());
-                    _logger.LogInformation("Converting header '{Original}' -> '{Converted}'", text.Trim(), converted);
+                var trimmedText = text.Trim();
+                var newText = trimmedText;
 
-                    header.RemoveNodes();
-                    header.Value = converted;
+                // Check 1: ALL CAPS -> Smart Title Case
+                if (HeaderCapsHelper.IsAllCaps(trimmedText))
+                {
+                    newText = HeaderCapsHelper.ToSmartTitleCase(trimmedText);
+                    _logger.LogInformation("Converting ALL CAPS header '{Original}' -> '{Converted}'", trimmedText, newText);
                     convertedCount++;
+                }
+                // Check 2: Starts with lowercase -> capitalize first letter (only if not already converted by Check 1)
+                else if (newText.Length > 0 && char.IsLower(newText[0]))
+                {
+                    newText = HeaderCapsHelper.CapitalizeFirstLetter(newText);
+                    _logger.LogInformation("Capitalizing first letter of header '{Original}' -> '{Converted}'", trimmedText, newText);
+                    convertedCount++;
+                }
+
+                // Apply changes if text was modified
+                if (newText != trimmedText)
+                {
+                    header.RemoveNodes();
+                    header.Value = newText;
                 }
             }
 
@@ -493,11 +508,11 @@ public class FileService : IFileService
             }
             else if (convertedCount == 0)
             {
-                message = $"No ALL CAPS headers found (checked {totalHeaders} header{(totalHeaders == 1 ? "" : "s")})";
+                message = $"No headers to fix (checked {totalHeaders} header{(totalHeaders == 1 ? "" : "s")})";
             }
             else
             {
-                message = $"Converted {convertedCount} of {totalHeaders} header{(totalHeaders == 1 ? "" : "s")} to Smart Title Case";
+                message = $"Fixed {convertedCount} of {totalHeaders} header{(totalHeaders == 1 ? "" : "s")}";
             }
 
             return (true, message, convertedCount);

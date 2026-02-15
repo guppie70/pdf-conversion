@@ -33,4 +33,16 @@ public class HeaderCapsFixerTests
         var result = HeaderCapsHelper.IsAllCaps(input);
         Assert.Equal(expected, result);
     }
+
+    [Theory]
+    [InlineData("strategy & Activities", "Strategy & Activities")]
+    [InlineData("the Board Report", "The Board Report")]
+    [InlineData("Strategy & Activities", "Strategy & Activities")]  // already uppercase
+    [InlineData("123 numbers first", "123 numbers first")]  // starts with number, no change
+    [InlineData("", "")]  // empty
+    public void CapitalizeFirstLetter_CapitalizesCorrectly(string input, string expected)
+    {
+        var result = HeaderCapsHelper.CapitalizeFirstLetter(input);
+        Assert.Equal(expected, result);
+    }
 }
