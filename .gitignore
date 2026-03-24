@@ -15,6 +15,9 @@
 # Exclude data directories (input/output files)
 data/
 
+# Test data (Word HTML exports, large files)
+_test-data/
+
 # Exclude documentation folder
 docs/
 *.md
