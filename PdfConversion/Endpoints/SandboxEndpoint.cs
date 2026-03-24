@@ -62,6 +62,7 @@ public static class SandboxEndpoint
         IHierarchyGeneratorService hierarchyGeneratorService,
         IHierarchyService hierarchyService,
         IOllamaService ollamaService,
+        IWordHtmlPreprocessorService wordHtmlPreprocessorService,
         ILogger logger)
     {
         // Check query parameters to route to different utilities
@@ -95,6 +96,10 @@ public static class SandboxEndpoint
         {
             await HandleHierarchyComparisonAsync(context, logger);
         }
+        else if (mode == "word-html-preprocess" || mode == "word-html")
+        {
+            await HandleWordHtmlPreprocessTest(context, wordHtmlPreprocessorService, logger);
+        }
         else if (mode == "inspect-training-data" || mode == "inspect")
         {
             await HandleInspectTrainingDataAsync(context, hierarchyService, logger);
@@ -103,10 +108,14 @@ public static class SandboxEndpoint
         {
             await HandleAnalyzeTrainingHierarchiesAsync(context, hierarchyService, logger);
         }
+        else if (mode == "hierarchy-comparison-archive" || mode == "compare-archive")
+        {
+            await HandleHierarchyComparisonAsync(context, logger);
+        }
         else
         {
-            // DEFAULT: Latest active test (currently hierarchy-comparison)
-            await HandleHierarchyComparisonAsync(context, logger);
+            // DEFAULT: Latest active test (currently word-html-preprocess)
+            await HandleWordHtmlPreprocessTest(context, wordHtmlPreprocessorService, logger);
         }
     }
 
@@ -4462,5 +4471,20 @@ if (header.WordCount > 1000 && header.ChildCount > 2)
         {
             CollectAllItems(subItem, accumulator);
         }
+    }
+
+    private static async Task HandleWordHtmlPreprocessTest(HttpContext context, IWordHtmlPreprocessorService preprocessor, ILogger logger)
+    {
+        var inputPath = "/app/data/input/test/projects/test-word-html/source/word-html.html";
+        var outputPath = "/app/data/input/test/projects/test-word-html/source/word-html.source.html";
+
+        var result = await preprocessor.PreprocessAsync(inputPath, outputPath);
+
+        context.Response.ContentType = "text/plain";
+        await context.Response.WriteAsync($"Success: {result.Success}\n");
+        if (result.ErrorMessage != null)
+            await context.Response.WriteAsync($"Error: {result.ErrorMessage}\n");
+        foreach (var step in result.StepLogs)
+            await context.Response.WriteAsync($"  {step.StepName}: {step.Summary} ({step.Duration.TotalMilliseconds:F0}ms)\n");
     }
 }
