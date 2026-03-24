@@ -133,8 +133,14 @@ public class WordHtmlPreprocessorService : IWordHtmlPreprocessorService
 
     private string RemoveConditionalComments(string html)
     {
+        // Remove <!--[if ...]>...<![endif]--> comment blocks (VML, Office XML, etc.)
         html = Regex.Replace(html, @"<!--\[if[^\]]*\]>.*?<!\[endif\]-->", "", RegexOptions.Singleline);
-        html = Regex.Replace(html, @"<!\[if[^\]]*\]>.*?<!\[endif\]>", "", RegexOptions.Singleline);
+
+        // Remove <![if ...]> and <![endif]> wrapper tags but KEEP content between them.
+        // These wrap fallback content like <img> tags that we need to preserve.
+        html = Regex.Replace(html, @"<!\[if[^\]]*\]>", "");
+        html = Regex.Replace(html, @"<!\[endif\]>", "");
+
         return html;
     }
 
