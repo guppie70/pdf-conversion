@@ -67,7 +67,7 @@ public interface IConversionService
     /// This mode generates a simplified hierarchy with just a root item and a single "Full document" section.
     /// </summary>
     /// <param name="projectId">The project identifier (e.g., "customer/project-id")</param>
-    /// <param name="sourceFile">The source XML file name (e.g., "normalized/docling-word.xml")</param>
+    /// <param name="sourceFile">The source XML file name (e.g., "normalized/word-html.xhtml")</param>
     /// <param name="sourceFileName">The display name for the source (derived from filename)</param>
     /// <param name="logCallback">Callback for real-time logging to UI</param>
     /// <param name="cancellationToken">Token to cancel the operation</param>
@@ -1261,7 +1261,7 @@ public class ConversionService : IConversionService
                 logCallback("");
                 logCallback("Creating download package...");
 
-                // Extract package name from source file (e.g., "normalized/docling-word.xml" → "docling-word")
+                // Extract package name from source file (e.g., "normalized/word-html.xhtml" → "word-html")
                 var sourceFileName = Path.GetFileNameWithoutExtension(sourceFile);
                 // Remove any path prefix (e.g., "normalized/")
                 if (sourceFile.Contains("/"))
@@ -2179,7 +2179,7 @@ public class ConversionService : IConversionService
 
     /// <summary>
     /// Derives a readable display name from a source filename.
-    /// Converts patterns like "docling-word.xml" to "Docling Word".
+    /// Converts patterns like "word-html.xhtml" to "Word Html".
     /// </summary>
     private string GetDisplayNameFromFileName(string fileName)
     {

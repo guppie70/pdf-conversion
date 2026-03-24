@@ -719,7 +719,7 @@
             if (string.IsNullOrEmpty(SelectedSourceXml))
                 return null;
 
-            // Use ProjectPathParser to extract the relative path (includes subfolder like "normalized/docling-word.xml")
+            // Use ProjectPathParser to extract the relative path (includes subfolder like "normalized/word-html.xhtml")
             var parsed = ProjectPathParser.Parse(SelectedSourceXml);
             return parsed.Success ? parsed.FileName : Path.GetFileName(SelectedSourceXml);
         }

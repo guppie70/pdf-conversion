@@ -46,7 +46,7 @@ public interface IProjectArchiveService
     /// </summary>
     /// <param name="customer">Customer identifier</param>
     /// <param name="projectId">Project identifier</param>
-    /// <returns>List of package filenames (e.g., "docling-word.zip")</returns>
+    /// <returns>List of package filenames (e.g., "word-html.zip")</returns>
     Task<List<string>> GetAvailablePackagesAsync(string customer, string projectId);
 
     /// <summary>
@@ -54,7 +54,7 @@ public interface IProjectArchiveService
     /// </summary>
     /// <param name="customer">Customer identifier</param>
     /// <param name="projectId">Project identifier</param>
-    /// <param name="packageFileName">Package filename (e.g., "docling-word.zip")</param>
+    /// <param name="packageFileName">Package filename (e.g., "word-html.zip")</param>
     /// <returns>Full path to the package file, or null if not found</returns>
     string? GetPackagePath(string customer, string projectId, string packageFileName);
 }
