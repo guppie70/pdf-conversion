@@ -4,7 +4,7 @@ namespace PdfConversion.Services;
 
 /// <summary>
 /// Implementation of source file detection and XSLT path resolution.
-/// Handles both Adobe and Docling source files, detecting workstream from filename patterns.
+/// Handles Adobe, Docling, and Word HTML source files, detecting workstream from filename patterns.
 /// </summary>
 public class SourceDetectionService : ISourceDetectionService
 {
@@ -39,6 +39,11 @@ public class SourceDetectionService : ISourceDetectionService
             _logger.LogInformation("Detected Docling workstream from source: {SourceFileName}", fileName);
             return "/app/xslt/docling/transformation.xslt";
         }
+        else if (lowerFileName.StartsWith("word-html"))
+        {
+            _logger.LogInformation("Detected Word HTML workstream from source: {SourceFileName}", fileName);
+            return "/app/xslt/word-html/transformation.xslt";
+        }
         else
         {
             // Default to Adobe for backward compatibility
@@ -57,8 +62,7 @@ public class SourceDetectionService : ISourceDetectionService
         // adobe.xml → hierarchy-adobe.xml
         // docling-pdf.xml → hierarchy-pdf-xml.xml
         // docling-pdf.xhtml → hierarchy-pdf-xhtml.xml
-        // docling-word.xml → hierarchy-word-xml.xml
-        // docling-word.xhtml → hierarchy-word-xhtml.xml
+        // word-html.xhtml → hierarchy-word-html.xml
 
         var fileName = Path.GetFileName(normalizedXmlName);
         var nameWithoutExtension = Path.GetFileNameWithoutExtension(fileName);
@@ -81,15 +85,10 @@ public class SourceDetectionService : ISourceDetectionService
             return "hierarchy-pdf-xml.xml";
         }
 
-        if (nameWithoutExtension.StartsWith("docling-word", StringComparison.OrdinalIgnoreCase))
+        if (nameWithoutExtension.StartsWith("word-html", StringComparison.OrdinalIgnoreCase))
         {
-            if (extension.Equals(".xhtml", StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogDebug("Generated hierarchy name: hierarchy-word-xhtml.xml for normalized: {NormalizedXmlName}", normalizedXmlName);
-                return "hierarchy-word-xhtml.xml";
-            }
-            _logger.LogDebug("Generated hierarchy name: hierarchy-word-xml.xml for normalized: {NormalizedXmlName}", normalizedXmlName);
-            return "hierarchy-word-xml.xml";
+            _logger.LogDebug("Generated hierarchy name: hierarchy-word-html.xml for normalized: {NormalizedXmlName}", normalizedXmlName);
+            return "hierarchy-word-html.xml";
         }
 
         throw new ArgumentException($"Unknown normalized XML filename pattern: {fileName}");
@@ -105,8 +104,7 @@ public class SourceDetectionService : ISourceDetectionService
         // adobe.xml → adobe.xml
         // docling-pdf.source.xml → docling-pdf.xml
         // docling-pdf.source.html → docling-pdf.xhtml
-        // docling-word.source.xml → docling-word.xml
-        // docling-word.source.html → docling-word.xhtml
+        // word-html.source.html → word-html.xhtml
 
         var fileName = Path.GetFileName(sourceFileName);
 
