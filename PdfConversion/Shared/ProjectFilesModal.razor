@@ -48,8 +48,8 @@
                 @if (ActiveTab == "upload")
                 {
                     <div class="upload-section">
-                        <div class="section-header">
-                            <h6>Adobe Professional Export</h6>
+                        <div class="section-header section-header-numbered">
+                            <h6>(1) Adobe Professional Export</h6>
                         </div>
                         <div class="upload-group">
                             <label class="upload-label">XML File</label>
@@ -62,13 +62,27 @@
                             <small class="help-text">Upload multiple images (PNG, JPG, JPEG)</small>
                         </div>
 
-                        <div class="section-header">
-                            <h6>PDF/Word Upload</h6>
+                        <div class="section-header section-header-numbered">
+                            <h6>(2) PDF Binary</h6>
                         </div>
                         <div class="upload-group">
-                            <label class="upload-label">Document File</label>
-                            <InputFile OnChange="HandleDocumentUpload" accept=".pdf,.docx,.doc" class="file-input" />
-                            <small class="help-text">Upload PDF or Word document for conversion</small>
+                            <label class="upload-label">PDF File</label>
+                            <InputFile OnChange="HandleDocumentUpload" accept=".pdf" class="file-input" />
+                            <small class="help-text">Upload PDF binary for Docling conversion</small>
+                        </div>
+
+                        <div class="section-header section-header-numbered">
+                            <h6>(3) Word HTML Export</h6>
+                        </div>
+                        <div class="upload-group">
+                            <label class="upload-label">HTML File</label>
+                            <InputFile OnChange="HandleWordHtmlUpload" accept=".html,.htm" class="file-input" />
+                            <small class="help-text">Upload HTML file exported from Word</small>
+                        </div>
+                        <div class="upload-group">
+                            <label class="upload-label">Images</label>
+                            <InputFile OnChange="HandleImagesUpload" accept=".png,.jpg,.jpeg" multiple class="file-input" />
+                            <small class="help-text">Upload images referenced by the HTML file (PNG, JPG, JPEG)</small>
                         </div>
 
                         @if (IsUploading)
@@ -364,10 +378,10 @@
 
             // Validate file type
             var extension = Path.GetExtension(file.Name).ToLowerInvariant();
-            var validExtensions = new[] { ".pdf", ".docx", ".doc" };
+            var validExtensions = new[] { ".pdf" };
             if (!validExtensions.Contains(extension))
             {
-                ErrorMessage = "Only PDF, DOCX, and DOC files are allowed";
+                ErrorMessage = "Only PDF files are allowed";
                 return;
             }
 
@@ -378,8 +392,7 @@
                 return;
             }
 
-            // Normalize filename based on extension
-            var targetFileName = extension == ".pdf" ? "docling-source.pdf" : $"docling-source{extension}";
+            var targetFileName = "docling-source.pdf";
             var targetPath = Path.Combine("/app/data/input", Customer, "projects", ProjectId, targetFileName);
 
             // Ensure directory exists
@@ -402,6 +415,54 @@
         {
             ErrorMessage = $"Failed to upload document: {ex.Message}";
             Logger.LogError(ex, "Error uploading document");
+        }
+        finally
+        {
+            IsUploading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleWordHtmlUpload(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            IsUploading = true;
+            ErrorMessage = null;
+            SuccessMessage = null;
+
+            var file = e.File;
+            var extension = Path.GetExtension(file.Name).ToLowerInvariant();
+            if (extension != ".html" && extension != ".htm")
+            {
+                ErrorMessage = "Please upload an HTML file (.html or .htm)";
+                return;
+            }
+
+            if (file.Size > MaxFileSize)
+            {
+                ErrorMessage = $"File exceeds maximum size of {MaxFileSize / (1024 * 1024)}MB";
+                return;
+            }
+
+            var targetDir = Path.Combine("/app/data/input", Customer, "projects", ProjectId, "source");
+            Directory.CreateDirectory(targetDir);
+            var targetPath = Path.Combine(targetDir, "word-html.html");
+
+            await using var stream = file.OpenReadStream(MaxFileSize);
+            await using var fs = new FileStream(targetPath, FileMode.Create);
+            await stream.CopyToAsync(fs);
+
+            UploadedFiles.Add($"word-html.html ({FormatFileSize(file.Size)})");
+            SuccessMessage = $"Uploaded: {file.Name}";
+
+            Logger.LogInformation("Uploaded Word HTML file: {FileName} to {Path}", file.Name, targetPath);
+            await OnFilesUploaded.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to upload Word HTML file: {ex.Message}";
+            Logger.LogError(ex, "Error uploading Word HTML file");
         }
         finally
         {
