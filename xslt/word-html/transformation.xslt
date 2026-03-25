@@ -7,6 +7,12 @@
     <!-- Include image path rewriting (xsl:include matches existing codebase convention) -->
     <xsl:include href="modules/images.xslt"/>
 
+    <!-- Include footnote reference simplification -->
+    <xsl:include href="modules/footnotes.xslt"/>
+
+    <!-- Include span/paragraph cleanup -->
+    <xsl:include href="modules/cleanup.xslt"/>
+
     <!-- Identity transform: copy everything unchanged -->
     <xsl:template match="@*|node()">
         <xsl:copy>
