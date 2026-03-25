@@ -1295,7 +1295,8 @@
             Logger.LogInformation("Loaded file {FileName} from project {ProjectId}", fileName, SelectedProjectId);
 
             // If HTML source file, convert to XHTML
-            if (fileName.EndsWith(".source.html", StringComparison.OrdinalIgnoreCase))
+            if (fileName.EndsWith(".source.html", StringComparison.OrdinalIgnoreCase)
+                    && !fileName.StartsWith("word-html", StringComparison.OrdinalIgnoreCase))
             {
                 try
                 {
@@ -1655,7 +1656,8 @@
             Logger.LogInformation("Loaded file {FileName} from project {ProjectId}", SelectedFileName, SelectedProjectId);
 
             // If HTML source file, convert to XHTML before processing
-            if (SelectedFileName.EndsWith(".source.html", StringComparison.OrdinalIgnoreCase))
+            if (SelectedFileName.EndsWith(".source.html", StringComparison.OrdinalIgnoreCase)
+                    && !SelectedFileName.StartsWith("word-html", StringComparison.OrdinalIgnoreCase))
             {
                 try
                 {
@@ -1872,7 +1874,8 @@
                 Logger.LogInformation("Loaded file {FileName} from project {ProjectId}", SelectedFileName, SelectedProjectId);
 
                 // If HTML source file, convert to XHTML before processing
-                if (SelectedFileName.EndsWith(".source.html", StringComparison.OrdinalIgnoreCase))
+                if (SelectedFileName.EndsWith(".source.html", StringComparison.OrdinalIgnoreCase)
+                    && !SelectedFileName.StartsWith("word-html", StringComparison.OrdinalIgnoreCase))
                 {
                     try
                     {
