@@ -148,6 +148,12 @@ public static class FileSourcePresets
         => builder.FromProjectPath("source").WithExtensions(".xml");
 
     /// <summary>
+    /// All source files from source/ folder (XML + HTML from Word HTML pipeline).
+    /// </summary>
+    public static IFileGroupQueryBuilder SourceFiles(this IFileGroupQueryBuilder builder)
+        => builder.FromProjectPath("source").WithExtensions(".xml", ".html");
+
+    /// <summary>
     /// Normalized XML/XHTML files from normalized/ folder.
     /// </summary>
     public static IFileGroupQueryBuilder NormalizedFiles(this IFileGroupQueryBuilder builder)

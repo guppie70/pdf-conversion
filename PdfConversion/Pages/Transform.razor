@@ -1431,7 +1431,7 @@
             // Using the new convention where all source files should be in the source/ folder
             ProjectFileGroups = await FileGroupBuilder.CreateQuery()
                 .UseInputBase(true)
-                .SourceXmlFiles()          // XML files from source/ folder only
+                .SourceFiles()             // XML + HTML files from source/ folder (includes Word HTML pipeline)
                 // NOTE: Not including RootXmlFiles() to avoid duplicates (files should be in source/)
                 // NOTE: Not including NormalizedFiles() since we don't want normalized/ folder files
                 .OnlyActiveProjects(false)
