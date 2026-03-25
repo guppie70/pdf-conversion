@@ -160,11 +160,26 @@ public class WordHtmlPreprocessorService : IWordHtmlPreprocessorService
             removedElements++;
         }
 
+        // Remove namespace-prefixed attributes from ALL elements (e.g., v:shapes on <img>)
+        var removedAttrs = 0;
+        var allElements = doc.DocumentNode.SelectNodes("//*") ?? Enumerable.Empty<HtmlNode>();
+        foreach (var element in allElements)
+        {
+            var prefixedAttrs = element.Attributes
+                .Where(a => namespacePrefixes.Any(p => a.Name.StartsWith(p)))
+                .Select(a => a.Name)
+                .ToList();
+            foreach (var attr in prefixedAttrs)
+            {
+                element.Attributes.Remove(attr);
+                removedAttrs++;
+            }
+        }
+
+        // Remove namespace declarations from root html element
         var htmlNode = doc.DocumentNode.SelectSingleNode("//html");
         if (htmlNode != null)
         {
-            // Remove all namespace attributes: both prefixed (xmlns:v, xmlns:o, etc.)
-            // and the default namespace (xmlns="http://www.w3.org/TR/REC-html40")
             var nsAttrs = htmlNode.Attributes
                 .Where(a => a.Name == "xmlns" || a.Name.StartsWith("xmlns:"))
                 .Select(a => a.Name)
@@ -176,7 +191,7 @@ public class WordHtmlPreprocessorService : IWordHtmlPreprocessorService
             }
         }
 
-        return $"Removed {removedElements} namespace-prefixed elements, {removedNamespaces} namespace declarations";
+        return $"Removed {removedElements} namespace-prefixed elements, {removedAttrs} namespace-prefixed attributes, {removedNamespaces} namespace declarations";
     }
 
     private string ResolveAndRemoveHiddenElements(HtmlDocument doc)
