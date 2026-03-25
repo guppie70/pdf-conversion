@@ -1120,28 +1120,34 @@
     {
         try
         {
+            // Use a JS function with separate content parameter to avoid embedding
+            // 2MB+ content in an eval string (exceeds SignalR message size limits)
             await JSRuntime.InvokeVoidAsync(
                 "eval",
                 @"
-                if (typeof monaco !== 'undefined') {
-                    const container = document.getElementById('wordHtmlMonacoContainer');
-                    if (container) {
-                        const editor = monaco.editor.create(container, {
-                            value: " + System.Text.Json.JsonSerializer.Serialize(wordHtmlOutput) + @",
-                            language: 'html',
-                            theme: 'vs-dark',
-                            readOnly: true,
-                            automaticLayout: true,
-                            minimap: { enabled: true },
-                            scrollBeyondLastLine: false,
-                            fontSize: 13,
-                            lineNumbers: 'on',
-                            wordWrap: 'on'
-                        });
+                window._createWordHtmlEditor = function(content) {
+                    if (typeof monaco !== 'undefined') {
+                        const container = document.getElementById('wordHtmlMonacoContainer');
+                        if (container) {
+                            monaco.editor.create(container, {
+                                value: content,
+                                language: 'html',
+                                theme: 'vs-dark',
+                                readOnly: true,
+                                automaticLayout: true,
+                                minimap: { enabled: true },
+                                scrollBeyondLastLine: false,
+                                fontSize: 13,
+                                lineNumbers: 'on',
+                                wordWrap: 'on'
+                            });
+                        }
                     }
-                }
+                };
                 "
             );
+            // Pass the large content as a separate parameter
+            await JSRuntime.InvokeVoidAsync("_createWordHtmlEditor", wordHtmlOutput);
         }
         catch (Exception ex)
         {
