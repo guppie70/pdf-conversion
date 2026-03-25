@@ -148,10 +148,13 @@ public static class FileSourcePresets
         => builder.FromProjectPath("source").WithExtensions(".xml");
 
     /// <summary>
-    /// All source files from source/ folder (XML + HTML from Word HTML pipeline).
+    /// Transformable source files from source/ folder: XML files + preprocessed .source.html files.
+    /// Excludes raw uploads like word-html.html (not XHTML-compliant).
     /// </summary>
     public static IFileGroupQueryBuilder SourceFiles(this IFileGroupQueryBuilder builder)
-        => builder.FromProjectPath("source").WithExtensions(".xml", ".html");
+        => builder.FromProjectPath("source").WithExtensions(".xml", ".html")
+            .WithFilter(path => !path.EndsWith(".html", StringComparison.OrdinalIgnoreCase)
+                || path.EndsWith(".source.html", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Normalized XML/XHTML files from normalized/ folder.
