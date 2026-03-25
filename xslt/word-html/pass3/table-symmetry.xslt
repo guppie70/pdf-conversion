@@ -93,4 +93,55 @@
         </xsl:if>
     </xsl:template>
 
+    <!-- Merge adjacent same-name inline elements split by Word anchor boundaries.
+         e.g. <u>Strategy</u><u> &amp; Activities</u> → <u>Strategy &amp; Activities</u> -->
+    <xsl:template match="*[u[following-sibling::node()[1]/self::u] or
+                            b[following-sibling::node()[1]/self::b] or
+                            i[following-sibling::node()[1]/self::i]]" mode="pass3" priority="5">
+        <xsl:copy>
+            <xsl:apply-templates select="@*" mode="pass3"/>
+            <xsl:for-each-group select="node()" group-adjacent="
+                if (self::u) then 'u'
+                else if (self::b) then 'b'
+                else if (self::i) then 'i'
+                else generate-id()">
+                <xsl:choose>
+                    <xsl:when test="current-grouping-key() = 'u'">
+                        <span class="tx-underline">
+                            <xsl:apply-templates select="current-group()/node()" mode="pass3"/>
+                        </span>
+                    </xsl:when>
+                    <xsl:when test="current-grouping-key() = ('b', 'i')">
+                        <xsl:element name="{current-grouping-key()}">
+                            <xsl:apply-templates select="current-group()/node()" mode="pass3"/>
+                        </xsl:element>
+                    </xsl:when>
+                    <xsl:otherwise>
+                        <xsl:apply-templates select="current-group()" mode="pass3"/>
+                    </xsl:otherwise>
+                </xsl:choose>
+            </xsl:for-each-group>
+        </xsl:copy>
+    </xsl:template>
+
+    <!-- Single-row tables: convert lone thead (no tbody sibling) to tbody, th to td -->
+    <xsl:template match="thead[not(../tbody)]" mode="pass3" priority="5">
+        <tbody>
+            <xsl:apply-templates select="@* | node()" mode="pass3"/>
+        </tbody>
+    </xsl:template>
+
+    <xsl:template match="th[ancestor::thead[not(../tbody)]]" mode="pass3" priority="6">
+        <td>
+            <xsl:apply-templates select="@* | node()" mode="pass3"/>
+        </td>
+    </xsl:template>
+
+    <!-- Convert <u> to <span class="tx-underline"> for Taxxor DM -->
+    <xsl:template match="u" mode="pass3" priority="5">
+        <span class="tx-underline">
+            <xsl:apply-templates mode="pass3"/>
+        </span>
+    </xsl:template>
+
 </xsl:stylesheet>

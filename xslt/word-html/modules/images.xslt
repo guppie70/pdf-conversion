@@ -21,7 +21,7 @@
         <xsl:variable name="taxxor-path"
             select="concat('/dataserviceassets/{projectid}/images/from-conversion/', $filename)"/>
         <img src="{$taxxor-path}">
-            <xsl:copy-of select="@*[not(name()='src')]"/>
+            <xsl:copy-of select="@*[not(name()=('src','width','height','style','class','align'))]"/>
             <xsl:if test="not(@alt)">
                 <xsl:attribute name="alt"/>
             </xsl:if>

@@ -265,7 +265,8 @@ app.MapGet("/transform-test", async (HttpContext context, IXsltTransformationSer
         // Perform transformation (using XSLT3Service by default)
         var options = new PdfConversion.Models.TransformationOptions
         {
-            UseXslt3Service = true
+            UseXslt3Service = true,
+            NormalizeHeaders = false
         };
 
         // Add projectid parameter if provided

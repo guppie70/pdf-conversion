@@ -208,6 +208,24 @@
         </tbody>
     </xsl:template>
 
+    <!-- Anchor-to-id promotion: convert <a name="..."> to id attribute on parent -->
+
+    <!-- Elements containing <a name="..."> children: promote name to id -->
+    <xsl:template match="*[a[@name]]" mode="pass2" priority="10">
+        <xsl:copy>
+            <xsl:apply-templates select="@*" mode="pass2"/>
+            <xsl:if test="not(@id)">
+                <xsl:attribute name="id" select="(a[@name])[1]/@name"/>
+            </xsl:if>
+            <xsl:apply-templates select="node()" mode="pass2"/>
+        </xsl:copy>
+    </xsl:template>
+
+    <!-- Strip <a name="..."> elements, keeping their content (name is now on parent) -->
+    <xsl:template match="a[@name and not(@href)]" mode="pass2" priority="10">
+        <xsl:apply-templates mode="pass2"/>
+    </xsl:template>
+
     <!-- Cell normalization: ensure thead uses th, tbody uses td -->
 
     <!-- Convert td to th when processing cells for thead -->
