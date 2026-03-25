@@ -1296,7 +1296,7 @@
 
             // If HTML source file, convert to XHTML
             if (fileName.EndsWith(".source.html", StringComparison.OrdinalIgnoreCase)
-                    && !fileName.StartsWith("word-html", StringComparison.OrdinalIgnoreCase))
+                    && !fileName.Contains("word-html", StringComparison.OrdinalIgnoreCase))
             {
                 try
                 {
@@ -1657,7 +1657,7 @@
 
             // If HTML source file, convert to XHTML before processing
             if (SelectedFileName.EndsWith(".source.html", StringComparison.OrdinalIgnoreCase)
-                    && !SelectedFileName.StartsWith("word-html", StringComparison.OrdinalIgnoreCase))
+                    && !SelectedFileName.Contains("word-html", StringComparison.OrdinalIgnoreCase))
             {
                 try
                 {
@@ -1875,7 +1875,7 @@
 
                 // If HTML source file, convert to XHTML before processing
                 if (SelectedFileName.EndsWith(".source.html", StringComparison.OrdinalIgnoreCase)
-                    && !SelectedFileName.StartsWith("word-html", StringComparison.OrdinalIgnoreCase))
+                    && !SelectedFileName.Contains("word-html", StringComparison.OrdinalIgnoreCase))
                 {
                     try
                     {

@@ -285,6 +285,22 @@ public class WordHtmlPreprocessorService : IWordHtmlPreprocessorService
         doc.Save(sw);
         var html = sw.ToString();
 
+        // Replace HTML named entities with numeric equivalents (XML only supports &amp; &lt; &gt; &quot; &apos;)
+        html = html.Replace("&nbsp;", "&#160;");
+        html = html.Replace("&ndash;", "&#8211;");
+        html = html.Replace("&mdash;", "&#8212;");
+        html = html.Replace("&lsquo;", "&#8216;");
+        html = html.Replace("&rsquo;", "&#8217;");
+        html = html.Replace("&ldquo;", "&#8220;");
+        html = html.Replace("&rdquo;", "&#8221;");
+        html = html.Replace("&bull;", "&#8226;");
+        html = html.Replace("&hellip;", "&#8230;");
+        html = html.Replace("&trade;", "&#8482;");
+        html = html.Replace("&copy;", "&#169;");
+        html = html.Replace("&reg;", "&#174;");
+        html = html.Replace("&euro;", "&#8364;");
+        html = html.Replace("&pound;", "&#163;");
+
         if (!html.StartsWith("<?xml"))
         {
             html = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + html;
