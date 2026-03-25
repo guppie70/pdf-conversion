@@ -2,9 +2,9 @@
 
 ## Quick Start
 
-**Purpose:** Convert Adobe Acrobat-generated XML from PDF annual reports into Taxxor DM-compatible XHTML format
+**Purpose:** Convert PDF annual reports into Taxxor DM-compatible XHTML format via three input pipelines
 **Challenge:** PDFs created by different teams with inconsistent structure
-**Tech Stack:** C# .NET 9 Blazor Server | XSLT 2.0/3.0 (Saxon) | Docker Compose
+**Tech Stack:** C# .NET 9 Blazor Server | XSLT 2.0/3.0 (Saxon) | HtmlAgilityPack | Docker Compose
 
 **Application URL:** http://localhost:8085
 
@@ -194,6 +194,13 @@ These files provide quick access to the current working state for development an
 - **Usage:** Read this for quick overview of what the generator did
 - **Format:** Plain text log lines suitable for end users
 
+**Word HTML Debug Files** = `data/_work/word-html-debug/`
+- **What:** Intermediate output files from each step of the Word HTML preprocessor
+- **When Written:** Automatically during Word HTML preprocessing (when debug mode enabled)
+- **Files:** `0-original.html`, `1-no-conditionals.html`, `2-parsed.html`, `3-no-namespaces.html`, `4-no-hidden.html`, `5-no-mso.html`, `6-images-rewritten.html`, `7-final.xhtml`
+- **Purpose:** Debug individual preprocessing steps to identify where issues occur
+- **Usage:** Read these when Word HTML preprocessing produces unexpected output
+
 **Key Points:**
 - These files represent the **last operation** regardless of project
 - Always updated on success (logs written even on errors/cancellation)
@@ -204,20 +211,21 @@ These files provide quick access to the current working state for development an
 
 ### Pipeline Overview
 
-**Two input paths converging at transformation:**
+**Three input paths converging at transformation:**
 
 ```
-PDF → [Adobe Acrobat Export] ──┐
-                               ├──→ ① Input XML → [XSLT] → ② Normalized XML → [C# Services] → ③ Hierarchy + ④ Section XMLs → [Taxxor DM]
-PDF → [Docling Service] ───────┘                                                                        ↑
-                                                                                              ⑤ In-Between XML (temp)
+PDF → [Adobe Acrobat Export] ──────────┐
+                                       │
+PDF → [Docling Service] ──────────────┤──→ ① Input XML/XHTML → [XSLT] → ② Normalized XML → [C# Services] → ③ Hierarchy + ④ Section XMLs → [Taxxor DM]
+                                       │                                                                              ↑
+Word → [HTML Export] → [C# Preprocess] ┘                                                                    ⑤ In-Between XML (temp)
 ```
 
 **Key Points:**
-- **Two input methods:** Adobe (manual export) or Docling (automated via API)
-- **Converge at XSLT:** Both produce Input XML, then follow same transformation
-- **XSLT workstream-aware:** Automatically detects Adobe vs. Docling input format
-- **Same output:** Both paths produce identical Taxxor DM-compatible structure
+- **Three input methods:** Adobe (manual PDF export), Docling (automated PDF→XML), Word HTML (manual Word export + C# preprocessing)
+- **Converge at XSLT:** All three produce Input XML/XHTML, then follow workstream-specific XSLT transformation
+- **XSLT workstream-aware:** Automatically detects Adobe vs. Docling vs. Word HTML format via SourceDetectionService
+- **Same output:** All paths produce identical Taxxor DM-compatible structure
 
 ---
 
@@ -313,9 +321,9 @@ Why? Agents ensure:
 **Goal:** Transform ① Input XML → ② Normalized XML
 **Agent:** `xslt-expert`
 
-### Input Pipelines: Adobe vs Docling
+### Input Pipelines: Adobe vs Docling vs Word HTML
 
-**Two distinct pipelines** with different XSLT transformation roots:
+**Three distinct pipelines** with different XSLT transformation roots:
 
 **(a) Adobe XML:** `PDF → Acrobat Export XML 1.0 → xslt/adobe/transformation.xslt → Normalized`
 Root: `<Document>` | Elements: `<H1>`, `<H2>`, `<P>`, `<Table>`, `<L>` | Wrapper: `<Document>{fragment}</Document>`
@@ -323,24 +331,45 @@ Root: `<Document>` | Elements: `<H1>`, `<H2>`, `<P>`, `<Table>`, `<L>` | Wrapper
 **(b) Docling:** `PDF → /docling-convert → docling-service → xslt/docling/transformation.xslt → Normalized`
 Root: `<html>` | Generator: Docling HTML Serializer | Wrapper: `<html><head>...</head><body><div class='page'>{fragment}</div></body></html>`
 
-**Auto-detection:** xslt-expert reads `LastSelectedXslt` from `data/user-selections.json`:
-- Path contains `"adobe/"` → Adobe workstream
-- Path contains `"docling/"` → Docling workstream
+**(c) Word HTML:** `Word → File > Save As HTML → Upload → C# Preprocessor → xslt/word-html/transformation.xslt → Normalized`
+Root: `<html>` | Preprocessor: `WordHtmlPreprocessorService` (7-step cleanup via HtmlAgilityPack) | Input: `source/word-html.html` → Output: `source/word-html.source.html`
+
+**Word HTML Preprocessor Steps:**
+1. Remove conditional comments (`<!--[if]>...<![endif]-->`)
+2. Parse to DOM (HtmlAgilityPack)
+3. Strip Office namespaces (o:, v:, w:, m:, dt: elements/attributes + xmlns declarations)
+4. Remove hidden elements (display:none, mso-hide) + all `<style>` blocks
+5. Clean MSO styles (strip mso-* properties from inline styles)
+6. Rewrite image paths (→ `from-conversion/{filename}`)
+7. Serialize to valid XHTML (entity replacement, XML declaration, self-closing tags)
+
+**Debug output:** `data/_work/word-html-debug/` (steps 0-7 intermediate files)
+
+**Auto-detection:** SourceDetectionService routes files to correct XSLT:
+- `word-html` in filename → `xslt/word-html/transformation.xslt`
+- Path contains `"adobe/"` in XSLT selection → Adobe workstream
+- Path contains `"docling/"` in XSLT selection → Docling workstream
 
 Full wrapper templates documented in `.claude/agents/xslt-expert.md`
 
 ### Key Files
 - **Adobe:** `xslt/adobe/transformation.xslt` + `xslt/adobe/modules/`
-- **Docling:** `xslt/docling/transformation.xslt` + `xslt/docling/modules/`
-- **Shared:** `xslt/pass2/postprocess.xslt` (both workstreams)
+- **Docling:** `xslt/docling/transformation.xslt` + `xslt/docling/modules/` + `xslt/docling/pass2/` + `xslt/docling/pass3/` + `xslt/docling/pass4/`
+- **Word HTML:** `xslt/word-html/transformation.xslt` + `xslt/word-html/modules/` + `xslt/word-html/pass2/` + `xslt/word-html/pass3/`
+- **Word HTML Preprocessor:** `PdfConversion/Services/WordHtmlPreprocessorService.cs` + `IWordHtmlPreprocessorService.cs`
 
 ### Architecture
-- **Two-pass strategy:** Pass 1 (transform) → Pass 2 (cleanup)
+- **Multi-pass XSLT:** Each workstream uses multiple passes for incremental transformation
+  - **Adobe:** Pass 1 (transform) → Pass 2 (cleanup)
+  - **Docling:** Pass 1 (transform) → Pass 2 (cleanup + asymmetry) → Pass 3 (table symmetry) → Pass 4 (strip content)
+  - **Word HTML:** Pass 1 (cleanup + table wrapping) → Pass 2 (asymmetry detection) → Pass 3 (table symmetry)
 - **XSLT 2.0/3.0** via XSLT3Service (Saxon-HE engine, port 4806)
 - **Hot reload:** Changes auto-picked up by Docker
 - **Mode strategy:**
   - Default mode (Pass 1): Main transformation, no `mode=` needed
   - `mode="pass2"`: Post-processing cleanup
+  - `mode="pass3"`: Table symmetry fixing
+  - `mode="pass4"`: Content stripping (Docling only)
   - `mode="table-header"`, `mode="table-body"`: Internal table processing
   - `mode="strip-prefix"`: List item prefix stripping
 
@@ -652,6 +681,7 @@ docker compose restart pdfconversion
 - `_conversion.log` - Conversion process log
 - `_conversion-extended.log` - Extended conversion log with statistics
 - `_roundtrip.xml` - Reconstructed XML from roundtrip validation
+- `word-html-debug/` - Intermediate preprocessor step outputs (0-original.html through 7-final.xhtml)
 - Other `.xml` and `.log` files generated by the application
 
 **NOT Allowed**:
@@ -728,6 +758,8 @@ pdf-conversion/
 │   │   ├── optiver/projects/ar24-[1-9]/
 │   │   ├── taxxor/projects/ar25-[1-9]/
 │   │   └── test/projects/[test-*]/
+│   ├── _work/
+│   │   └── word-html-debug/
 │   └── user-selections.json
 ├── xslt/
 │   ├── adobe/
@@ -735,9 +767,15 @@ pdf-conversion/
 │   │   └── modules/
 │   ├── docling/
 │   │   ├── transformation.xslt
-│   │   └── modules/
-│   └── pass2/
-│       └── postprocess.xslt
+│   │   ├── modules/
+│   │   ├── pass2/
+│   │   ├── pass3/
+│   │   └── pass4/
+│   └── word-html/
+│       ├── transformation.xslt
+│       ├── modules/ (images, footnotes, cleanup, tables)
+│       ├── pass2/
+│       └── pass3/
 ├── docling-service/
 │   ├── main.py
 │   ├── requirements.txt
@@ -751,17 +789,22 @@ pdf-conversion/
 
 ### File Path Patterns
 - Input XML: `data/input/[customer]/projects/[id]/input.xml`
+- Word HTML raw: `data/input/[customer]/projects/[id]/source/word-html.html`
+- Word HTML preprocessed: `data/input/[customer]/projects/[id]/source/word-html.source.html`
+- Word images: `data/input/[customer]/projects/[id]/images/from-conversion/`
 - Normalized: `data/output/[customer]/projects/[id]/normalized.xml`
 - Hierarchy: `data/output/[customer]/projects/[id]/hierarchy.xml`
 - Sections: `data/output/[customer]/projects/[id]/sections/*.xml`
 - XSLT Adobe: `xslt/adobe/transformation.xslt`
 - XSLT Docling: `xslt/docling/transformation.xslt`
+- XSLT Word HTML: `xslt/word-html/transformation.xslt`
 - User Selections: `data/user-selections.json`
 
 **Examples:**
 - Optiver production: `data/input/optiver/projects/ar24-3/input.xml`
 - Taxxor production: `data/input/taxxor/projects/ar25-1/taxxor-full.pdf`
 - Test project: `data/input/test/projects/test-pdf/input.xml`
+- Word HTML project: `data/input/[customer]/projects/[id]/source/word-html.source.html`
 
 ### Service Endpoints
 - Application: http://localhost:8085
@@ -776,7 +819,7 @@ pdf-conversion/
 |-----|---------|----------------|
 | `/` | Landing, service status | Nav links • Health indicators (✓ Connected) |
 | `/transform` | XSLT transformation with preview | Select project → Load XML → Verify preview & source view |
-| `/docling-convert` | PDF→XML conversion (SignalR) | Upload/select PDF → Monitor real-time progress → Check output file |
+| `/docling-convert` | PDF→XML / Word HTML conversion (two tabs: Docling PDF + Word HTML) | Upload/select file → Monitor real-time progress → Check output file |
 | `/generate-hierarchy` | Hierarchy builder (3 modes) | Load XML → Choose mode (Rule-based/AI/Manual) → Edit → Save |
 | `/convert` | Section generation | Select files → Start conversion → Monitor log → Verify output files |
 | `/production` | Batch processing | Multi-project workflows → Error handling |
@@ -842,5 +885,5 @@ curl "http://localhost:8085/api/debug/disambiguation?projectId=dutch-flower-grou
 
 ---
 
-**Last Updated:** 2025-01-30
-**Status:** Production-ready, dual-pipeline (Adobe + Docling), Manual Mode complete
+**Last Updated:** 2026-03-25
+**Status:** Production-ready, triple-pipeline (Adobe + Docling + Word HTML), Manual Mode complete
