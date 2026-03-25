@@ -15,6 +15,7 @@
 @inject IBase64ImageExtractor ImageExtractor
 @inject IFileGroupBuilderService FileGroupBuilder
 @inject IProjectValidationService ProjectValidation
+@inject IWordHtmlPreprocessorService WordHtmlPreprocessor
 @implements IAsyncDisposable
 
 <PageTitle>Convert</PageTitle>
@@ -22,165 +23,271 @@
 <div class="docling-convert-container">
     <div class="docling-header">
         <h3>Convert</h3>
-        <p class="text-muted">Convert a PDF or Word file to standard XHTML format to use in the Transform section</p>
     </div>
 
-    <!-- Configuration Panel -->
-    <div class="docling-panel">
-        <div class="panel-header">
-            <h5>Configuration</h5>
-        </div>
-        <div class="panel-body">
-            <!-- Existing File Selection -->
-            <div class="form-group">
-                <label for="existingFileSelect" class="form-label">Select File</label>
-                <ProjectFileSelector
-                    FileGroups="@ExistingFileGroups"
-                    SelectedValue="@SelectedExistingFile"
-                    OnSelectionChanged="@HandleExistingFileSelectionChanged"
-                    PlaceholderText="-- Select File --"
-                    IsDisabled="@IsConverting"
-                    CssClass="form-select" />
-            </div>
+    <!-- Tab bar -->
+    <div class="convert-tabs">
+        <button class="tab-btn @(activeTab == "docling" ? "active" : "")"
+                @onclick='() => SwitchTab("docling")'>
+            Docling (PDF)
+        </button>
+        <button class="tab-btn @(activeTab == "word-html" ? "active" : "")"
+                @onclick='() => SwitchTab("word-html")'>
+            Word HTML
+        </button>
+    </div>
 
-            <!-- Validation Alert -->
-            @if (!IsConverting && string.IsNullOrEmpty(ErrorMessage) && string.IsNullOrEmpty(SuccessMessage))
-            {
-                @if (string.IsNullOrEmpty(SelectedExistingFile))
-                {
-                    <div class="alert alert-warning mt-3" role="alert">
-                        <i class="bi bi-exclamation-triangle"></i>
-                        Please select a file to convert
+    <!-- Docling tab -->
+    @if (activeTab == "docling")
+    {
+        <div class="docling-tab-content">
+            <p class="text-muted mb-3">Convert a PDF file to standard XHTML format to use in the Transform section</p>
+
+            <!-- Configuration Panel -->
+            <div class="docling-panel">
+                <div class="panel-header">
+                    <h5>Configuration</h5>
+                </div>
+                <div class="panel-body">
+                    <!-- Existing File Selection -->
+                    <div class="form-group">
+                        <label for="existingFileSelect" class="form-label">Select File</label>
+                        <ProjectFileSelector
+                            FileGroups="@ExistingFileGroups"
+                            SelectedValue="@SelectedExistingFile"
+                            OnSelectionChanged="@HandleExistingFileSelectionChanged"
+                            PlaceholderText="-- Select File --"
+                            IsDisabled="@IsConverting"
+                            CssClass="form-select" />
                     </div>
-                }
-            }
 
-            <!-- Output Format -->
-            <div class="form-group mt-3">
-                <label for="formatSelect" class="form-label">Output Format</label>
-                <select id="formatSelect"
-                        class="form-select"
-                        value="@OutputFormat"
-                        @onchange="HandleOutputFormatChange"
-                        disabled="@IsConverting">
-                    <option value="xml">XML</option>
-                    <option value="html">HTML</option>
-                    <option value="markdown">Markdown</option>
-                    <option value="doctags">DocTags</option>
-                    <option value="json">JSON</option>
-                </select>
-            </div>
+                    <!-- Validation Alert -->
+                    @if (!IsConverting && string.IsNullOrEmpty(ErrorMessage) && string.IsNullOrEmpty(SuccessMessage))
+                    {
+                        @if (string.IsNullOrEmpty(SelectedExistingFile))
+                        {
+                            <div class="alert alert-warning mt-3" role="alert">
+                                <i class="bi bi-exclamation-triangle"></i>
+                                Please select a file to convert
+                            </div>
+                        }
+                    }
 
-            <!-- Convert Button -->
-            <div class="button-group mt-3">
-                <button class="btn btn-primary"
-                        @onclick="ConvertWithDocling"
-                        disabled="@(!IsReadyToConvert || IsConverting)">
+                    <!-- Output Format -->
+                    <div class="form-group mt-3">
+                        <label for="formatSelect" class="form-label">Output Format</label>
+                        <select id="formatSelect"
+                                class="form-select"
+                                value="@OutputFormat"
+                                @onchange="HandleOutputFormatChange"
+                                disabled="@IsConverting">
+                            <option value="xml">XML</option>
+                            <option value="html">HTML</option>
+                            <option value="markdown">Markdown</option>
+                            <option value="doctags">DocTags</option>
+                            <option value="json">JSON</option>
+                        </select>
+                    </div>
+
+                    <!-- Convert Button -->
+                    <div class="button-group mt-3">
+                        <button class="btn btn-primary"
+                                @onclick="ConvertWithDocling"
+                                disabled="@(!IsReadyToConvert || IsConverting)">
+                            @if (IsConverting)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                <span>Converting...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-play-circle"></i>
+                                <span> Convert with Docling</span>
+                            }
+                        </button>
+
+                        @if (IsConverting && !string.IsNullOrEmpty(CurrentJobId))
+                        {
+                            <button class="btn btn-secondary ms-2"
+                                    @onclick="CancelConversion">
+                                <i class="bi bi-x-circle"></i>
+                                <span> Cancel</span>
+                            </button>
+                        }
+                    </div>
+
+                    <!-- Progress Bar -->
                     @if (IsConverting)
                     {
-                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
-                        <span>Converting...</span>
+                        <div class="mt-3">
+                            <div class="progress" style="height: 30px;">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated @(JobProgress > 0.15 && JobProgress < 0.75 ? "processing-pulse" : "") d-flex align-items-center justify-content-center"
+                                     role="progressbar"
+                                     style="width: @((JobProgress * 100).ToString("F1"))%"
+                                     aria-valuenow="@((JobProgress * 100).ToString("F0"))"
+                                     aria-valuemin="0"
+                                     aria-valuemax="100">
+                                    @if (JobProgress > 0 && JobProgress < 1)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-1" role="status" style="width: 1rem; height: 1rem;"></span>
+                                    }
+                                    <span>@((JobProgress * 100).ToString("F0"))%</span>
+                                </div>
+                            </div>
+                            <div class="text-muted small mt-1">
+                                @JobStatusMessage
+                                <span> - @ElapsedSeconds seconds elapsed</span>
+                            </div>
+
+                            @if (ActivityLog.Any())
+                            {
+                                <div class="card mt-2">
+                                    <div class="card-header py-1 px-2">
+                                        <small class="fw-bold">Activity Log</small>
+                                    </div>
+                                    <div @ref="_activityLogContainer" class="card-body p-2 activity-log-container">
+                                        @foreach (var log in ActivityLog.TakeLast(20))
+                                        {
+                                            <div class="activity-log-entry">@log</div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
                     }
-                    else
+                </div>
+            </div>
+
+            <!-- Error Message -->
+            @if (!string.IsNullOrEmpty(ErrorMessage))
+            {
+                <div class="alert alert-danger mt-3" role="alert">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>Error:</strong> @ErrorMessage
+                    @if (ShowFallbackOption)
                     {
-                        <i class="bi bi-play-circle"></i>
-                        <span> Convert with Docling</span>
+                        <div class="mt-2">
+                            <button class="btn btn-outline-primary btn-sm" @onclick="NavigateToTransform">
+                                <i class="bi bi-arrow-right-circle"></i> Use Adobe XML Pipeline Instead
+                            </button>
+                        </div>
                     }
+                </div>
+            }
+
+            <!-- Success Message -->
+            @if (!string.IsNullOrEmpty(SuccessMessage))
+            {
+                <div class="alert alert-success mt-3" role="alert">
+                    <i class="bi bi-check-circle"></i>
+                    <strong>Success:</strong> @SuccessMessage
+                </div>
+            }
+
+            <!-- Preview Area -->
+            @if (!string.IsNullOrEmpty(DoclingOutput))
+            {
+                <div class="docling-panel mt-3">
+                    <div class="panel-header">
+                        <h5>Conversion Output</h5>
+                    </div>
+                    <div class="panel-body">
+                        <div id="monacoPreviewContainer" class="monaco-container"></div>
+                        <div class="button-group mt-3">
+                            <button class="btn btn-primary" @onclick="NavigateToTransform">
+                                <i class="bi bi-arrow-right-circle"></i> Next: Transform
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    <!-- Word HTML tab -->
+    @if (activeTab == "word-html")
+    {
+        <div class="word-html-content">
+            @if (!wordHtmlSourceExists)
+            {
+                <div class="alert alert-warning mt-3">
+                    No <code>source/word-html.html</code> found for this project.
+                    Upload a Word HTML export via the Project Files modal on the homepage.
+                </div>
+            }
+            else
+            {
+                <div class="source-info mb-3">
+                    <strong>Source:</strong> source/word-html.html (@(wordHtmlFileSize / 1024) KB)
+                </div>
+
+                <button class="btn btn-primary" @onclick="ConvertWordHtml"
+                        disabled="@isWordHtmlConverting">
+                    @(isWordHtmlConverting ? "Converting..." : "Convert to XHTML")
                 </button>
 
-                @if (IsConverting && !string.IsNullOrEmpty(CurrentJobId))
+                @if (wordHtmlSteps.Any())
                 {
-                    <button class="btn btn-secondary ms-2"
-                            @onclick="CancelConversion">
-                        <i class="bi bi-x-circle"></i>
-                        <span> Cancel</span>
-                    </button>
-                }
-            </div>
-
-            <!-- Progress Bar -->
-            @if (IsConverting)
-            {
-                <div class="mt-3">
-                    <div class="progress" style="height: 30px;">
-                        <div class="progress-bar progress-bar-striped progress-bar-animated @(JobProgress > 0.15 && JobProgress < 0.75 ? "processing-pulse" : "") d-flex align-items-center justify-content-center"
-                             role="progressbar"
-                             style="width: @((JobProgress * 100).ToString("F1"))%"
-                             aria-valuenow="@((JobProgress * 100).ToString("F0"))"
-                             aria-valuemin="0"
-                             aria-valuemax="100">
-                            @if (JobProgress > 0 && JobProgress < 1)
-                            {
-                                <span class="spinner-border spinner-border-sm me-1" role="status" style="width: 1rem; height: 1rem;"></span>
-                            }
-                            <span>@((JobProgress * 100).ToString("F0"))%</span>
-                        </div>
-                    </div>
-                    <div class="text-muted small mt-1">
-                        @JobStatusMessage
-                        <span> - @ElapsedSeconds seconds elapsed</span>
-                    </div>
-
-                    @if (ActivityLog.Any())
-                    {
-                        <div class="card mt-2">
-                            <div class="card-header py-1 px-2">
-                                <small class="fw-bold">Activity Log</small>
-                            </div>
-                            <div @ref="_activityLogContainer" class="card-body p-2 activity-log-container">
-                                @foreach (var log in ActivityLog.TakeLast(20))
+                    <div class="pipeline-progress mt-3">
+                        @foreach (var step in wordHtmlSteps)
+                        {
+                            <div class="step-item @step.Status">
+                                <span class="step-indicator">
+                                    @(step.Status switch {
+                                        "completed" => "✓",
+                                        "running" => "●",
+                                        "failed" => "✗",
+                                        _ => "○"
+                                    })
+                                </span>
+                                <span class="step-name">@step.Name</span>
+                                @if (step.Status == "completed")
                                 {
-                                    <div class="activity-log-entry">@log</div>
+                                    <span class="step-timing">(@(step.ElapsedMs)ms)</span>
+                                    <span class="step-summary">@step.Summary</span>
                                 }
                             </div>
+                        }
+                    </div>
+                }
+
+                @if (wordHtmlLog.Any())
+                {
+                    <div class="activity-log mt-3">
+                        <h6>Log</h6>
+                        <pre class="log-output">@string.Join("\n", wordHtmlLog)</pre>
+                    </div>
+                }
+
+                @if (wordHtmlError != null)
+                {
+                    <div class="alert alert-danger mt-3">@wordHtmlError</div>
+                }
+
+                @if (wordHtmlOutputPath != null)
+                {
+                    <div class="alert alert-success mt-3">
+                        Output: <code>@wordHtmlOutputPath</code>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(wordHtmlOutput))
+                {
+                    <div class="docling-panel mt-3">
+                        <div class="panel-header">
+                            <h5>Conversion Output</h5>
                         </div>
-                    }
-                </div>
+                        <div class="panel-body">
+                            <div id="wordHtmlMonacoContainer" class="monaco-container"></div>
+                            <div class="button-group mt-3">
+                                <button class="btn btn-primary" @onclick="NavigateToTransformWordHtml">
+                                    <i class="bi bi-arrow-right-circle"></i> Next: Transform
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                }
             }
-        </div>
-    </div>
-
-    <!-- Error Message -->
-    @if (!string.IsNullOrEmpty(ErrorMessage))
-    {
-        <div class="alert alert-danger mt-3" role="alert">
-            <i class="bi bi-exclamation-triangle"></i>
-            <strong>Error:</strong> @ErrorMessage
-            @if (ShowFallbackOption)
-            {
-                <div class="mt-2">
-                    <button class="btn btn-outline-primary btn-sm" @onclick="NavigateToTransform">
-                        <i class="bi bi-arrow-right-circle"></i> Use Adobe XML Pipeline Instead
-                    </button>
-                </div>
-            }
-        </div>
-    }
-
-    <!-- Success Message -->
-    @if (!string.IsNullOrEmpty(SuccessMessage))
-    {
-        <div class="alert alert-success mt-3" role="alert">
-            <i class="bi bi-check-circle"></i>
-            <strong>Success:</strong> @SuccessMessage
-        </div>
-    }
-
-    <!-- Preview Area -->
-    @if (!string.IsNullOrEmpty(DoclingOutput))
-    {
-        <div class="docling-panel mt-3">
-            <div class="panel-header">
-                <h5>Conversion Output</h5>
-            </div>
-            <div class="panel-body">
-                <div id="monacoPreviewContainer" class="monaco-container"></div>
-                <div class="button-group mt-3">
-                    <button class="btn btn-primary" @onclick="NavigateToTransform">
-                        <i class="bi bi-arrow-right-circle"></i> Next: Transform
-                    </button>
-                </div>
-            </div>
         </div>
     }
 </div>
@@ -193,7 +300,10 @@
     [Parameter]
     public string ProjectId { get; set; } = string.Empty;
 
-    // State
+    // Tab state
+    private string activeTab = "docling";
+
+    // Docling tab state
     private List<ProjectInfo> Projects { get; set; } = new();
     private string SelectedProject { get; set; } = string.Empty;
     private string SelectedExistingFile { get; set; } = string.Empty;
@@ -223,6 +333,17 @@
     private System.Timers.Timer? _conversionTimer;
     private bool _monacoInitialized = false;
     private DateTime? _conversionStartedAt = null;
+
+    // Word HTML tab state
+    private bool wordHtmlSourceExists;
+    private long wordHtmlFileSize;
+    private bool isWordHtmlConverting;
+    private List<(string Name, string Status, string Summary, long ElapsedMs)> wordHtmlSteps = new();
+    private List<string> wordHtmlLog = new();
+    private string? wordHtmlError;
+    private string? wordHtmlOutputPath;
+    private string wordHtmlOutput = string.Empty;
+    private bool _wordHtmlMonacoInitialized = false;
 
     private bool IsReadyToConvert
     {
@@ -261,13 +382,14 @@
             Logger.LogInformation("[OnInitializedAsync] Starting initialization");
             await LoadProjectsAsync();
 
-            // Load existing document files using the service
+            // Load existing document files (PDF only for Docling tab)
             ExistingFileGroups = await FileGroupBuilder.BuildDocumentFileGroupsAsync(
-                extensions: new[] { ".pdf", ".docx", ".doc" },
+                extensions: new[] { ".pdf" },
                 onlyActiveProjects: false,
                 customer: Customer,
                 projectId: ProjectId);
 
+            await CheckWordHtmlSource();
             await InitializeSignalR();
             await RestoreUserSelectionsAsync();
             Logger.LogInformation($"[OnInitializedAsync] Initialized with {Projects.Count} projects and {ExistingFileGroups.Sum(g => g.Files.Count)} existing files");
@@ -276,6 +398,90 @@
         {
             Logger.LogError(ex, "Error initializing DoclingConvert page");
             ErrorMessage = $"Failed to load projects: {ex.Message}";
+        }
+    }
+
+    private async Task SwitchTab(string tab)
+    {
+        activeTab = tab;
+        if (tab == "word-html")
+        {
+            await CheckWordHtmlSource();
+        }
+    }
+
+    private async Task CheckWordHtmlSource()
+    {
+        var sourcePath = Path.Combine("/app/data/input", Customer, "projects", ProjectId, "source", "word-html.html");
+        wordHtmlSourceExists = File.Exists(sourcePath);
+        if (wordHtmlSourceExists)
+        {
+            wordHtmlFileSize = new FileInfo(sourcePath).Length;
+        }
+    }
+
+    private async Task ConvertWordHtml()
+    {
+        isWordHtmlConverting = true;
+        wordHtmlError = null;
+        wordHtmlOutputPath = null;
+        wordHtmlOutput = string.Empty;
+        _wordHtmlMonacoInitialized = false;
+        wordHtmlSteps.Clear();
+        wordHtmlLog.Clear();
+
+        var stepNames = new[] {
+            "RemoveConditionalComments", "ParseToDOM", "StripOfficeNamespaces",
+            "ResolveAndRemoveHiddenElements", "CleanMsoStyles", "RewriteImagePaths", "SerializeToXhtml"
+        };
+        wordHtmlSteps = stepNames.Select(n => (n, "pending", "", 0L)).ToList();
+        StateHasChanged();
+
+        var inputPath = Path.Combine("/app/data/input", Customer, "projects", ProjectId, "source", "word-html.html");
+        var outputPath = Path.Combine("/app/data/input", Customer, "projects", ProjectId, "source", "word-html.source.html");
+
+        var progressReporter = new Progress<PreprocessorProgress>(p =>
+        {
+            var idx = p.CurrentStep - 1;
+            if (idx >= 0 && idx < wordHtmlSteps.Count)
+            {
+                var current = wordHtmlSteps[idx];
+                wordHtmlSteps[idx] = (current.Name, p.Status, current.Summary, current.ElapsedMs);
+            }
+            wordHtmlLog.Add($"[{DateTime.Now:HH:mm:ss}] Step {p.CurrentStep}: {p.StepName} - {p.Status}");
+            InvokeAsync(StateHasChanged);
+        });
+
+        try
+        {
+            var result = await WordHtmlPreprocessor.PreprocessAsync(inputPath, outputPath, writeDebugFiles: true, progressReporter);
+
+            if (result.Success)
+            {
+                for (int i = 0; i < result.StepLogs.Count && i < wordHtmlSteps.Count; i++)
+                {
+                    var log = result.StepLogs[i];
+                    wordHtmlSteps[i] = (log.StepName, "completed", log.Summary, (long)log.Duration.TotalMilliseconds);
+                }
+                wordHtmlOutputPath = "source/word-html.source.html";
+                wordHtmlOutput = await File.ReadAllTextAsync(outputPath);
+                wordHtmlLog.Add($"[{DateTime.Now:HH:mm:ss}] Conversion complete!");
+            }
+            else
+            {
+                wordHtmlError = result.ErrorMessage;
+                wordHtmlLog.Add($"[{DateTime.Now:HH:mm:ss}] Error: {result.ErrorMessage}");
+            }
+        }
+        catch (Exception ex)
+        {
+            wordHtmlError = ex.Message;
+            wordHtmlLog.Add($"[{DateTime.Now:HH:mm:ss}] Exception: {ex.Message}");
+        }
+        finally
+        {
+            isWordHtmlConverting = false;
+            StateHasChanged();
         }
     }
 
@@ -315,20 +521,17 @@
             JobCurrentPage = jobInfo.CurrentPage;
             JobTotalPages = jobInfo.TotalPages;
 
-            // Add message to activity log with timestamp
             if (!string.IsNullOrEmpty(jobInfo.Message))
             {
                 var timestamp = DateTime.Now.ToString("HH:mm:ss");
                 ActivityLog.Add($"[{timestamp}] {jobInfo.Message}");
 
-                // Keep only last 50 messages to avoid memory issues
                 if (ActivityLog.Count > 50)
                 {
                     ActivityLog.RemoveRange(0, ActivityLog.Count - 50);
                 }
             }
 
-            // Handle completion
             if (jobInfo.Status == DoclingJobStatus.Completed)
             {
                 _ = HandleJobCompletion(jobInfo);
@@ -342,11 +545,10 @@
                 HandleJobCancellation();
             }
 
-            // Update UI and auto-scroll activity log
             InvokeAsync(async () =>
             {
                 StateHasChanged();
-                await Task.Delay(50); // Let DOM update
+                await Task.Delay(50);
                 await ScrollActivityLogToBottom();
             });
         }
@@ -370,6 +572,19 @@
                 Logger.LogError(ex, "Error initializing Monaco editor");
             }
         }
+
+        if (!string.IsNullOrEmpty(wordHtmlOutput) && !_wordHtmlMonacoInitialized)
+        {
+            try
+            {
+                await InitializeWordHtmlMonacoEditor();
+                _wordHtmlMonacoInitialized = true;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error initializing Word HTML Monaco editor");
+            }
+        }
     }
 
     private async Task LoadProjectsAsync()
@@ -377,7 +592,6 @@
         try
         {
             var projects = await ProjectLabelService.GetAllProjectsAsync("/app/data/input");
-            // Sort by customer and project ID for grouped display
             Projects = projects
                 .OrderBy(p => p.Customer)
                 .ThenBy(p => p.ProjectId)
@@ -398,14 +612,12 @@
         {
             var selection = await UserSelectionService.GetSelectionAsync();
 
-            // Restore output format
             if (!string.IsNullOrEmpty(selection.LastDoclingOutputFormat))
             {
                 OutputFormat = selection.LastDoclingOutputFormat;
                 Logger.LogInformation($"Restored output format: {OutputFormat}");
             }
 
-            // Restore existing file selection
             if (!string.IsNullOrEmpty(selection.LastDoclingExistingFile))
             {
                 var fileExists = ExistingFileGroups.SelectMany(g => g.Files).Any(f => f.FullPath == selection.LastDoclingExistingFile);
@@ -414,7 +626,6 @@
                     SelectedExistingFile = selection.LastDoclingExistingFile;
                     Logger.LogInformation($"Restored existing file: {SelectedExistingFile}");
 
-                    // Load the file data (this will also set SelectedProject)
                     await LoadExistingFileDataAsync(SelectedExistingFile);
                 }
                 else
@@ -427,7 +638,6 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error restoring user selections");
-            // Don't fail initialization if restoration fails - just use defaults
         }
     }
 
@@ -435,22 +645,17 @@
     {
         try
         {
-            // Load the file data for conversion
             var fileData = await File.ReadAllBytesAsync(filePath);
             UploadedFileData = fileData;
             UploadedFileName = Path.GetFileName(filePath);
 
-            // Determine content type based on extension
             var extension = Path.GetExtension(filePath).ToLowerInvariant();
             UploadedContentType = extension switch
             {
                 ".pdf" => "application/pdf",
-                ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                ".doc" => "application/msword",
                 _ => "application/octet-stream"
             };
 
-            // Set SelectedProject from the file's project - find from ExistingFileGroups
             var fileGroup = ExistingFileGroups.SelectMany(g => g.Files.Select(f => new { Group = g, File = f }))
                 .FirstOrDefault(x => x.File.FullPath == filePath);
             if (fileGroup != null)
@@ -478,14 +683,12 @@
             {
                 await LoadExistingFileDataAsync(SelectedExistingFile);
 
-                // Save existing file selection with full customer/project path
                 var fileGroup = ExistingFileGroups.SelectMany(g => g.Files.Select(f => new { Group = g, File = f }))
                     .FirstOrDefault(x => x.File.FullPath == SelectedExistingFile);
                 if (fileGroup != null)
                 {
                     var selection = await UserSelectionService.GetSelectionAsync();
                     selection.LastDoclingExistingFile = SelectedExistingFile;
-                    // Store in "customer/project-id" format
                     selection.LastDoclingProject = $"{fileGroup.Group.Customer}/{fileGroup.Group.ProjectId}";
                     await UserSelectionService.SaveSelectionAsync(selection);
                     Logger.LogDebug($"Saved existing file selection: {SelectedExistingFile}, project: {selection.LastDoclingProject}");
@@ -509,7 +712,6 @@
         OutputFormat = e.Value?.ToString() ?? "html";
         Logger.LogInformation($"[HandleOutputFormatChange] Output format changed to: '{OutputFormat}'");
 
-        // Save output format selection
         try
         {
             var selection = await UserSelectionService.GetSelectionAsync();
@@ -548,7 +750,6 @@
         JobTotalPages = null;
         ActivityLog.Clear();
 
-        // Start elapsed time timer
         _conversionTimer = new System.Timers.Timer(1000);
         _conversionTimer.Elapsed += (s, e) =>
         {
@@ -561,7 +762,6 @@
         {
             Logger.LogInformation($"Starting async conversion: project={SelectedProject}, file={UploadedFileName}, format={OutputFormat}");
 
-            // Prepare multipart form data
             using var content = new MultipartFormDataContent();
 
             var fileContent = new ByteArrayContent(UploadedFileData);
@@ -569,7 +769,6 @@
             content.Add(fileContent, "file", UploadedFileName);
             content.Add(new StringContent(OutputFormat), "output_format");
 
-            // Call async endpoint to start job
             var httpClient = HttpClientFactory.CreateClient("DoclingService");
             var response = await httpClient.PostAsync("/convert-async", content);
 
@@ -596,14 +795,12 @@
             _conversionStartedAt = DateTime.UtcNow;
             Logger.LogInformation($"Job started: {CurrentJobId}");
 
-            // Subscribe to SignalR updates for this job
             if (_hubConnection?.State == HubConnectionState.Connected)
             {
                 await _hubConnection.InvokeAsync("SubscribeToJob", CurrentJobId);
                 Logger.LogInformation($"Subscribed to job {CurrentJobId} via SignalR");
             }
 
-            // Start polling service tracking
             JobPollingService.StartTracking(CurrentJobId, "current-user");
         }
         catch (HttpRequestException ex)
@@ -633,7 +830,6 @@
 
             Logger.LogInformation($"Job {jobInfo.JobId} completed successfully");
 
-            // Fetch result with base64-embedded images
             var httpClient = HttpClientFactory.CreateClient("DoclingService");
             var response = await httpClient.GetAsync($"/jobs/{jobInfo.JobId}/result");
 
@@ -645,15 +841,11 @@
                     var htmlWithBase64 = result.OutputContent;
                     Logger.LogInformation($"Retrieved result: {htmlWithBase64.Length} bytes with base64-embedded images");
 
-                    // Determine project folder from selected file path
                     string projectFolderPath;
                     string baseFilename;
 
                     if (!string.IsNullOrEmpty(SelectedExistingFile))
                     {
-                        // Derive project folder from file path
-                        // Example: /app/data/input/taxxor/projects/ar25-1/taxxor-small.pdf
-                        // -> project folder: /app/data/input/taxxor/projects/ar25-1
                         projectFolderPath = Path.GetDirectoryName(SelectedExistingFile) ?? string.Empty;
                         baseFilename = Path.GetFileNameWithoutExtension(SelectedExistingFile);
                         Logger.LogInformation($"Using project folder from file path: {projectFolderPath}");
@@ -670,14 +862,12 @@
                         return;
                     }
 
-                    // Determine if this format needs image extraction
                     bool needsImageExtraction = OutputFormat == "xml" || OutputFormat == "html" || OutputFormat == "markdown";
                     string outputContent;
                     int imageCount = 0;
 
                     if (needsImageExtraction)
                     {
-                        // Extract images and replace base64 with file references
                         var imagesPath = Path.Combine(projectFolderPath, "images", "from-conversion");
                         Directory.CreateDirectory(imagesPath);
 
@@ -687,13 +877,11 @@
                             imagesPath,
                             baseFilename);
 
-                        // Count extracted images
                         if (Directory.Exists(imagesPath))
                         {
                             imageCount = Directory.GetFiles(imagesPath).Length;
                         }
 
-                        // Convert to XML if user selected XML format
                         if (OutputFormat == "xml")
                         {
                             Logger.LogInformation("Converting HTML to XML format");
@@ -706,78 +894,51 @@
                     }
                     else
                     {
-                        // DocTags and JSON formats - save as-is without image extraction
                         Logger.LogInformation($"Saving {OutputFormat} format without image extraction");
-                        outputContent = htmlWithBase64;  // Actually contains DocTags or JSON content from Docling
+                        outputContent = htmlWithBase64;
                     }
 
-                    // Determine source filename based on file type and output format
-                    string sourceFilename;
-                    if (SelectedExistingFile.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+                    // PDF output only (Word branch removed)
+                    var sourceFilename = OutputFormat switch
                     {
-                        sourceFilename = OutputFormat switch
-                        {
-                            "xml" => "docling-pdf.source.xml",
-                            "html" => "docling-pdf.source.html",
-                            "markdown" => "docling-pdf.source.md",
-                            "doctags" => "docling-pdf.source.doctags",
-                            "json" => "docling-pdf.source.json",
-                            _ => "docling-pdf.source.html"
-                        };
-                    }
-                    else
-                    {
-                        // Word document
-                        sourceFilename = OutputFormat switch
-                        {
-                            "xml" => "docling-word.source.xml",
-                            "html" => "docling-word.source.html",
-                            "markdown" => "docling-word.source.md",
-                            "doctags" => "docling-word.source.doctags",
-                            "json" => "docling-word.source.json",
-                            _ => "docling-word.source.html"
-                        };
-                    }
+                        "xml" => "docling-pdf.source.xml",
+                        "html" => "docling-pdf.source.html",
+                        "markdown" => "docling-pdf.source.md",
+                        "doctags" => "docling-pdf.source.doctags",
+                        "json" => "docling-pdf.source.json",
+                        _ => "docling-pdf.source.html"
+                    };
 
-                    // Ensure source folder exists
                     var sourceDir = Path.Combine(projectFolderPath, "source");
                     Directory.CreateDirectory(sourceDir);
 
                     var outputPath = Path.Combine(sourceDir, sourceFilename);
 
-                    // Check if source file exists and was modified after conversion started
                     if (File.Exists(outputPath) && _conversionStartedAt.HasValue)
                     {
                         var existingModified = File.GetLastWriteTimeUtc(outputPath);
 
                         if (existingModified > _conversionStartedAt.Value)
                         {
-                            // File was manually edited after conversion started - DON'T OVERWRITE
                             var timeDiff = (existingModified - _conversionStartedAt.Value).TotalSeconds;
                             Logger.LogWarning($"Source file was modified {timeDiff:F1}s after conversion started. Skipping save to prevent data loss.");
 
-                            // Show warning in UI
                             ErrorMessage = $"⚠️ Source file was manually edited after conversion started. Your edits were preserved and the conversion result was NOT saved to prevent data loss. If you want to replace your edits with the conversion result, please run the conversion again.";
 
-                            // Update Monaco display with NEW conversion result (don't clear it)
                             DoclingOutput = outputContent;
 
                             await InvokeAsync(StateHasChanged);
-                            return; // DON'T SAVE
+                            return;
                         }
                     }
 
-                    // Safe to save - no manual edits detected
                     await File.WriteAllTextAsync(outputPath, outputContent, System.Text.Encoding.UTF8);
                     Logger.LogInformation($"Saved output to: {outputPath}");
 
-                    // Reset timestamp after safe save
                     _conversionStartedAt = null;
 
-                    // Update Monaco display
                     DoclingOutput = outputContent;
 
-                    // Build success message
                     var imageInfo = needsImageExtraction && imageCount > 0
                         ? $" with {imageCount} images extracted"
                         : "";
@@ -808,11 +969,9 @@
     {
         try
         {
-            // Load HTML with HtmlAgilityPack
             var htmlDoc = new HtmlAgilityPack.HtmlDocument();
             htmlDoc.LoadHtml(htmlContent);
 
-            // Remove all <style> elements
             var styleNodes = htmlDoc.DocumentNode.SelectNodes("//style");
             if (styleNodes != null)
             {
@@ -823,18 +982,14 @@
                 Logger.LogDebug($"Removed {styleNodes.Count} style elements");
             }
 
-            // Clean up <title> element - remove CDATA wrapper
             var titleNode = htmlDoc.DocumentNode.SelectSingleNode("//title");
             if (titleNode != null)
             {
-                // Get the raw inner content
                 var rawContent = titleNode.InnerHtml;
 
-                // Extract text from CDATA section if present
                 string titleText;
                 if (rawContent.Contains("CDATA"))
                 {
-                    // Extract content between CDATA markers
                     var cdataPattern = @"(?://)?\s*<!\[CDATA\[\s*(.*?)\s*\]\]>\s*(?://)?";
                     var match = System.Text.RegularExpressions.Regex.Match(rawContent, cdataPattern,
                         System.Text.RegularExpressions.RegexOptions.Singleline);
@@ -845,7 +1000,6 @@
                     }
                     else
                     {
-                        // Fallback: use InnerText and clean it
                         titleText = titleNode.InnerText.Trim();
                     }
                 }
@@ -854,19 +1008,16 @@
                     titleText = titleNode.InnerText.Trim();
                 }
 
-                // Clear the node and set clean text content
                 titleNode.RemoveAllChildren();
                 titleNode.AppendChild(htmlDoc.CreateTextNode(titleText));
 
                 Logger.LogDebug($"Cleaned title: '{titleText}'");
             }
 
-            // Configure output as XML (not HTML)
             htmlDoc.OptionOutputAsXml = true;
             htmlDoc.OptionWriteEmptyNodes = true;
             htmlDoc.OptionAutoCloseOnEnd = true;
 
-            // Find the root <html> element
             var htmlElement = htmlDoc.DocumentNode.SelectSingleNode("//html");
             if (htmlElement == null)
             {
@@ -874,13 +1025,10 @@
                 htmlElement = htmlDoc.DocumentNode;
             }
 
-            // Generate XML output
             using var writer = new System.IO.StringWriter();
 
-            // Write XML declaration
             writer.WriteLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
 
-            // Write only the <html> element (not the document node to avoid span wrapper)
             htmlElement.WriteTo(writer);
 
             return writer.ToString();
@@ -888,7 +1036,6 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error converting HTML to XML");
-            // Return original HTML if conversion fails
             return htmlContent;
         }
     }
@@ -969,9 +1116,47 @@
         }
     }
 
+    private async Task InitializeWordHtmlMonacoEditor()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync(
+                "eval",
+                @"
+                if (typeof monaco !== 'undefined') {
+                    const container = document.getElementById('wordHtmlMonacoContainer');
+                    if (container) {
+                        const editor = monaco.editor.create(container, {
+                            value: " + System.Text.Json.JsonSerializer.Serialize(wordHtmlOutput) + @",
+                            language: 'html',
+                            theme: 'vs-dark',
+                            readOnly: true,
+                            automaticLayout: true,
+                            minimap: { enabled: true },
+                            scrollBeyondLastLine: false,
+                            fontSize: 13,
+                            lineNumbers: 'on',
+                            wordWrap: 'on'
+                        });
+                    }
+                }
+                "
+            );
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error initializing Word HTML Monaco editor");
+        }
+    }
+
     private void NavigateToTransform()
     {
         Navigation.NavigateTo("/development");
+    }
+
+    private void NavigateToTransformWordHtml()
+    {
+        Navigation.NavigateTo($"/transform/{Customer}/{ProjectId}?input=source/word-html.source.html");
     }
 
     private string FormatFileSize(long bytes)
@@ -991,18 +1176,15 @@
     {
         try
         {
-            // Only scroll if there are activity logs to show
             if (!ActivityLog.Any())
             {
                 return;
             }
 
-            // Call JavaScript function to scroll container to bottom
             await JSRuntime.InvokeVoidAsync("scrollToBottom", _activityLogContainer);
         }
         catch (Exception ex)
         {
-            // Log but don't fail on scroll errors - it's a UX enhancement
             Logger.LogDebug(ex, "Error scrolling activity log to bottom");
         }
     }
