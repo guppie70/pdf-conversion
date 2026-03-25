@@ -163,8 +163,10 @@ public class WordHtmlPreprocessorService : IWordHtmlPreprocessorService
         var htmlNode = doc.DocumentNode.SelectSingleNode("//html");
         if (htmlNode != null)
         {
+            // Remove all namespace attributes: both prefixed (xmlns:v, xmlns:o, etc.)
+            // and the default namespace (xmlns="http://www.w3.org/TR/REC-html40")
             var nsAttrs = htmlNode.Attributes
-                .Where(a => a.Name.StartsWith("xmlns:"))
+                .Where(a => a.Name == "xmlns" || a.Name.StartsWith("xmlns:"))
                 .Select(a => a.Name)
                 .ToList();
             foreach (var attr in nsAttrs)
