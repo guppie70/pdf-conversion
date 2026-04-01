@@ -72,7 +72,16 @@
                         </div>
 
                         <div class="section-header section-header-numbered">
-                            <h6>(3) Word HTML Export</h6>
+                            <h6>(3) Word Plugin Export</h6>
+                        </div>
+                        <div class="upload-group">
+                            <label class="upload-label">HTML File</label>
+                            <InputFile OnChange="HandleWordPluginUpload" accept=".html,.htm" class="file-input" />
+                            <small class="help-text">Upload HTML file exported from Word plugin (images embedded)</small>
+                        </div>
+
+                        <div class="section-header section-header-numbered">
+                            <h6>(4) Word HTML Export</h6>
                         </div>
                         <div class="upload-group">
                             <label class="upload-label">HTML File</label>
@@ -463,6 +472,54 @@
         {
             ErrorMessage = $"Failed to upload Word HTML file: {ex.Message}";
             Logger.LogError(ex, "Error uploading Word HTML file");
+        }
+        finally
+        {
+            IsUploading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleWordPluginUpload(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            IsUploading = true;
+            ErrorMessage = null;
+            SuccessMessage = null;
+
+            var file = e.File;
+            var extension = Path.GetExtension(file.Name).ToLowerInvariant();
+            if (extension != ".html" && extension != ".htm")
+            {
+                ErrorMessage = "Please upload an HTML file (.html or .htm)";
+                return;
+            }
+
+            if (file.Size > MaxFileSize)
+            {
+                ErrorMessage = $"File exceeds maximum size of {MaxFileSize / (1024 * 1024)}MB";
+                return;
+            }
+
+            var targetDir = Path.Combine("/app/data/input", Customer, "projects", ProjectId, "source");
+            Directory.CreateDirectory(targetDir);
+            var targetPath = Path.Combine(targetDir, "word-plugin.html");
+
+            await using var stream = file.OpenReadStream(MaxFileSize);
+            await using var fs = new FileStream(targetPath, FileMode.Create);
+            await stream.CopyToAsync(fs);
+
+            UploadedFiles.Add($"word-plugin.html ({FormatFileSize(file.Size)})");
+            SuccessMessage = $"Uploaded: {file.Name}";
+
+            Logger.LogInformation("Uploaded Word Plugin file: {FileName} to {Path}", file.Name, targetPath);
+            await OnFilesUploaded.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to upload Word Plugin file: {ex.Message}";
+            Logger.LogError(ex, "Error uploading Word Plugin file");
         }
         finally
         {

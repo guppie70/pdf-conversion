@@ -16,6 +16,7 @@
 @inject IFileGroupBuilderService FileGroupBuilder
 @inject IProjectValidationService ProjectValidation
 @inject IWordHtmlPreprocessorService WordHtmlPreprocessor
+@inject IWordPluginPreprocessorService WordPluginPreprocessor
 @implements IAsyncDisposable
 
 <PageTitle>Convert</PageTitle>
@@ -30,6 +31,10 @@
         <button class="tab-btn @(activeTab == "docling" ? "active" : "")"
                 @onclick='() => SwitchTab("docling")'>
             Docling (PDF)
+        </button>
+        <button class="tab-btn @(activeTab == "word-plugin" ? "active" : "")"
+                @onclick='() => SwitchTab("word-plugin")'>
+            Word Plugin
         </button>
         <button class="tab-btn @(activeTab == "word-html" ? "active" : "")"
                 @onclick='() => SwitchTab("word-html")'>
@@ -290,6 +295,93 @@
             }
         </div>
     }
+
+    <!-- Word Plugin tab -->
+    @if (activeTab == "word-plugin")
+    {
+        <div class="word-plugin-content">
+            @if (!wordPluginSourceExists)
+            {
+                <div class="alert alert-warning mt-3">
+                    No <code>source/word-plugin.html</code> found for this project.
+                    Upload a Word Plugin export via the Project Files modal on the homepage.
+                </div>
+            }
+            else
+            {
+                <div class="source-info mb-3">
+                    <strong>Source:</strong> source/word-plugin.html (@(wordPluginFileSize / 1024) KB)
+                </div>
+
+                <button class="btn btn-primary" @onclick="ConvertWordPlugin"
+                        disabled="@isWordPluginConverting">
+                    @(isWordPluginConverting ? "Converting..." : "Convert to XHTML")
+                </button>
+
+                @if (wordPluginSteps.Any())
+                {
+                    <div class="pipeline-progress mt-3">
+                        @foreach (var step in wordPluginSteps)
+                        {
+                            <div class="step-item @step.Status">
+                                <span class="step-indicator">
+                                    @(step.Status switch {
+                                        "completed" => "✓",
+                                        "running" => "●",
+                                        "failed" => "✗",
+                                        _ => "○"
+                                    })
+                                </span>
+                                <span class="step-name">@step.Name</span>
+                                @if (step.Status == "completed")
+                                {
+                                    <span class="step-timing">(@(step.ElapsedMs)ms)</span>
+                                    <span class="step-summary">@step.Summary</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+
+                @if (wordPluginLog.Any())
+                {
+                    <div class="activity-log mt-3">
+                        <h6>Log</h6>
+                        <pre class="log-output">@string.Join("\n", wordPluginLog)</pre>
+                    </div>
+                }
+
+                @if (wordPluginError != null)
+                {
+                    <div class="alert alert-danger mt-3">@wordPluginError</div>
+                }
+
+                @if (wordPluginOutputPath != null)
+                {
+                    <div class="alert alert-success mt-3">
+                        Output: <code>@wordPluginOutputPath</code>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(wordPluginOutput))
+                {
+                    <div class="docling-panel mt-3">
+                        <div class="panel-header">
+                            <h5>Conversion Output</h5>
+                        </div>
+                        <div class="panel-body">
+                            <div id="wordPluginMonacoContainer" class="monaco-container"></div>
+                            <div class="button-group mt-3">
+                                <button class="btn btn-primary" @onclick="NavigateToTransformWordPlugin">
+                                    <i class="bi bi-arrow-right-circle"></i> Next: Transform
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+    }
 </div>
 
 @code {
@@ -344,6 +436,17 @@
     private string? wordHtmlOutputPath;
     private string wordHtmlOutput = string.Empty;
     private bool _wordHtmlMonacoInitialized = false;
+
+    // Word Plugin tab state
+    private bool wordPluginSourceExists;
+    private long wordPluginFileSize;
+    private bool isWordPluginConverting;
+    private List<(string Name, string Status, string Summary, long ElapsedMs)> wordPluginSteps = new();
+    private List<string> wordPluginLog = new();
+    private string? wordPluginError;
+    private string? wordPluginOutputPath;
+    private string wordPluginOutput = string.Empty;
+    private bool _wordPluginMonacoInitialized = false;
 
     private bool IsReadyToConvert
     {
@@ -408,6 +511,10 @@
         {
             await CheckWordHtmlSource();
         }
+        else if (tab == "word-plugin")
+        {
+            await CheckWordPluginSource();
+        }
     }
 
     private async Task CheckWordHtmlSource()
@@ -417,6 +524,16 @@
         if (wordHtmlSourceExists)
         {
             wordHtmlFileSize = new FileInfo(sourcePath).Length;
+        }
+    }
+
+    private async Task CheckWordPluginSource()
+    {
+        var sourcePath = Path.Combine("/app/data/input", Customer, "projects", ProjectId, "source", "word-plugin.html");
+        wordPluginSourceExists = File.Exists(sourcePath);
+        if (wordPluginSourceExists)
+        {
+            wordPluginFileSize = new FileInfo(sourcePath).Length;
         }
     }
 
@@ -481,6 +598,71 @@
         finally
         {
             isWordHtmlConverting = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ConvertWordPlugin()
+    {
+        isWordPluginConverting = true;
+        wordPluginError = null;
+        wordPluginOutputPath = null;
+        wordPluginOutput = string.Empty;
+        _wordPluginMonacoInitialized = false;
+        wordPluginSteps.Clear();
+        wordPluginLog.Clear();
+
+        var stepNames = new[] {
+            "ExtractBase64Images", "WrapInXhtml", "FixSelfClosingTags", "ReplaceHtmlEntities"
+        };
+        wordPluginSteps = stepNames.Select(n => (n, "pending", "", 0L)).ToList();
+        StateHasChanged();
+
+        var inputPath = Path.Combine("/app/data/input", Customer, "projects", ProjectId, "source", "word-plugin.html");
+        var outputPath = Path.Combine("/app/data/input", Customer, "projects", ProjectId, "source", "word-plugin.source.html");
+        var imagesPath = Path.Combine("/app/data/input", Customer, "projects", ProjectId, "images", "from-conversion");
+
+        var progressReporter = new Progress<PreprocessorProgress>(p =>
+        {
+            var idx = p.CurrentStep - 1;
+            if (idx >= 0 && idx < wordPluginSteps.Count)
+            {
+                var current = wordPluginSteps[idx];
+                wordPluginSteps[idx] = (current.Name, p.Status, current.Summary, current.ElapsedMs);
+            }
+            wordPluginLog.Add($"[{DateTime.Now:HH:mm:ss}] Step {p.CurrentStep}: {p.StepName} - {p.Status}");
+            InvokeAsync(StateHasChanged);
+        });
+
+        try
+        {
+            var result = await WordPluginPreprocessor.PreprocessAsync(inputPath, outputPath, imagesPath, writeDebugFiles: true, progressReporter);
+
+            if (result.Success)
+            {
+                for (int i = 0; i < result.StepLogs.Count && i < wordPluginSteps.Count; i++)
+                {
+                    var log = result.StepLogs[i];
+                    wordPluginSteps[i] = (log.StepName, "completed", log.Summary, (long)log.Duration.TotalMilliseconds);
+                }
+                wordPluginOutputPath = "source/word-plugin.source.html";
+                wordPluginOutput = await File.ReadAllTextAsync(outputPath);
+                wordPluginLog.Add($"[{DateTime.Now:HH:mm:ss}] Conversion complete!");
+            }
+            else
+            {
+                wordPluginError = result.ErrorMessage;
+                wordPluginLog.Add($"[{DateTime.Now:HH:mm:ss}] Error: {result.ErrorMessage}");
+            }
+        }
+        catch (Exception ex)
+        {
+            wordPluginError = ex.Message;
+            wordPluginLog.Add($"[{DateTime.Now:HH:mm:ss}] Exception: {ex.Message}");
+        }
+        finally
+        {
+            isWordPluginConverting = false;
             StateHasChanged();
         }
     }
@@ -583,6 +765,19 @@
             catch (Exception ex)
             {
                 Logger.LogError(ex, "Error initializing Word HTML Monaco editor");
+            }
+        }
+
+        if (!string.IsNullOrEmpty(wordPluginOutput) && !_wordPluginMonacoInitialized)
+        {
+            try
+            {
+                await InitializeWordPluginMonacoEditor();
+                _wordPluginMonacoInitialized = true;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error initializing Word Plugin Monaco editor");
             }
         }
     }
@@ -1155,6 +1350,42 @@
         }
     }
 
+    private async Task InitializeWordPluginMonacoEditor()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync(
+                "eval",
+                @"
+                window._createWordPluginEditor = function(content) {
+                    if (typeof monaco !== 'undefined') {
+                        const container = document.getElementById('wordPluginMonacoContainer');
+                        if (container) {
+                            monaco.editor.create(container, {
+                                value: content,
+                                language: 'html',
+                                theme: 'vs-dark',
+                                readOnly: true,
+                                automaticLayout: true,
+                                minimap: { enabled: true },
+                                scrollBeyondLastLine: false,
+                                fontSize: 13,
+                                lineNumbers: 'on',
+                                wordWrap: 'on'
+                            });
+                        }
+                    }
+                };
+                "
+            );
+            await JSRuntime.InvokeVoidAsync("_createWordPluginEditor", wordPluginOutput);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error initializing Word Plugin Monaco editor");
+        }
+    }
+
     private void NavigateToTransform()
     {
         Navigation.NavigateTo("/development");
@@ -1163,6 +1394,11 @@
     private void NavigateToTransformWordHtml()
     {
         Navigation.NavigateTo($"/transform/{Customer}/{ProjectId}?input=source/word-html.source.html");
+    }
+
+    private void NavigateToTransformWordPlugin()
+    {
+        Navigation.NavigateTo($"/transform/{Customer}/{ProjectId}?input=source/word-plugin.source.html");
     }
 
     private string FormatFileSize(long bytes)

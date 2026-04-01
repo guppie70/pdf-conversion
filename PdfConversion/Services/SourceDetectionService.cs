@@ -4,7 +4,7 @@ namespace PdfConversion.Services;
 
 /// <summary>
 /// Implementation of source file detection and XSLT path resolution.
-/// Handles Adobe, Docling, and Word HTML source files, detecting workstream from filename patterns.
+/// Handles Adobe, Docling, Word Plugin, and Word HTML source files, detecting workstream from filename patterns.
 /// </summary>
 public class SourceDetectionService : ISourceDetectionService
 {
@@ -38,6 +38,11 @@ public class SourceDetectionService : ISourceDetectionService
         {
             _logger.LogInformation("Detected Docling workstream from source: {SourceFileName}", fileName);
             return "/app/xslt/docling/transformation.xslt";
+        }
+        else if (lowerFileName.StartsWith("word-plugin"))
+        {
+            _logger.LogInformation("Detected Word Plugin workstream from source: {SourceFileName}", fileName);
+            return "/app/xslt/word-plugin/transformation.xslt";
         }
         else if (lowerFileName.StartsWith("word-html"))
         {
@@ -83,6 +88,12 @@ public class SourceDetectionService : ISourceDetectionService
             }
             _logger.LogDebug("Generated hierarchy name: hierarchy-pdf-xml.xml for normalized: {NormalizedXmlName}", normalizedXmlName);
             return "hierarchy-pdf-xml.xml";
+        }
+
+        if (nameWithoutExtension.StartsWith("word-plugin", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogDebug("Generated hierarchy name: hierarchy-word-plugin.xml for normalized: {NormalizedXmlName}", normalizedXmlName);
+            return "hierarchy-word-plugin.xml";
         }
 
         if (nameWithoutExtension.StartsWith("word-html", StringComparison.OrdinalIgnoreCase))

@@ -107,6 +107,7 @@ builder.Services.AddScoped<IProjectArchiveService, ProjectArchiveService>();
 builder.Services.AddScoped<ISourceDetectionService, SourceDetectionService>();
 builder.Services.AddScoped<IHtmlToXhtmlConversionService, HtmlToXhtmlConversionService>();
 builder.Services.AddScoped<IWordHtmlPreprocessorService, WordHtmlPreprocessorService>();
+builder.Services.AddScoped<IWordPluginPreprocessorService, WordPluginPreprocessorService>();
 
 // Register MetadataSyncService (single instance for both hosted service and injection)
 builder.Services.AddSingleton<IMetadataSyncService, MetadataSyncService>();

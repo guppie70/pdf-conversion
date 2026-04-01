@@ -1296,7 +1296,8 @@
 
             // If HTML source file, convert to XHTML
             if (fileName.EndsWith(".source.html", StringComparison.OrdinalIgnoreCase)
-                    && !fileName.Contains("word-html", StringComparison.OrdinalIgnoreCase))
+                    && !fileName.Contains("word-html", StringComparison.OrdinalIgnoreCase)
+                    && !fileName.Contains("word-plugin", StringComparison.OrdinalIgnoreCase))
             {
                 try
                 {
